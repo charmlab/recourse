@@ -8,12 +8,12 @@ from tqdm import tqdm
 from pprint import pprint
 
 sys.path.insert(0, '_data_main')
-from _data_main.fair_adult_data import *
-from _data_main.fair_compas_data import *
-from _data_main.process_credit_data import *
-from _data_main.process_german_data import *
+# from _data_main.fair_adult_data import *
+# from _data_main.fair_compas_data import *
+# from _data_main.process_credit_data import *
+# from _data_main.process_german_data import *
 from _data_main.process_random_data import *
-from _data_main.process_mortgage_data import *
+# from _data_main.process_mortgage_data import *
 
 VALID_ATTRIBUTE_TYPES = { \
   'numeric-int', \
