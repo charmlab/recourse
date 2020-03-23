@@ -11,19 +11,22 @@ from debug import ipsh
 
 mu_x, sigma_x = 0, 1 # mean and standard deviation for data
 mu_w, sigma_w = 0, 1 # mean and standard deviation for weights
-n = 1000
+n = 10000
 d = 3
 
 w = np.random.normal(mu_w, sigma_w, (d, 1))
-b = 0
+# b = 0 # see below.
 
 def load_random_data(scm_class = 'linear'):
 
+  # scm_class = 'linear'
   scm_class = 'nonlinear'
 
   X = np.random.normal(mu_x, sigma_x, (n, d))
   X = processDataAccordingToGraph(X, scm_class)
   np.random.shuffle(X)
+  # to create a more balanced dataset:
+  b = - np.mean(np.dot(X, w))
   y = (np.sign(np.sign(np.dot(X, w) + b) + 1e-6) + 1) / 2 # add 1e-3 to prevent label 0.5
 
   X_train = X[ : n // 2, :]
@@ -62,8 +65,8 @@ def processDataAccordingToGraph(data, scm_class = 'linear'):
     # U_i ~ \forall ~ i \in [3] \sim \mathcal{N}(0,1)
     data = copy.deepcopy(data)
     data[:,0] = data[:,0]
-    data[:,1] += np.power(data[:,0], 3) + np.ones((n))
-    data[:,2] += (data[:,0] - 1)/4 + np.sqrt(3) * np.sin(data[:,1])
+    data[:,1] += np.power(data[:,0] + 1, 3) + 1 * np.ones((n))
+    data[:,2] += data[:,0] * 2 + np.sqrt(3) * np.sin(data[:,1]) - 1/4
   return data
 
 
