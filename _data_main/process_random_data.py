@@ -19,13 +19,10 @@ w = np.random.normal(mu_w, sigma_w, (d, 1))
 
 def load_random_data(scm_class = 'linear'):
 
-  # scm_class = 'linear'
-  scm_class = 'nonlinear'
-
   X = np.random.normal(mu_x, sigma_x, (n, d))
   X = processDataAccordingToGraph(X, scm_class)
   np.random.shuffle(X)
-  # to create a more balanced dataset:
+  # to create a more balanced dataset, do not set b to 0.
   b = - np.mean(np.dot(X, w))
   y = (np.sign(np.sign(np.dot(X, w) + b) + 1e-6) + 1) / 2 # add 1e-3 to prevent label 0.5
 
@@ -60,8 +57,8 @@ def processDataAccordingToGraph(data, scm_class = 'linear'):
   elif scm_class == 'nonlinear':
     # We assume the model below
     # X_1 := U_1 \\
-    # X_2 := X_1 ** 3 + 1 + U_2 \\
-    # X_3 := (X_1 - 1) / 4 + np.sqrt{3} * sin(X_2) + U_3
+    # X_2 := (X_1 + 1) ** 3 + 1 + U_2 \\
+    # X_3 := 2 * X_1 + np.sqrt{3} * sin(X_2) - 1/4 + U_3
     # U_i ~ \forall ~ i \in [3] \sim \mathcal{N}(0,1)
     data = copy.deepcopy(data)
     data[:,0] = data[:,0]
