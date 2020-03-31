@@ -1,3 +1,4 @@
+import pickle
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot
@@ -15,6 +16,8 @@ from random import seed
 RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
+
+SAVED_MACE_RESULTS_PATH = '/Users/a6karimi/dev/recourse/_minimum_distances'
 
 def loadDataset():
   dataset_obj = loadData.loadDataset('random', return_one_hot = False, load_from_cache = False)
@@ -153,38 +156,6 @@ def computeCounterfactual(factual_instance, action_set, scm_type):
   return counterfactual_instance
 
 
-# def scatter3counterfactuals(factual_instance, action_set, ax):
-
-#   fc = factual_instance
-#   m0 = computeCounterfactual(factual_instance, action_set, 'true')
-#   m1 = computeCounterfactual(factual_instance, action_set, 'approx')
-
-#   ax.scatter(fc['x1'], fc['x2'], fc['x3'], marker='o', color='gray', s=100)
-#   ax.scatter(m0['x1'], m0['x2'], m0['x3'], marker='o', color='green', s=100)
-#   ax.scatter(m1['x1'], m1['x2'], m1['x3'], marker='s', color='red', s=100)
-#   list_m2 = []
-#   for idx in range(100):
-#     m2 = getRandomM2Sample(factual_instance, action_set)
-#     list_m2.append(m2)
-#     ax.scatter(m2['x1'], m2['x2'], m2['x3'], marker = '^', color='blue', alpha=0.1)
-#   list_m2_x1 = [elem['x1'] for elem in list_m2]
-#   list_m2_x2 = [elem['x2'] for elem in list_m2]
-#   list_m2_x3 = [elem['x3'] for elem in list_m2]
-
-#   ax.scatter(np.mean(list_m2_x1), np.mean(list_m2_x2), np.mean(list_m2_x3), marker = 'o', color='blue', alpha=0.5, s=100)
-#   ax.scatter(np.median(list_m2_x1), np.median(list_m2_x2), np.median(list_m2_x3), marker = 's', color='blue', alpha=0.5, s=100)
-
-#   ax.set_xlabel('x1')
-#   ax.set_ylabel('x2')
-#   ax.set_zlabel('x3')
-#   ax.set_title(f'do({action_set})')
-#   ax.view_init(elev=15, azim=10)
-
-#   # for angle in range(0, 360):
-#   #   ax.view_init(30, angle)
-#   #   pyplot.draw()
-#   #   pyplot.pause(.001)
-
 def scatterFactual(factual_instance, ax):
   fc = factual_instance
   ax.scatter(fc['x1'], fc['x2'], fc['x3'], marker='o', color='gray', s=100)
@@ -288,7 +259,7 @@ def experiment2(X_train, X_test, y_train, y_test):
       ax.set_xlabel('x1')
       ax.set_ylabel('x2')
       ax.set_zlabel('x3')
-      ax.set_title(f'sample_{factual_instance_idx} \t do({action_set})')
+      ax.set_title(f'sample_{factual_instance_idx} \n do({prettyPrintActionSet(action_set)})')
       ax.view_init(elev=15, azim=10)
 
       # for angle in range(0, 360):
@@ -299,10 +270,44 @@ def experiment2(X_train, X_test, y_train, y_test):
   pyplot.show()
 
 
+def incrementIndices(tmp_dict):
+  new_dict = {}
+  for key, value in tmp_dict.items():
+    # TODO: only works for single digit x variables; use find
+    new_dict['x' + str(int(key[-1]) + 1)] = value
+  return new_dict
+
+def prettyPrintActionSet(action_set):
+  for key, value in action_set.items():
+    action_set[key] = np.around(value, 4)
+  return action_set
+
+
 def experiment3(X_train, X_test, y_train, y_test):
   ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
 
-  factual_instances_dict = X_test.iloc[:3].T.to_dict()
+  mace_results = pickle.load(open(SAVED_MACE_RESULTS_PATH, 'rb'))
+
+  # for
+
+  # for factual_instance_idx, mace_result in mace_results:
+
+  # factual_instances_df = X_test.iloc[:3].copy()
+  # factual_instances_df['m0_action_set'] = 0 # default values
+  # factual_instances_df['m1_action_set'] = 0 # default values
+  # factual_instances_df['m2_action_set'] = 0 # default values
+
+  # for factual_instance_idx in factual_instances_df.index:
+  #   factual_instance_idx_string = f'sample_{factual_instance_idx}'
+  #   tmp = mace_results[factual_instance_idx_string]
+  #   factual_instances_df.loc[factual_instance_idx]['m0_action_set'] = incrementIndices(mace_results[factual_instance_idx_string]['action_set'])
+  #   factual_instances_df.loc[factual_instance_idx]['m1_action_set'] = incrementIndices(mace_results[factual_instance_idx_string]['action_set'])
+  #   factual_instances_df.loc[factual_instance_idx]['m2_action_set'] = incrementIndices(mace_results[factual_instance_idx_string]['action_set'])
+
+  # ipsh()
+
+  factual_instances_df = X_test.iloc[:9].copy()
+  factual_instances_dict = factual_instances_df.T.to_dict()
   action_sets = { # TODO: populate from saved minimum_distances file?
     'optimal_M0': {'x1': 1}, \
     'optimal_M1': {'x2': 1}, \
@@ -314,23 +319,27 @@ def experiment3(X_train, X_test, y_train, y_test):
   for index, (key, value) in enumerate(factual_instances_dict.items()):
     idx_sample = index
     factual_instance_idx = key
+    factual_instance_idx_mace = f'sample_{factual_instance_idx}'
     factual_instance = value
+    assert factual_instance_idx_mace in mace_results.keys(), f'missing results for `{factual_instance_idx_mace}` in mace_results.'
     # for idx_action, action_set in enumerate(action_sets):
     ax = pyplot.subplot(
-      len(factual_instances_dict),
-      1,
+      len(factual_instances_dict) // 3 + int(not(len(factual_instances_dict) % 3 == 0)),
+      3,
       idx_sample + 1,
       projection = '3d')
     scatterFactual(factual_instance, ax)
-    scatterCounterfactualsOfType('m0', factual_instance, action_sets['optimal_M0'], ax)
-    scatterCounterfactualsOfType('m1', factual_instance, action_sets['optimal_M1'], ax)
-    scatterCounterfactualsOfType('m2', factual_instance, action_sets['optimal_M2'], ax)
+    m0_action_set = incrementIndices(mace_results[factual_instance_idx_mace]['action_set'])
+    scatterCounterfactualsOfType('m0', factual_instance, m0_action_set, ax)
+    # scatterCounterfactualsOfType('m0', factual_instance, action_sets['optimal_M0'], ax)
+    # scatterCounterfactualsOfType('m1', factual_instance, action_sets['optimal_M1'], ax)
+    # scatterCounterfactualsOfType('m2', factual_instance, action_sets['optimal_M2'], ax)
     scatterDecisionBoundary(ax)
     ax.set_xlabel('x1')
     ax.set_ylabel('x2')
     ax.set_zlabel('x3')
-    ax.set_title(f'sample_{factual_instance_idx}')
-    ax.view_init(elev=15, azim=10)
+    ax.set_title(f'sample_{factual_instance_idx} \n m0 action set: do({prettyPrintActionSet(m0_action_set)})')
+    ax.view_init(elev=30, azim=-10)
 
     # for angle in range(0, 360):
     #   ax.view_init(30, angle)
@@ -382,7 +391,7 @@ if __name__ == "__main__":
   X_train, X_test, y_train, y_test = loadDataset()
 
   ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
-  experiment1(X_train, X_test, y_train, y_test)
+  # experiment1(X_train, X_test, y_train, y_test)
   ''' compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets '''
   # experiment2(X_train, X_test, y_train, y_test)
   ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
