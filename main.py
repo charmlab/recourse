@@ -37,6 +37,20 @@ def loadDataset():
   return X_train, X_test, y_train, y_test
 
 
+def incrementIndices(tmp_dict):
+  new_dict = {}
+  for key, value in tmp_dict.items():
+    # TODO: only works for single digit x variables; use find
+    new_dict['x' + str(int(key[-1]) + 1)] = value
+  return new_dict
+
+
+def prettyPrintActionSet(action_set):
+  for key, value in action_set.items():
+    action_set[key] = np.around(value, 4)
+  return action_set
+
+
 # TODO: should have a class of defining SCM with this as a method
 def getStructuralEquation(variable_index, scm_type):
 
@@ -207,6 +221,17 @@ def scatterDecisionBoundary(ax):
   surf = ax.plot_wireframe(X, Y, Z, alpha=0.3)
 
 
+def scatterDataset(X_train, X_test, y_train, y_test, ax):
+  X_train_numpy = X_train.to_numpy()
+  X_test_numpy = X_test.to_numpy()
+  number_of_samples_to_plot = 100
+  for idx in range(number_of_samples_to_plot):
+    color_train = 'blue' if y_train.to_numpy()[idx] == 1 else 'green'
+    color_test = 'blue' if y_test.to_numpy()[idx] == 1 else 'green'
+    ax.scatter(X_train_numpy[idx, 0], X_train_numpy[idx, 1], X_train_numpy[idx, 2], marker='s', color=color_train, alpha=0.2, s=10)
+    ax.scatter(X_test_numpy[idx, 0], X_test_numpy[idx, 1], X_test_numpy[idx, 2], marker='o', color=color_test, alpha=0.2, s=15)
+
+
 def experiment1(X_train, X_test, y_train, y_test):
   ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
   factual_instance = X_test.iloc[0].T.to_dict()
@@ -268,19 +293,6 @@ def experiment2(X_train, X_test, y_train, y_test):
   pyplot.show()
 
 
-def incrementIndices(tmp_dict):
-  new_dict = {}
-  for key, value in tmp_dict.items():
-    # TODO: only works for single digit x variables; use find
-    new_dict['x' + str(int(key[-1]) + 1)] = value
-  return new_dict
-
-def prettyPrintActionSet(action_set):
-  for key, value in action_set.items():
-    action_set[key] = np.around(value, 4)
-  return action_set
-
-
 def experiment3(X_train, X_test, y_train, y_test):
   ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
 
@@ -326,6 +338,7 @@ def experiment3(X_train, X_test, y_train, y_test):
       3,
       idx_sample + 1,
       projection = '3d')
+    # scatterDataset(X_train, X_test, y_train, y_test, ax)
     scatterFactual(factual_instance, ax)
     m0_action_set = incrementIndices(mace_results[factual_instance_idx_mace]['action_set'])
     scatterCounterfactualsOfType('m0', factual_instance, m0_action_set, ax)
@@ -348,19 +361,11 @@ def experiment3(X_train, X_test, y_train, y_test):
 
 
 def visualizeDatasetAndFixedModel(X_train, X_test, y_train, y_test):
-  X_train_numpy = X_train.to_numpy()
-  X_test_numpy = X_test.to_numpy()
-  number_of_samples_to_plot = 100
 
   fig = pyplot.figure()
-  ax = pyplot.subplot(1,1,1, projection='3d')
+  ax = pyplot.subplot(1, 1, 1, projection='3d')
 
-  for idx in range(number_of_samples_to_plot):
-    color_train = 'blue' if y_train.to_numpy()[idx] == 1 else 'green'
-    color_test = 'blue' if y_test.to_numpy()[idx] == 1 else 'green'
-    ax.scatter(X_train_numpy[idx, 0], X_train_numpy[idx, 1], X_train_numpy[idx, 2], marker='s', color=color_train, alpha=0.2, s=10)
-    ax.scatter(X_test_numpy[idx, 0], X_test_numpy[idx, 1], X_test_numpy[idx, 2], marker='o', color=color_test, alpha=0.2, s=15)
-
+  scatterDataset(X_train, X_test, y_train, y_test, ax)
   scatterDecisionBoundary(ax)
 
   ax.set_xlabel('x1')
