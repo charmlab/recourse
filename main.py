@@ -3,6 +3,7 @@ import pandas as pd
 from matplotlib import pyplot
 
 import loadData
+import loadModel
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KernelDensity
 
@@ -32,10 +33,12 @@ def loadDataset():
 
   return X_train, X_test, y_train, y_test
 
+
 def loadRandomFactualInstance(X_train):
   # choose a random element
   # return X_train.iloc[0].round(decimals=4).to_dict()
   return X_train.iloc[np.random.randint(0,10)].to_dict()
+
 
 # TODO: should have a class of defining SCM with this as a method
 def getStructuralEquation(variable_index, scm_type):
@@ -76,7 +79,6 @@ def getParents(node):
     return {'x1'}
   elif node == 'x3':
     return {'x1', 'x2'}
-
 
 
 def getRandomM2Sample(factual_instance, action_set):
@@ -182,6 +184,7 @@ def scatter3counterfactuals(factual_instance, action_set, ax):
   ax.set_ylabel('x2')
   ax.set_zlabel('x3')
   ax.set_title(f'do({action_set})')
+  ax.view_init(elev=15, azim=10)
 
   # for angle in range(0, 360):
   #   ax.view_init(30, angle)
@@ -189,10 +192,27 @@ def scatter3counterfactuals(factual_instance, action_set, ax):
   #   pyplot.pause(.001)
 
 
-if __name__ == "__main__":
-  X_train, X_test, y_train, y_test = loadDataset()
-  factual_instance = loadRandomFactualInstance(X_train)
+def scatterDecisionBoundary(ax):
+  prev_xlim = ax.get_xlim()
+  prev_ylim = ax.get_ylim()
+  prev_zlim = ax.get_zlim()
 
+  sklearn_model = loadModel.loadModelForDataset('lr', 'random')
+  ipsh()
+  fixed_model_w = sklearn_model.coef_
+  fixed_model_b = sklearn_model.intercept_
+
+  X = np.linspace(prev_xlim[0], prev_xlim[1], 10)
+  Y = np.linspace(prev_ylim[0], prev_ylim[1], 10)
+  X, Y = np.meshgrid(X, Y)
+  Z = - (fixed_model_w[0][0] * X + fixed_model_w[0][1] * Y + fixed_model_b) / fixed_model_w[0][2]
+
+  surf = ax.plot_wireframe(X, Y, Z, alpha=0.5)
+
+
+def experiment1(X_train, X_test, y_train, y_test):
+  ''' compare M0, M1, M2 on one factual sample and one action set '''
+  factual_instance = loadRandomFactualInstance(X_train)
 
   # iterative over a number of action sets and compare the three counterfactuals
   action_set = {'x1': -3}
@@ -209,13 +229,12 @@ if __name__ == "__main__":
   print(f'M1 structural counterfactual: \t{approx_counterfactual_instance}')
   print(f'M2 cate counterfactual: \t{cate_counterfactual_instance}')
 
+
+def experiment2(X_train, X_test, y_train, y_test):
+  ''' compare M0, M1, M2 on three factual sample and one action set '''
   fig = pyplot.figure()
 
-  factual_instances = [ \
-    factual_instance, \
-    loadRandomFactualInstance(X_train), \
-    loadRandomFactualInstance(X_train), \
-  ]
+  factual_instances = [loadRandomFactualInstance(X_train) for i in range(1)]
   action_sets = [ \
     {'x1': 1}, \
     {'x2': 1}, \
@@ -229,21 +248,66 @@ if __name__ == "__main__":
         idx_sample * len(action_sets) + idx_action + 1,
         projection = '3d')
       scatter3counterfactuals(factual_instance, action_set, ax)
+      scatterDecisionBoundary(ax)
 
   pyplot.show()
 
-  # # fig, axs = plt.subplots(4,3, projection)
-  #   ax = fig.add_subplot(111, projection='3d')
-  #   pyplot.show()
-  # scatter3counterfactuals(factual_instance, action_set)
+
+def experiment3(X_train, X_test, y_train, y_test):
+  ipsh()
+  for idx in range(3):
+    factual_instance = X_test.iloc[idx].to_dict()
+     # TODO: compute
+
+
+def visualizeDatasetAndFixedModel(X_train, X_test, y_train, y_test):
+  X_train_numpy = X_train.to_numpy()
+  X_test_numpy = X_test.to_numpy()
+  number_of_samples_to_plot = 100
+
+  fig = pyplot.figure()
+  ax = pyplot.subplot(1,1,1, projection='3d')
+
+  for idx in range(number_of_samples_to_plot):
+    color_train = 'blue' if y_train.to_numpy()[idx] == 1 else 'green'
+    color_test = 'blue' if y_test.to_numpy()[idx] == 1 else 'green'
+    ax.scatter(X_train_numpy[idx, 0], X_train_numpy[idx, 1], X_train_numpy[idx, 2], marker='s', color=color_train, alpha=0.2, s=10)
+    ax.scatter(X_test_numpy[idx, 0], X_test_numpy[idx, 1], X_test_numpy[idx, 2], marker='o', color=color_test, alpha=0.2, s=15)
+
+  sklearn_model = loadModel.loadModelForDataset('lr', 'random')
+  fixed_model_w = sklearn_model.coef_
+  fixed_model_b = sklearn_model.intercept_
+
+  X = np.linspace(ax.get_xlim()[0], ax.get_xlim()[1], 10)
+  Y = np.linspace(ax.get_ylim()[0], ax.get_ylim()[1], 10)
+  X, Y = np.meshgrid(X, Y)
+  Z = - (fixed_model_w[0][0] * X + fixed_model_w[0][1] * Y + fixed_model_b) / fixed_model_w[0][2]
+
+  surf = ax.plot_wireframe(X, Y, Z, alpha=0.5)
+
+  ax.set_xlabel('x1')
+  # ax.set_xlim(())
+  ax.set_ylabel('x2')
+  # ax.set_ylim(())
+  ax.set_zlabel('x3')
+  ax.set_zlim((-5,5))
+  ax.set_title(f'datatset')
+  # ax.legend()
+  ax.grid(True)
+
+  pyplot.show()
 
 
 
-  # computeExpectation(pd.concat([X_train, X_test]), {}, {}, {})
-  # getJoint(X_train)
 
+if __name__ == "__main__":
 
+  # only load once so shuffling order is the same
+  X_train, X_test, y_train, y_test = loadDataset()
 
+  experiment1(X_train, X_test, y_train, y_test)
+  experiment2(X_train, X_test, y_train, y_test)
+  # visualizeDatasetAndFixedModel(X_train, X_test, y_train, y_test)
 
 
 
