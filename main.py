@@ -34,12 +34,6 @@ def loadDataset():
   return X_train, X_test, y_train, y_test
 
 
-def loadRandomFactualInstance(X_train):
-  # choose a random element
-  # return X_train.iloc[0].round(decimals=4).to_dict()
-  return X_train.iloc[np.random.randint(0,10)].to_dict()
-
-
 # TODO: should have a class of defining SCM with this as a method
 def getStructuralEquation(variable_index, scm_type):
 
@@ -159,37 +153,72 @@ def computeCounterfactual(factual_instance, action_set, scm_type):
   return counterfactual_instance
 
 
-def scatter3counterfactuals(factual_instance, action_set, ax):
+# def scatter3counterfactuals(factual_instance, action_set, ax):
 
+#   fc = factual_instance
+#   m0 = computeCounterfactual(factual_instance, action_set, 'true')
+#   m1 = computeCounterfactual(factual_instance, action_set, 'approx')
+
+#   ax.scatter(fc['x1'], fc['x2'], fc['x3'], marker='o', color='gray', s=100)
+#   ax.scatter(m0['x1'], m0['x2'], m0['x3'], marker='o', color='green', s=100)
+#   ax.scatter(m1['x1'], m1['x2'], m1['x3'], marker='s', color='red', s=100)
+#   list_m2 = []
+#   for idx in range(100):
+#     m2 = getRandomM2Sample(factual_instance, action_set)
+#     list_m2.append(m2)
+#     ax.scatter(m2['x1'], m2['x2'], m2['x3'], marker = '^', color='blue', alpha=0.1)
+#   list_m2_x1 = [elem['x1'] for elem in list_m2]
+#   list_m2_x2 = [elem['x2'] for elem in list_m2]
+#   list_m2_x3 = [elem['x3'] for elem in list_m2]
+
+#   ax.scatter(np.mean(list_m2_x1), np.mean(list_m2_x2), np.mean(list_m2_x3), marker = 'o', color='blue', alpha=0.5, s=100)
+#   ax.scatter(np.median(list_m2_x1), np.median(list_m2_x2), np.median(list_m2_x3), marker = 's', color='blue', alpha=0.5, s=100)
+
+#   ax.set_xlabel('x1')
+#   ax.set_ylabel('x2')
+#   ax.set_zlabel('x3')
+#   ax.set_title(f'do({action_set})')
+#   ax.view_init(elev=15, azim=10)
+
+#   # for angle in range(0, 360):
+#   #   ax.view_init(30, angle)
+#   #   pyplot.draw()
+#   #   pyplot.pause(.001)
+
+def scatterFactual(factual_instance, ax):
   fc = factual_instance
-  m0 = computeCounterfactual(factual_instance, action_set, 'true')
-  m1 = computeCounterfactual(factual_instance, action_set, 'approx')
-
   ax.scatter(fc['x1'], fc['x2'], fc['x3'], marker='o', color='gray', s=100)
-  ax.scatter(m0['x1'], m0['x2'], m0['x3'], marker='o', color='green', s=100)
-  ax.scatter(m1['x1'], m1['x2'], m1['x3'], marker='s', color='red', s=100)
-  list_m2 = []
-  for idx in range(100):
-    m2 = getRandomM2Sample(factual_instance, action_set)
-    list_m2.append(m2)
-    ax.scatter(m2['x1'], m2['x2'], m2['x3'], marker = '^', color='blue', alpha=0.1)
-  list_m2_x1 = [elem['x1'] for elem in list_m2]
-  list_m2_x2 = [elem['x2'] for elem in list_m2]
-  list_m2_x3 = [elem['x3'] for elem in list_m2]
 
-  ax.scatter(np.mean(list_m2_x1), np.mean(list_m2_x2), np.mean(list_m2_x3), marker = 'o', color='blue', alpha=0.5, s=100)
-  ax.scatter(np.median(list_m2_x1), np.median(list_m2_x2), np.median(list_m2_x3), marker = 's', color='blue', alpha=0.5, s=100)
 
-  ax.set_xlabel('x1')
-  ax.set_ylabel('x2')
-  ax.set_zlabel('x3')
-  ax.set_title(f'do({action_set})')
-  ax.view_init(elev=15, azim=10)
+def scatterCounterfactualsOfType(counterfactual_type, factual_instance, action_set, ax):
 
-  # for angle in range(0, 360):
-  #   ax.view_init(30, angle)
-  #   pyplot.draw()
-  #   pyplot.pause(.001)
+  if counterfactual_type == 'm0':
+
+    m0 = computeCounterfactual(factual_instance, action_set, 'true')
+    ax.scatter(m0['x1'], m0['x2'], m0['x3'], marker='o', color='green', s=100)
+
+  elif counterfactual_type == 'm1':
+
+    m1 = computeCounterfactual(factual_instance, action_set, 'approx')
+    ax.scatter(m1['x1'], m1['x2'], m1['x3'], marker='s', color='red', s=100)
+
+  elif counterfactual_type == 'm2':
+    list_m2 = []
+
+    for idx in range(100):
+      m2 = getRandomM2Sample(factual_instance, action_set)
+      list_m2.append(m2)
+      ax.scatter(m2['x1'], m2['x2'], m2['x3'], marker = '^', color='blue', alpha=0.1)
+    list_m2_x1 = [elem['x1'] for elem in list_m2]
+    list_m2_x2 = [elem['x2'] for elem in list_m2]
+    list_m2_x3 = [elem['x3'] for elem in list_m2]
+
+    ax.scatter(np.mean(list_m2_x1), np.mean(list_m2_x2), np.mean(list_m2_x3), marker = 'o', color='blue', alpha=0.5, s=100)
+    ax.scatter(np.median(list_m2_x1), np.median(list_m2_x2), np.median(list_m2_x3), marker = 's', color='blue', alpha=0.5, s=100)
+
+  else:
+
+    raise Exception(f'{counterfactual_type} not recognized.')
 
 
 def scatterDecisionBoundary(ax):
@@ -198,7 +227,6 @@ def scatterDecisionBoundary(ax):
   prev_zlim = ax.get_zlim()
 
   sklearn_model = loadModel.loadModelForDataset('lr', 'random')
-  ipsh()
   fixed_model_w = sklearn_model.coef_
   fixed_model_b = sklearn_model.intercept_
 
@@ -211,8 +239,8 @@ def scatterDecisionBoundary(ax):
 
 
 def experiment1(X_train, X_test, y_train, y_test):
-  ''' compare M0, M1, M2 on one factual sample and one action set '''
-  factual_instance = loadRandomFactualInstance(X_train)
+  ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
+  factual_instance = X_test.iloc[0].T.to_dict()
 
   # iterative over a number of action sets and compare the three counterfactuals
   action_set = {'x1': -3}
@@ -231,33 +259,85 @@ def experiment1(X_train, X_test, y_train, y_test):
 
 
 def experiment2(X_train, X_test, y_train, y_test):
-  ''' compare M0, M1, M2 on three factual sample and one action set '''
-  fig = pyplot.figure()
+  ''' compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets '''
 
-  factual_instances = [loadRandomFactualInstance(X_train) for i in range(1)]
+  factual_instances_dict = X_test.iloc[:3].T.to_dict()
   action_sets = [ \
     {'x1': 1}, \
     {'x2': 1}, \
     {'x3': 1}, \
   ]
-  for idx_sample, factual_instance in enumerate(factual_instances):
+
+  fig = pyplot.figure()
+
+  for index, (key, value) in enumerate(factual_instances_dict.items()):
+    idx_sample = index
+    factual_instance_idx = key
+    factual_instance = value
     for idx_action, action_set in enumerate(action_sets):
       ax = pyplot.subplot(
-        len(factual_instances),
+        len(factual_instances_dict),
         len(action_sets),
         idx_sample * len(action_sets) + idx_action + 1,
         projection = '3d')
-      scatter3counterfactuals(factual_instance, action_set, ax)
+      scatterFactual(factual_instance, ax)
+      scatterCounterfactualsOfType('m0', factual_instance, action_set, ax)
+      scatterCounterfactualsOfType('m1', factual_instance, action_set, ax)
+      scatterCounterfactualsOfType('m2', factual_instance, action_set, ax)
       scatterDecisionBoundary(ax)
+      ax.set_xlabel('x1')
+      ax.set_ylabel('x2')
+      ax.set_zlabel('x3')
+      ax.set_title(f'sample_{factual_instance_idx} \t do({action_set})')
+      ax.view_init(elev=15, azim=10)
+
+      # for angle in range(0, 360):
+      #   ax.view_init(30, angle)
+      #   pyplot.draw()
+      #   pyplot.pause(.001)
 
   pyplot.show()
 
 
 def experiment3(X_train, X_test, y_train, y_test):
-  ipsh()
-  for idx in range(3):
-    factual_instance = X_test.iloc[idx].to_dict()
-     # TODO: compute
+  ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
+
+  factual_instances_dict = X_test.iloc[:3].T.to_dict()
+  action_sets = { # TODO: populate from saved minimum_distances file?
+    'optimal_M0': {'x1': 1}, \
+    'optimal_M1': {'x2': 1}, \
+    'optimal_M2': {'x3': 1}, \
+  }
+
+  fig = pyplot.figure()
+
+  for index, (key, value) in enumerate(factual_instances_dict.items()):
+    idx_sample = index
+    factual_instance_idx = key
+    factual_instance = value
+    # for idx_action, action_set in enumerate(action_sets):
+    ax = pyplot.subplot(
+      len(factual_instances_dict),
+      1,
+      idx_sample + 1,
+      projection = '3d')
+    scatterFactual(factual_instance, ax)
+    scatterCounterfactualsOfType('m0', factual_instance, action_sets['optimal_M0'], ax)
+    scatterCounterfactualsOfType('m1', factual_instance, action_sets['optimal_M1'], ax)
+    scatterCounterfactualsOfType('m2', factual_instance, action_sets['optimal_M2'], ax)
+    scatterDecisionBoundary(ax)
+    ax.set_xlabel('x1')
+    ax.set_ylabel('x2')
+    ax.set_zlabel('x3')
+    ax.set_title(f'sample_{factual_instance_idx}')
+    ax.view_init(elev=15, azim=10)
+
+    # for angle in range(0, 360):
+    #   ax.view_init(30, angle)
+    #   pyplot.draw()
+    #   pyplot.pause(.001)
+
+  pyplot.show()
 
 
 def visualizeDatasetAndFixedModel(X_train, X_test, y_train, y_test):
@@ -286,11 +366,8 @@ def visualizeDatasetAndFixedModel(X_train, X_test, y_train, y_test):
   surf = ax.plot_wireframe(X, Y, Z, alpha=0.5)
 
   ax.set_xlabel('x1')
-  # ax.set_xlim(())
   ax.set_ylabel('x2')
-  # ax.set_ylim(())
   ax.set_zlabel('x3')
-  ax.set_zlim((-5,5))
   ax.set_title(f'datatset')
   # ax.legend()
   ax.grid(True)
@@ -299,14 +376,19 @@ def visualizeDatasetAndFixedModel(X_train, X_test, y_train, y_test):
 
 
 
-
 if __name__ == "__main__":
 
   # only load once so shuffling order is the same
   X_train, X_test, y_train, y_test = loadDataset()
 
+  ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
   experiment1(X_train, X_test, y_train, y_test)
-  experiment2(X_train, X_test, y_train, y_test)
+  ''' compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets '''
+  # experiment2(X_train, X_test, y_train, y_test)
+  ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
+  experiment3(X_train, X_test, y_train, y_test)
+
+  # sanity check
   # visualizeDatasetAndFixedModel(X_train, X_test, y_train, y_test)
 
 
