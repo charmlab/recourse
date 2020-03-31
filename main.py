@@ -45,9 +45,9 @@ def getStructuralEquation(variable_index, scm_type):
     if variable_index == 'x1':
       return lambda n1: n1
     elif variable_index == 'x2':
-      return lambda x1, n2: (x1 + 1) ** 3 + 1 + n2
+      return lambda x1, n2: x1 + 1 + n2
     elif variable_index == 'x3':
-      return lambda x1, x2, n3: x1 * 2 + np.sqrt(3) * np.sin(x2) - 1 / 4 + n3
+      return lambda x1, x2, n3: np.sqrt(3) * x1 * x2 * x2 + n3
 
   elif scm_type == 'approx':
 
@@ -193,20 +193,18 @@ def scatterCounterfactualsOfType(counterfactual_type, factual_instance, action_s
 
 
 def scatterDecisionBoundary(ax):
-  prev_xlim = ax.get_xlim()
-  prev_ylim = ax.get_ylim()
-  prev_zlim = ax.get_zlim()
-
   sklearn_model = loadModel.loadModelForDataset('lr', 'random')
   fixed_model_w = sklearn_model.coef_
   fixed_model_b = sklearn_model.intercept_
 
-  X = np.linspace(prev_xlim[0], prev_xlim[1], 10)
-  Y = np.linspace(prev_ylim[0], prev_ylim[1], 10)
+  x_range = ax.get_xlim()[1] - ax.get_xlim()[0]
+  y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
+  X = np.linspace(ax.get_xlim()[0] - x_range / 10, ax.get_xlim()[1] + x_range / 10, 10)
+  Y = np.linspace(ax.get_ylim()[0] - y_range / 10, ax.get_ylim()[1] + y_range / 10, 10)
   X, Y = np.meshgrid(X, Y)
   Z = - (fixed_model_w[0][0] * X + fixed_model_w[0][1] * Y + fixed_model_b) / fixed_model_w[0][2]
 
-  surf = ax.plot_wireframe(X, Y, Z, alpha=0.5)
+  surf = ax.plot_wireframe(X, Y, Z, alpha=0.3)
 
 
 def experiment1(X_train, X_test, y_train, y_test):
@@ -363,16 +361,7 @@ def visualizeDatasetAndFixedModel(X_train, X_test, y_train, y_test):
     ax.scatter(X_train_numpy[idx, 0], X_train_numpy[idx, 1], X_train_numpy[idx, 2], marker='s', color=color_train, alpha=0.2, s=10)
     ax.scatter(X_test_numpy[idx, 0], X_test_numpy[idx, 1], X_test_numpy[idx, 2], marker='o', color=color_test, alpha=0.2, s=15)
 
-  sklearn_model = loadModel.loadModelForDataset('lr', 'random')
-  fixed_model_w = sklearn_model.coef_
-  fixed_model_b = sklearn_model.intercept_
-
-  X = np.linspace(ax.get_xlim()[0], ax.get_xlim()[1], 10)
-  Y = np.linspace(ax.get_ylim()[0], ax.get_ylim()[1], 10)
-  X, Y = np.meshgrid(X, Y)
-  Z = - (fixed_model_w[0][0] * X + fixed_model_w[0][1] * Y + fixed_model_b) / fixed_model_w[0][2]
-
-  surf = ax.plot_wireframe(X, Y, Z, alpha=0.5)
+  scatterDecisionBoundary(ax)
 
   ax.set_xlabel('x1')
   ax.set_ylabel('x2')
