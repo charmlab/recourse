@@ -17,7 +17,8 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
-SAVED_MACE_RESULTS_PATH = '/Users/a6karimi/dev/recourse/_minimum_distances'
+SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
+SAVED_MACE_RESULTS_PATH_M1 = '/Users/a6karimi/dev/recourse/_minimum_distances_m1'
 
 def loadDataset():
   dataset_obj = loadData.loadDataset('random', return_one_hot = False, load_from_cache = False)
@@ -68,9 +69,9 @@ def getStructuralEquation(variable_index, scm_type):
     if variable_index == 'x1':
       return lambda n1: n1
     elif variable_index == 'x2':
-      return lambda x1, n2: 7.43 * x1 + 4.88 + n2
+      return lambda x1, n2: 1 * x1 + 1 + n2
     elif variable_index == 'x3':
-      return lambda x1, x2, n3: 1.6 * x1 + 0.015 * x2 - 0.01 + n3
+      return lambda x1, x2, n3: 5.5 * x1 + 3.5 * x2 - 0.1 + n3
 
 
 # TODO: write recursively?
@@ -172,7 +173,14 @@ def computeCounterfactual(factual_instance, action_set, scm_type):
 
 def scatterFactual(factual_instance, ax):
   fc = factual_instance
-  ax.scatter(fc['x1'], fc['x2'], fc['x3'], marker='o', color='gray', s=100)
+  ax.scatter(fc['x1'], fc['x2'], fc['x3'], marker='P', color='black', s=70)
+
+
+def didFlip(factual_instance, counterfactual_instance):
+  sklearn_model = loadModel.loadModelForDataset('lr', 'random')
+  factual_prediction = sklearn_model.predict(np.array(list(factual_instance.values())).reshape(1,-1))
+  counterfactual_prediction = sklearn_model.predict(np.array(list(counterfactual_instance.values())).reshape(1,-1))
+  return factual_prediction != counterfactual_prediction
 
 
 def scatterCounterfactualsOfType(counterfactual_type, factual_instance, action_set, ax):
@@ -180,12 +188,16 @@ def scatterCounterfactualsOfType(counterfactual_type, factual_instance, action_s
   if counterfactual_type == 'm0':
 
     m0 = computeCounterfactual(factual_instance, action_set, 'true')
-    ax.scatter(m0['x1'], m0['x2'], m0['x3'], marker='o', color='green', s=100)
+    color_string = 'green' if didFlip(factual_instance, m0) else 'red'
+    ax.scatter(m0['x1'], m0['x2'], m0['x3'], marker='o', color=color_string, s=70)
 
   elif counterfactual_type == 'm1':
 
-    m1 = computeCounterfactual(factual_instance, action_set, 'approx')
-    ax.scatter(m1['x1'], m1['x2'], m1['x3'], marker='s', color='red', s=100)
+    # TODO: do something better here... should not have to manually handle this!
+    # m1 = computeCounterfactual(factual_instance, action_set, 'approx')
+    m1 = computeCounterfactual(factual_instance, action_set, 'true')
+    color_string = 'green' if didFlip(factual_instance, m1) else 'red'
+    ax.scatter(m1['x1'], m1['x2'], m1['x3'], marker='s', color=color_string, s=70)
 
   elif counterfactual_type == 'm2':
     list_m2 = []
@@ -193,13 +205,17 @@ def scatterCounterfactualsOfType(counterfactual_type, factual_instance, action_s
     for idx in range(100):
       m2 = getRandomM2Sample(factual_instance, action_set)
       list_m2.append(m2)
-      ax.scatter(m2['x1'], m2['x2'], m2['x3'], marker = '^', color='blue', alpha=0.1)
+      color_string = 'green' if didFlip(factual_instance, m2) else 'red'
+      ax.scatter(m2['x1'], m2['x2'], m2['x3'], marker = '^', color=color_string, alpha=0.1, s=40)
+
     list_m2_x1 = [elem['x1'] for elem in list_m2]
     list_m2_x2 = [elem['x2'] for elem in list_m2]
     list_m2_x3 = [elem['x3'] for elem in list_m2]
 
-    ax.scatter(np.mean(list_m2_x1), np.mean(list_m2_x2), np.mean(list_m2_x3), marker = 'o', color='blue', alpha=0.5, s=100)
-    ax.scatter(np.median(list_m2_x1), np.median(list_m2_x2), np.median(list_m2_x3), marker = 's', color='blue', alpha=0.5, s=100)
+    # TODO: choose 1 shape for each of m0, m1, m2 and choose color based on did_flip
+    # TODO: choose whether to show mean / median or not.. (conflicts with above)
+    # ax.scatter(np.mean(list_m2_x1), np.mean(list_m2_x2), np.mean(list_m2_x3), marker = 'o', color='blue', alpha=0.5, s=70)
+    # ax.scatter(np.median(list_m2_x1), np.median(list_m2_x2), np.median(list_m2_x3), marker = 's', color='blue', alpha=0.5, s=70)
 
   else:
 
@@ -296,7 +312,8 @@ def experiment2(X_train, X_test, y_train, y_test):
 def experiment3(X_train, X_test, y_train, y_test):
   ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
 
-  mace_results = pickle.load(open(SAVED_MACE_RESULTS_PATH, 'rb'))
+  mace_results_m0 = pickle.load(open(SAVED_MACE_RESULTS_PATH_M0, 'rb'))
+  mace_results_m1 = pickle.load(open(SAVED_MACE_RESULTS_PATH_M1, 'rb'))
 
   # for
 
@@ -316,13 +333,16 @@ def experiment3(X_train, X_test, y_train, y_test):
 
   # ipsh()
 
-  factual_instances_df = X_test.iloc[:9].copy()
+  NUM_SAMPLES = 16
+  NUM_PLOT_ROWS = 4
+
+  factual_instances_df = X_test.iloc[:NUM_SAMPLES].copy()
   factual_instances_dict = factual_instances_df.T.to_dict()
-  action_sets = { # TODO: populate from saved minimum_distances file?
-    'optimal_M0': {'x1': 1}, \
-    'optimal_M1': {'x2': 1}, \
-    'optimal_M2': {'x3': 1}, \
-  }
+  # action_sets = { # TODO: populate from saved minimum_distances file?
+  #   'optimal_M0': {'x1': 1}, \
+  #   'optimal_M1': {'x2': 1}, \
+  #   'optimal_M2': {'x3': 1}, \
+  # }
 
   fig = pyplot.figure()
 
@@ -331,17 +351,20 @@ def experiment3(X_train, X_test, y_train, y_test):
     factual_instance_idx = key
     factual_instance_idx_mace = f'sample_{factual_instance_idx}'
     factual_instance = value
-    assert factual_instance_idx_mace in mace_results.keys(), f'missing results for `{factual_instance_idx_mace}` in mace_results.'
+    assert factual_instance_idx_mace in mace_results_m0.keys(), f'missing results for `{factual_instance_idx_mace}` in mace_results.'
+    assert factual_instance_idx_mace in mace_results_m0.keys(), f'missing results for `{factual_instance_idx_mace}` in mace_results.'
     # for idx_action, action_set in enumerate(action_sets):
     ax = pyplot.subplot(
-      len(factual_instances_dict) // 3 + int(not(len(factual_instances_dict) % 3 == 0)),
-      3,
+      len(factual_instances_dict) // NUM_PLOT_ROWS + int(not(len(factual_instances_dict) % NUM_PLOT_ROWS == 0)),
+      NUM_PLOT_ROWS,
       idx_sample + 1,
       projection = '3d')
     # scatterDataset(X_train, X_test, y_train, y_test, ax)
     scatterFactual(factual_instance, ax)
-    m0_action_set = incrementIndices(mace_results[factual_instance_idx_mace]['action_set'])
+    m0_action_set = incrementIndices(mace_results_m0[factual_instance_idx_mace]['action_set'])
     scatterCounterfactualsOfType('m0', factual_instance, m0_action_set, ax)
+    m1_action_set = incrementIndices(mace_results_m1[factual_instance_idx_mace]['action_set'])
+    scatterCounterfactualsOfType('m1', factual_instance, m1_action_set, ax)
     # scatterCounterfactualsOfType('m0', factual_instance, action_sets['optimal_M0'], ax)
     # scatterCounterfactualsOfType('m1', factual_instance, action_sets['optimal_M1'], ax)
     # scatterCounterfactualsOfType('m2', factual_instance, action_sets['optimal_M2'], ax)
@@ -349,13 +372,22 @@ def experiment3(X_train, X_test, y_train, y_test):
     ax.set_xlabel('x1')
     ax.set_ylabel('x2')
     ax.set_zlabel('x3')
-    ax.set_title(f'sample_{factual_instance_idx} \n m0 action set: do({prettyPrintActionSet(m0_action_set)})')
-    ax.view_init(elev=30, azim=-10)
+    ax.set_title(
+      f'sample_{factual_instance_idx}'
+      f'\n m0 action set: do({prettyPrintActionSet(m0_action_set)})'
+      f'\n m1 action set: do({prettyPrintActionSet(m1_action_set)})'
+    )
+    ax.view_init(elev=20, azim=-30)
 
     # for angle in range(0, 360):
     #   ax.view_init(30, angle)
     #   pyplot.draw()
     #   pyplot.pause(.001)
+
+  # TODO: fix
+  # handles, labels = ax.get_legend_handles_labels()
+  # fig.legend(handles, labels, loc='upper center')
+  # ipsh()
 
   pyplot.show()
 
