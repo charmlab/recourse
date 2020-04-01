@@ -112,6 +112,7 @@ def getPredictionBatch(instances_df):
   sklearn_model = loadModel.loadModelForDataset('lr', 'random')
   return sklearn_model.predict(instances_df)
 
+
 def getPrediction(instance):
   sklearn_model = loadModel.loadModelForDataset('lr', 'random')
   prediction = sklearn_model.predict(np.array(list(instance.values())).reshape(1,-1))[0]
@@ -201,144 +202,6 @@ def computeCounterfactual(factual_instance, action_set, scm_type):
   return counterfactual_instance
 
 
-def scatterDecisionBoundary(ax):
-  sklearn_model = loadModel.loadModelForDataset('lr', 'random')
-  fixed_model_w = sklearn_model.coef_
-  fixed_model_b = sklearn_model.intercept_
-
-  x_range = ax.get_xlim()[1] - ax.get_xlim()[0]
-  y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
-  X = np.linspace(ax.get_xlim()[0] - x_range / 10, ax.get_xlim()[1] + x_range / 10, 10)
-  Y = np.linspace(ax.get_ylim()[0] - y_range / 10, ax.get_ylim()[1] + y_range / 10, 10)
-  X, Y = np.meshgrid(X, Y)
-  Z = - (fixed_model_w[0][0] * X + fixed_model_w[0][1] * Y + fixed_model_b) / fixed_model_w[0][2]
-
-  surf = ax.plot_wireframe(X, Y, Z, alpha=0.3)
-
-
-def scatterDataset(X_train, X_test, y_train, y_test, ax):
-  X_train_numpy = X_train.to_numpy()
-  X_test_numpy = X_test.to_numpy()
-  number_of_samples_to_plot = 200
-  for idx in range(number_of_samples_to_plot):
-    color_train = 'black' if y_train.to_numpy()[idx] == 1 else 'magenta'
-    color_test = 'black' if y_test.to_numpy()[idx] == 1 else 'magenta'
-    ax.scatter(X_train_numpy[idx, 0], X_train_numpy[idx, 1], X_train_numpy[idx, 2], marker='s', color=color_train, alpha=0.2, s=10)
-    ax.scatter(X_test_numpy[idx, 0], X_test_numpy[idx, 1], X_test_numpy[idx, 2], marker='o', color=color_test, alpha=0.2, s=15)
-
-
-def scatterFactual(factual_instance, ax):
-  fc = factual_instance
-  ax.scatter(fc['x1'], fc['x2'], fc['x3'], marker='P', color='black', s=70)
-
-
-def scatterCounterfactuals(factual_instance, action_set, counterfactual_type, scm_type, ax):
-
-  if counterfactual_type == 'm0':
-
-    m0 = computeCounterfactual(factual_instance, action_set, scm_type)
-    color_string = 'green' if didFlip(factual_instance, m0) else 'red'
-    ax.scatter(m0['x1'], m0['x2'], m0['x3'], marker='o', color=color_string, s=70)
-
-  elif counterfactual_type == 'm1':
-
-    # TODO: do something better here... should not have to manually handle this!
-    # m1 = computeCounterfactual(factual_instance, action_set, 'approx')
-    m1 = computeCounterfactual(factual_instance, action_set, scm_type)
-    color_string = 'green' if didFlip(factual_instance, m1) else 'red'
-    ax.scatter(m1['x1'], m1['x2'], m1['x3'], marker='s', color=color_string, s=70)
-
-  elif counterfactual_type == 'm2':
-    list_m2 = []
-
-    for idx in range(100):
-      m2 = getRandomM2Sample(factual_instance, action_set)
-      list_m2.append(m2)
-      color_string = 'green' if didFlip(factual_instance, m2) else 'red'
-      ax.scatter(m2['x1'], m2['x2'], m2['x3'], marker = '^', color=color_string, alpha=0.1, s=30)
-
-    list_m2_x1 = [elem['x1'] for elem in list_m2]
-    list_m2_x2 = [elem['x2'] for elem in list_m2]
-    list_m2_x3 = [elem['x3'] for elem in list_m2]
-
-    # TODO: choose whether to show mean / median or not.. (conflicts with above?)
-    mean_m2_instance = {
-      'x1': np.mean(list_m2_x1),
-      'x2': np.mean(list_m2_x2),
-      'x3': np.mean(list_m2_x3),
-    }
-    color_string = 'green' if didFlip(factual_instance, mean_m2_instance) else 'red'
-    ax.scatter(mean_m2_instance['x1'], mean_m2_instance['x2'], mean_m2_instance['x3'], marker = '^', color=color_string, alpha=0.5, s=70)
-    # ax.scatter(np.median(list_m2_x1), np.median(list_m2_x2), np.median(list_m2_x3), marker = 's', color='blue', alpha=0.5, s=70)
-
-  else:
-
-    raise Exception(f'{counterfactual_type} not recognized.')
-
-
-def experiment1(X_train, X_test, y_train, y_test):
-  ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
-  factual_instance = X_test.iloc[0].T.to_dict()
-
-  # iterative over a number of action sets and compare the three counterfactuals
-  action_set = {'x1': -3}
-  # action_set = {'x2': +1}
-  # action_set = {'x3': +1}
-  # action_set = {'x1': +2, 'x2': +1}
-
-  oracle_counterfactual_instance = computeCounterfactual(factual_instance, action_set, 'true')
-  approx_counterfactual_instance = computeCounterfactual(factual_instance, action_set, 'approx')
-  cate_counterfactual_instance = getRandomM2Sample(factual_instance, action_set)
-
-  print(f'Factual instance: \t\t{factual_instance}')
-  print(f'M0 structural counterfactual: \t{oracle_counterfactual_instance}')
-  print(f'M1 structural counterfactual: \t{approx_counterfactual_instance}')
-  print(f'M2 cate counterfactual: \t{cate_counterfactual_instance}')
-
-
-def experiment2(X_train, X_test, y_train, y_test):
-  ''' compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets '''
-
-  factual_instances_dict = X_test.iloc[:3].T.to_dict()
-  action_sets = [ \
-    {'x1': 1}, \
-    {'x2': 1}, \
-    {'x3': 1}, \
-  ]
-
-  fig = pyplot.figure()
-
-  for index, (key, value) in enumerate(factual_instances_dict.items()):
-    idx_sample = index
-    factual_instance_idx = key
-    factual_instance = value
-    for idx_action, action_set in enumerate(action_sets):
-      ax = pyplot.subplot(
-        len(factual_instances_dict),
-        len(action_sets),
-        idx_sample * len(action_sets) + idx_action + 1,
-        projection = '3d')
-      scatterFactual(factual_instance, ax)
-      scatterCounterfactuals(factual_instance, action_set, 'm0', 'true', ax)
-      scatterCounterfactuals(factual_instance, action_set, 'm1', 'approx', ax)
-      scatterCounterfactuals(factual_instance, action_set, 'm2', 'irrelevant', ax)
-      scatterDecisionBoundary(ax)
-      ax.set_xlabel('x1')
-      ax.set_ylabel('x2')
-      ax.set_zlabel('x3')
-      ax.set_title(f'sample_{factual_instance_idx} \n do({prettyPrintActionSet(action_set)})', fontsize=8, horizontalalignment='left')
-      ax.view_init(elev=15, azim=10)
-
-
-      # for angle in range(0, 360):
-      #   ax.view_init(30, angle)
-      #   pyplot.draw()
-      #   pyplot.pause(.001)
-
-  pyplot.suptitle('Compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets.', fontsize=14)
-  pyplot.show()
-
-
 def isM2ConstraintSatisfied(factual_instance, action_set):
   monte_carlo_samples = []
   for i in range(NUMBER_OF_MONTE_CARLO_SAMPLES):
@@ -386,7 +249,7 @@ def getOptimalActionSet(factual_instance, factual_instance_idx, counterfactual_t
 
   elif counterfactual_type == 'm2':
 
-    GRANULARITY = 2
+    GRANULARITY = 5
     x1_possible_actions = list(np.around(np.linspace(-2, 2, GRANULARITY+1), 2))
     x2_possible_actions = list(np.around(np.linspace(-2, 2, GRANULARITY+1), 2))
     x3_possible_actions = list(np.around(np.linspace(-2, 2, GRANULARITY+1), 2))
@@ -438,31 +301,149 @@ def getOptimalActionSet(factual_instance, factual_instance_idx, counterfactual_t
     raise Exception(f'{counterfactual_type} not recognized.')
 
 
+def scatterDecisionBoundary(ax):
+  sklearn_model = loadModel.loadModelForDataset('lr', 'random')
+  fixed_model_w = sklearn_model.coef_
+  fixed_model_b = sklearn_model.intercept_
+
+  x_range = ax.get_xlim()[1] - ax.get_xlim()[0]
+  y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
+  X = np.linspace(ax.get_xlim()[0] - x_range / 10, ax.get_xlim()[1] + x_range / 10, 10)
+  Y = np.linspace(ax.get_ylim()[0] - y_range / 10, ax.get_ylim()[1] + y_range / 10, 10)
+  X, Y = np.meshgrid(X, Y)
+  Z = - (fixed_model_w[0][0] * X + fixed_model_w[0][1] * Y + fixed_model_b) / fixed_model_w[0][2]
+
+  surf = ax.plot_wireframe(X, Y, Z, alpha=0.3)
+
+
+def scatterDataset(X_train, X_test, y_train, y_test, ax):
+  X_train_numpy = X_train.to_numpy()
+  X_test_numpy = X_test.to_numpy()
+  number_of_samples_to_plot = 200
+  for idx in range(number_of_samples_to_plot):
+    color_train = 'black' if y_train.to_numpy()[idx] == 1 else 'magenta'
+    color_test = 'black' if y_test.to_numpy()[idx] == 1 else 'magenta'
+    ax.scatter(X_train_numpy[idx, 0], X_train_numpy[idx, 1], X_train_numpy[idx, 2], marker='s', color=color_train, alpha=0.2, s=10)
+    ax.scatter(X_test_numpy[idx, 0], X_test_numpy[idx, 1], X_test_numpy[idx, 2], marker='o', color=color_test, alpha=0.2, s=15)
+
+
+def scatterFactual(factual_instance, ax):
+  fc = factual_instance
+  ax.scatter(fc['x1'], fc['x2'], fc['x3'], marker='P', color='black', s=70)
+
+
+def scatterCounterfactuals(factual_instance, action_set, counterfactual_type, scm_type, marker_type, ax):
+
+  if counterfactual_type == 'm0':
+
+    m0 = computeCounterfactual(factual_instance, action_set, scm_type)
+    color_string = 'green' if didFlip(factual_instance, m0) else 'red'
+    ax.scatter(m0['x1'], m0['x2'], m0['x3'], marker = marker_type, color=color_string, s=70)
+
+  elif counterfactual_type == 'm1':
+
+    # TODO: do something better here... should not have to manually handle this!
+    # m1 = computeCounterfactual(factual_instance, action_set, 'approx')
+    m1 = computeCounterfactual(factual_instance, action_set, scm_type)
+    color_string = 'green' if didFlip(factual_instance, m1) else 'red'
+    ax.scatter(m1['x1'], m1['x2'], m1['x3'], marker = marker_type, color=color_string, s=70)
+
+  elif counterfactual_type == 'm2':
+    list_m2 = []
+
+    for idx in range(100):
+      m2 = getRandomM2Sample(factual_instance, action_set)
+      list_m2.append(m2)
+      color_string = 'green' if didFlip(factual_instance, m2) else 'red'
+      ax.scatter(m2['x1'], m2['x2'], m2['x3'], marker = marker_type, color=color_string, alpha=0.1, s=30)
+
+    list_m2_x1 = [elem['x1'] for elem in list_m2]
+    list_m2_x2 = [elem['x2'] for elem in list_m2]
+    list_m2_x3 = [elem['x3'] for elem in list_m2]
+
+    # TODO: choose whether to show mean / median or not.. (conflicts with above?)
+    mean_m2_instance = {
+      'x1': np.mean(list_m2_x1),
+      'x2': np.mean(list_m2_x2),
+      'x3': np.mean(list_m2_x3),
+    }
+    color_string = 'green' if didFlip(factual_instance, mean_m2_instance) else 'red'
+    ax.scatter(mean_m2_instance['x1'], mean_m2_instance['x2'], mean_m2_instance['x3'], marker = marker_type, color=color_string, alpha=0.5, s=70)
+    # ax.scatter(np.median(list_m2_x1), np.median(list_m2_x2), np.median(list_m2_x3), marker = 's', color='blue', alpha=0.5, s=70)
+
+  else:
+
+    raise Exception(f'{counterfactual_type} not recognized.')
+
+
+def experiment1(X_train, X_test, y_train, y_test):
+  ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
+  factual_instance = X_test.iloc[0].T.to_dict()
+
+  # iterative over a number of action sets and compare the three counterfactuals
+  action_set = {'x1': -3}
+  # action_set = {'x2': +1}
+  # action_set = {'x3': +1}
+  # action_set = {'x1': +2, 'x2': +1}
+
+  oracle_counterfactual_instance = computeCounterfactual(factual_instance, action_set, 'true')
+  approx_counterfactual_instance = computeCounterfactual(factual_instance, action_set, 'approx')
+  cate_counterfactual_instance = getRandomM2Sample(factual_instance, action_set)
+
+  print(f'Factual instance: \t\t{factual_instance}')
+  print(f'M0 structural counterfactual: \t{oracle_counterfactual_instance}')
+  print(f'M1 structural counterfactual: \t{approx_counterfactual_instance}')
+  print(f'M2 cate counterfactual: \t{cate_counterfactual_instance}')
+
+
+def experiment2(X_train, X_test, y_train, y_test):
+  ''' compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets '''
+
+  factual_instances_dict = X_test.iloc[:3].T.to_dict()
+  action_sets = [ \
+    {'x1': 1}, \
+    {'x2': 1}, \
+    {'x3': 1}, \
+  ]
+
+  fig = pyplot.figure()
+
+  for index, (key, value) in enumerate(factual_instances_dict.items()):
+    idx_sample = index
+    factual_instance_idx = key
+    factual_instance = value
+    for idx_action, action_set in enumerate(action_sets):
+      ax = pyplot.subplot(
+        len(factual_instances_dict),
+        len(action_sets),
+        idx_sample * len(action_sets) + idx_action + 1,
+        projection = '3d')
+      scatterFactual(factual_instance, ax)
+      scatterCounterfactuals(factual_instance, action_set, 'm0', 'true', 'o', ax)
+      scatterCounterfactuals(factual_instance, action_set, 'm1', 'approx', 's', ax)
+      scatterCounterfactuals(factual_instance, action_set, 'm2', 'n/a', '^', ax)
+      scatterDecisionBoundary(ax)
+      ax.set_xlabel('x1')
+      ax.set_ylabel('x2')
+      ax.set_zlabel('x3')
+      ax.set_title(f'sample_{factual_instance_idx} \n do({prettyPrintActionSet(action_set)})', fontsize=8, horizontalalignment='left')
+      ax.view_init(elev=15, azim=10)
+
+
+      # for angle in range(0, 360):
+      #   ax.view_init(30, angle)
+      #   pyplot.draw()
+      #   pyplot.pause(.001)
+
+  pyplot.suptitle('Compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets.', fontsize=14)
+  pyplot.show()
+
+
 def experiment3(X_train, X_test, y_train, y_test):
   ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
 
-  # for
-
-  # for factual_instance_idx, mace_result in mace_results:
-
-  # factual_instances_df = X_test.iloc[:3].copy()
-  # factual_instances_df['m0_action_set'] = 0 # default values
-  # factual_instances_df['m1_action_set'] = 0 # default values
-  # factual_instances_df['m2_action_set'] = 0 # default values
-
-  # for factual_instance_idx in factual_instances_df.index:
-  #   factual_instance_idx_string = f'sample_{factual_instance_idx}'
-  #   tmp = mace_results[factual_instance_idx_string]
-  #   factual_instances_df.loc[factual_instance_idx]['m0_action_set'] = incrementIndices(mace_results[factual_instance_idx_string]['action_set'])
-  #   factual_instances_df.loc[factual_instance_idx]['m1_action_set'] = incrementIndices(mace_results[factual_instance_idx_string]['action_set'])
-  #   factual_instances_df.loc[factual_instance_idx]['m2_action_set'] = incrementIndices(mace_results[factual_instance_idx_string]['action_set'])
-
-  # ipsh()
-
-  # NUM_SAMPLES = 16
-  # NUM_PLOT_ROWS = 4
-  NUM_SAMPLES = 9
-  NUM_PLOT_ROWS = 3
+  NUM_SAMPLES = 16
+  NUM_PLOT_ROWS = np.sqrt(NUM_SAMPLES)
 
   factual_instances_df = X_test.iloc[:NUM_SAMPLES].copy()
   factual_instances_dict = factual_instances_df.T.to_dict()
@@ -481,7 +462,9 @@ def experiment3(X_train, X_test, y_train, y_test):
       NUM_PLOT_ROWS,
       idx_sample + 1,
       projection = '3d')
+
     # scatterDataset(X_train, X_test, y_train, y_test, ax)
+
     scatterFactual(factual_instance, ax)
 
     m0_optimal_action_set = getOptimalActionSet(factual_instance, factual_instance_idx, 'm0')
@@ -492,10 +475,10 @@ def experiment3(X_train, X_test, y_train, y_test):
     m1_optimal_action_set_cost = measureActionSetCost(factual_instance, m1_optimal_action_set, 2)
     m2_optimal_action_set_cost = measureActionSetCost(factual_instance, m2_optimal_action_set, 2)
 
-    scatterCounterfactuals(factual_instance, m0_optimal_action_set, 'm0', 'true', ax)
-    scatterCounterfactuals(factual_instance, m1_optimal_action_set, 'm1', 'true', ax)
-    # scatterCounterfactuals(factual_instance, m1_optimal_action_set, 'm2', 'irrelevant', ax) # how many of m2 suggested by m1 would fail
-    scatterCounterfactuals(factual_instance, m2_optimal_action_set, 'm2', 'irrelevant', ax)
+    scatterCounterfactuals(factual_instance, m0_optimal_action_set, 'm0', 'true', 'o', ax)
+    scatterCounterfactuals(factual_instance, m1_optimal_action_set, 'm1', 'true', 's', ax)
+    scatterCounterfactuals(factual_instance, m1_optimal_action_set, 'm2', 'n/a', 's', ax) # how many of m2 suggested by m1 would fail
+    scatterCounterfactuals(factual_instance, m2_optimal_action_set, 'm2', 'n/a', '^', ax)
 
     scatterDecisionBoundary(ax)
     ax.set_xlabel('x1')
