@@ -108,6 +108,10 @@ def getParents(node):
     return {'x1', 'x2'}
 
 
+def getPredictionBatch(instances_df):
+  sklearn_model = loadModel.loadModelForDataset('lr', 'random')
+  return sklearn_model.predict(instances_df)
+
 def getPrediction(instance):
   sklearn_model = loadModel.loadModelForDataset('lr', 'random')
   prediction = sklearn_model.predict(np.array(list(instance.values())).reshape(1,-1))[0]
@@ -336,23 +340,12 @@ def experiment2(X_train, X_test, y_train, y_test):
 
 
 def isM2ConstraintSatisfied(factual_instance, action_set):
-  # monte_carlo_samples = [0] * NUMBER_OF_MONTE_CARLO_SAMPLES
-  monte_carlo_predictions = [0] * NUMBER_OF_MONTE_CARLO_SAMPLES
-  d1 = []
-  d2 = []
-  d3 = []
+  monte_carlo_samples = []
   for i in range(NUMBER_OF_MONTE_CARLO_SAMPLES):
-    # s0 = time.time()
     monte_carlo_sample = getRandomM2Sample(factual_instance, action_set)
-    # d1.append(time.time() - s0)
-    # monte_carlo_samples[i] = monte_carlo_sample
-    # d2.append(time.time() - d1[-1])
-    monte_carlo_predictions[i] = getPrediction(monte_carlo_sample)
-    # d3.append(time.time() - d2[-1])
+    monte_carlo_samples.append(monte_carlo_sample)
 
-  # print(f'\nd1 time: {np.mean(d1)}')
-  # print(f'd2 time: {np.mean(d2)}')
-  # print(f'd3 time: {np.mean(d3)}\n')
+  monte_carlo_predictions = getPredictionBatch(pd.DataFrame(monte_carlo_samples).to_numpy())
 
   # IMPORTANT... WE ARE CONSIDERING {0,1} LABELS AND FACTUAL SAMPLES MAY BE OF
   # EITHER CLASS. THEREFORE, THE CONSTRAINT IS SATISFIED WHEN SIGNIFICANTLY
