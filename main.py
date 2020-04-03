@@ -6,7 +6,6 @@ from matplotlib import pyplot
 
 import loadData
 import loadModel
-from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KernelDensity
 
 from scipy import stats
@@ -26,17 +25,7 @@ def loadDataset():
   dataset_obj = loadData.loadDataset('random', return_one_hot = False, load_from_cache = False)
   dataset_obj.data_frame_long = dataset_obj.data_frame_long.rename(columns={'x0': 'x1', 'x1': 'x2', 'x2': 'x3'})
   dataset_obj.data_frame_kurz = dataset_obj.data_frame_kurz.rename(columns={'x0': 'x1', 'x1': 'x2', 'x2': 'x3'})
-  balanced_data_frame, input_cols, output_col = loadData.getBalancedDataFrame(dataset_obj)
-
-  # get train / test splits
-  all_data = balanced_data_frame.loc[:,input_cols]
-  all_true_labels = balanced_data_frame.loc[:,output_col]
-  X_train, X_test, y_train, y_test = train_test_split(
-    all_data,
-    all_true_labels,
-    train_size=.7,
-    random_state = RANDOM_SEED)
-
+  X_train, X_test, y_train, y_test = loadData.getTrainTestData(dataset_obj, RANDOM_SEED, standardize_data = False)
   return X_train, X_test, y_train, y_test
 
 
@@ -116,7 +105,7 @@ def getPredictionBatch(instances_df):
 def getPrediction(instance):
   sklearn_model = loadModel.loadModelForDataset('lr', 'random')
   prediction = sklearn_model.predict(np.array(list(instance.values())).reshape(1,-1))[0]
-  assert prediction == 0 or prediction == 1, f'Expected prediction in {0,1}; got {prediction}'
+  assert prediction in {0, 1}, f'Expected prediction in {0,1}; got {prediction}'
   return prediction
 
 

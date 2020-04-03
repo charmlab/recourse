@@ -9,8 +9,8 @@ First,
 $ git clone https://github.com/amirhk/recourse.git
 $ pip install virtualenv
 $ cd recourse
-$ virtualenv -p python3 venv
-$ source venv/bin/activate
+$ virtualenv -p python3 _venv
+$ source _venv/bin/activate
 $ pip install -r pip_requirements.txt
 ```
 

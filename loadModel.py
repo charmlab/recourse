@@ -5,7 +5,6 @@ import loadData
 
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
 
 from debug import ipsh
 
@@ -16,9 +15,9 @@ np.random.seed(RANDOM_SEED)
 
 
 def convertSklearnDtypeToPytorch(input_obj):
-  return input_obj
+  # return input_obj
   # isinstance(input_obj, (np.ndarray)) # TODO complete
-  # return np.around(input_obj, 4).astype('float32')
+  return np.around(input_obj, 4).astype('float32')
 
 
 def loadModelForDataset(model_class, dataset_string):
@@ -30,16 +29,7 @@ def loadModelForDataset(model_class, dataset_string):
     raise Exception(f'{dataset_string} not supported.')
 
   dataset_obj = loadData.loadDataset(dataset_string, return_one_hot = False, load_from_cache = True, debug_flag = False)
-  balanced_data_frame, input_cols, output_col = loadData.getBalancedDataFrame(dataset_obj)
-
-  # get train / test splits
-  all_data = balanced_data_frame.loc[:,input_cols]
-  all_true_labels = balanced_data_frame.loc[:,output_col]
-  X_train, X_test, y_train, y_test = train_test_split(
-    all_data.to_numpy(),
-    all_true_labels.to_numpy(),
-    train_size=.7,
-    random_state = RANDOM_SEED)
+  X_train, X_test, y_train, y_test = loadData.getTrainTestData(dataset_obj, RANDOM_SEED, standardize_data = False)
 
   if model_class == 'lr':
     model_pretrain = LogisticRegression()
