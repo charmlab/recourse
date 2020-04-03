@@ -308,10 +308,12 @@ def scatterDecisionBoundary(ax):
 def scatterDataset(X_train, X_test, y_train, y_test, ax):
   X_train_numpy = X_train.to_numpy()
   X_test_numpy = X_test.to_numpy()
+  y_train = y_train.to_numpy()
+  y_test = y_test.to_numpy()
   number_of_samples_to_plot = 200
   for idx in range(number_of_samples_to_plot):
-    color_train = 'black' if y_train.to_numpy()[idx] == 1 else 'magenta'
-    color_test = 'black' if y_test.to_numpy()[idx] == 1 else 'magenta'
+    color_train = 'black' if y_train[idx] == 1 else 'magenta'
+    color_test = 'black' if y_test[idx] == 1 else 'magenta'
     ax.scatter(X_train_numpy[idx, 0], X_train_numpy[idx, 1], X_train_numpy[idx, 2], marker='s', color=color_train, alpha=0.2, s=10)
     ax.scatter(X_test_numpy[idx, 0], X_test_numpy[idx, 1], X_test_numpy[idx, 2], marker='o', color=color_test, alpha=0.2, s=15)
 
