@@ -2,6 +2,7 @@ import time
 import pickle
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 from matplotlib import pyplot
 
 import loadData
@@ -17,7 +18,11 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
+NORM_TYPE = 2
+GRID_SEARCH_BOUND = 2
+GRID_SEARCH_BINS = 2
 NUMBER_OF_MONTE_CARLO_SAMPLES = 100
+LAMBDA_LCB = 1
 SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
 SAVED_MACE_RESULTS_PATH_M1 = '/Users/a6karimi/dev/recourse/_minimum_distances_m1'
 
@@ -56,28 +61,6 @@ def prettyPrintInstance(instance):
   return instance
 
 
-# TODO: should have a class of defining SCM with this as a method
-def getStructuralEquation(variable_index, scm_type):
-
-  if scm_type == 'true':
-
-    if variable_index == 'x1':
-      return lambda n1: n1
-    elif variable_index == 'x2':
-      return lambda x1, n2: x1 + 1 + n2
-    elif variable_index == 'x3':
-      return lambda x1, x2, n3: np.sqrt(3) * x1 * x2 * x2 + n3
-
-  elif scm_type == 'approx':
-
-    if variable_index == 'x1':
-      return lambda n1: n1
-    elif variable_index == 'x2':
-      return lambda x1, n2: 1 * x1 + 1 + n2
-    elif variable_index == 'x3':
-      return lambda x1, x2, n3: 5.5 * x1 + 3.5 * x2 - 0.1 + n3
-
-
 # TODO: write recursively?
 def getAncestors(node):
   if node == 'x1':
@@ -111,6 +94,66 @@ def getPrediction(instance):
 
 def didFlip(factual_instance, counterfactual_instance):
   return getPrediction(factual_instance) != getPrediction(counterfactual_instance)
+
+
+# See https://stackoverflow.com/a/25670697
+def lambdaWrapper(intervention_value):
+  return lambda *args: intervention_value
+
+
+# TODO: should have a class of defining SCM with this as a method
+def getStructuralEquation(variable_index, scm_type):
+
+  if scm_type == 'true':
+
+    if variable_index == 'x1':
+      return lambda n1: n1
+    elif variable_index == 'x2':
+      return lambda x1, n2: x1 + 1 + n2
+    elif variable_index == 'x3':
+      return lambda x1, x2, n3: np.sqrt(3) * x1 * x2 * x2 + n3
+
+  elif scm_type == 'approx':
+
+    if variable_index == 'x1':
+      return lambda n1: n1
+    elif variable_index == 'x2':
+      return lambda x1, n2: 1 * x1 + 1 + n2
+    elif variable_index == 'x3':
+      return lambda x1, x2, n3: 5.5 * x1 + 3.5 * x2 - 0.1 + n3
+
+
+def computeCounterfactual(factual_instance, action_set, scm_type):
+
+  structural_equations = {}
+  structural_equations['x1'] = getStructuralEquation('x1', scm_type)
+  structural_equations['x2'] = getStructuralEquation('x2', scm_type)
+  structural_equations['x3'] = getStructuralEquation('x3', scm_type)
+
+  # Step 1. abduction: get value of noise variables
+  # tip: pass in n* = 0 to structural_equations (lambda functions)
+  noise_variables = {}
+  noise_variables['x1'] = factual_instance['x1'] - structural_equations['x1'](0)
+  noise_variables['x2'] = factual_instance['x2'] - structural_equations['x2'](factual_instance['x1'], 0)
+  noise_variables['x3'] = factual_instance['x3'] - structural_equations['x3'](factual_instance['x1'], factual_instance['x2'], 0)
+
+  # Step 2. action: update structural equations
+  for key, value in action_set.items():
+    node = key
+    intervention_value = value
+    structural_equations[node] = lambdaWrapper(intervention_value)
+    # *args is used to allow for ignoring arguments that may be passed into this
+    # function (consider, for example, an intervention on x2 which then requires
+    # no inputs to call the second structural equation function, but we still pass
+    # in the arugments a few lines down)
+
+  # Step 3. prediction: compute counterfactual values starting from root node
+  counterfactual_instance = {}
+  counterfactual_instance['x1'] = structural_equations['x1'](noise_variables['x1'])
+  counterfactual_instance['x2'] = structural_equations['x2'](counterfactual_instance['x1'], noise_variables['x2'])
+  counterfactual_instance['x3'] = structural_equations['x3'](counterfactual_instance['x1'], counterfactual_instance['x2'], noise_variables['x3'])
+
+  return counterfactual_instance
 
 
 def getRandomM2Sample(factual_instance, action_set):
@@ -153,42 +196,16 @@ def getRandomM2Sample(factual_instance, action_set):
   return counterfactual_instance
 
 
-# See https://stackoverflow.com/a/25670697
-def lambdaWrapper(intervention_value):
-  return lambda *args: intervention_value
+def isM0ConstraintSatisfied(factual_instance, action_set):
+  return \
+    getPrediction(factual_instance) != \
+    getPrediction(computeCounterfactual(factual_instance, action_set, 'true'))
 
 
-def computeCounterfactual(factual_instance, action_set, scm_type):
-
-  structural_equations = {}
-  structural_equations['x1'] = getStructuralEquation('x1', scm_type)
-  structural_equations['x2'] = getStructuralEquation('x2', scm_type)
-  structural_equations['x3'] = getStructuralEquation('x3', scm_type)
-
-  # Step 1. abduction: get value of noise variables
-  # tip: pass in n* = 0 to structural_equations (lambda functions)
-  noise_variables = {}
-  noise_variables['x1'] = factual_instance['x1'] - structural_equations['x1'](0)
-  noise_variables['x2'] = factual_instance['x2'] - structural_equations['x2'](factual_instance['x1'], 0)
-  noise_variables['x3'] = factual_instance['x3'] - structural_equations['x3'](factual_instance['x1'], factual_instance['x2'], 0)
-
-  # Step 2. action: update structural equations
-  for key, value in action_set.items():
-    node = key
-    intervention_value = value
-    structural_equations[node] = lambdaWrapper(intervention_value)
-    # *args is used to allow for ignoring arguments that may be passed into this
-    # function (consider, for example, an intervention on x2 which then requires
-    # no inputs to call the second structural equation function, but we still pass
-    # in the arugments a few lines down)
-
-  # Step 3. prediction: compute counterfactual values starting from root node
-  counterfactual_instance = {}
-  counterfactual_instance['x1'] = structural_equations['x1'](noise_variables['x1'])
-  counterfactual_instance['x2'] = structural_equations['x2'](counterfactual_instance['x1'], noise_variables['x2'])
-  counterfactual_instance['x3'] = structural_equations['x3'](counterfactual_instance['x1'], counterfactual_instance['x2'], noise_variables['x3'])
-
-  return counterfactual_instance
+def isM1ConstraintSatisfied(factual_instance, action_set):
+  return \
+    getPrediction(factual_instance) != \
+    getPrediction(computeCounterfactual(factual_instance, action_set, 'approx'))
 
 
 def isM2ConstraintSatisfied(factual_instance, action_set):
@@ -207,77 +224,88 @@ def isM2ConstraintSatisfied(factual_instance, action_set):
   variance = np.sum(np.power(monte_carlo_predictions - expectation, 2)) / (len(monte_carlo_predictions) - 1)
 
   if getPrediction(factual_instance) == 0:
-    return expectation - 2 * np.sqrt(variance) > 0.5 # NOTE DIFFERNCE IN SIGN OF STD
+    return expectation - LAMBDA_LCB * np.sqrt(variance) > 0.5 # NOTE DIFFERNCE IN SIGN OF STD
   else: # factual_prediction == 1
-    return expectation + 2 * np.sqrt(variance) < 0.5 # NOTE DIFFERNCE IN SIGN OF STD
+    return expectation + LAMBDA_LCB * np.sqrt(variance) < 0.5 # NOTE DIFFERNCE IN SIGN OF STD
 
 
-def getOptimalActionSet(factual_instance, factual_instance_idx, counterfactual_type):
+def getValidDiscretizedActionSets():
+  x1_possible_actions = list(np.around(np.linspace(-GRID_SEARCH_BOUND, GRID_SEARCH_BOUND, GRID_SEARCH_BINS+1), 2))
+  x2_possible_actions = list(np.around(np.linspace(-GRID_SEARCH_BOUND, GRID_SEARCH_BOUND, GRID_SEARCH_BINS+1), 2))
+  x3_possible_actions = list(np.around(np.linspace(-GRID_SEARCH_BOUND, GRID_SEARCH_BOUND, GRID_SEARCH_BINS+1), 2))
+  x1_possible_actions.append('n/a')
+  x2_possible_actions.append('n/a')
+  x3_possible_actions.append('n/a')
 
-  if counterfactual_type == 'm0':
+  all_action_sets = []
+  for x1_action in x1_possible_actions:
+    for x2_action in x2_possible_actions:
+      for x3_action in x3_possible_actions:
+        all_action_sets.append({
+          'x1': x1_action,
+          'x2': x2_action,
+          'x3': x3_action,
+        })
 
-    print(f'\t[INFO] Loading optimal action set for m0 from saved MINT results...', end='')
-    mace_results_m0 = pickle.load(open(SAVED_MACE_RESULTS_PATH_M0, 'rb'))
+  # go through, and for any action_set that has a value = 'n/a', remove ONLY
+  # THAT key, value pair, NOT THE ENTIRE action_set.
+  valid_action_sets = []
+  for action_set in all_action_sets:
+    valid_action_sets.append({k:v for k,v in action_set.items() if v != 'n/a'})
+
+  # ipsh()
+  # # FOR TEST PURPOSES ONLY
+  # valid_action_sets = [ \
+  #   {'x1': 1}, \
+  #   {'x2': 1}, \
+  #   {'x3': 1}, \
+  # ]
+  # valid_action_sets = list(np.random.choice(valid_action_sets, 10))
+
+  return valid_action_sets
+
+
+def getOptimalActionSet(factual_instance, factual_instance_idx, counterfactual_type, load_or_compute):
+
+  assert counterfactual_type in {'m0', 'm1', 'm2'}, f'{counterfactual_type} not recognized.'
+  assert load_or_compute in {'load', 'compute'}, f'{load_or_compute} not recognized.'
+  assert \
+    not (counterfactual_type == 'm2' and load_or_compute == 'load'), \
+    f'Cannot {counterfactual_type} counterfactuals for counterfactuals of type {counterfactual_type}.'
+
+  if load_or_compute == 'load':
+
+    if counterfactual_type == 'm0':
+      saved_mace_results_path = SAVED_MACE_RESULTS_PATH_M0
+    elif counterfactual_type == 'm1':
+      saved_mace_results_path = SAVED_MACE_RESULTS_PATH_M1
+
+    print(f'\t[INFO] Loading optimal action set for {counterfactual_type} from saved MINT results...', end='')
+    mace_results = pickle.load(open(saved_mace_results_path, 'rb'))
     factual_instance_idx_mace = f'sample_{factual_instance_idx}'
     assert \
-      factual_instance_idx_mace in mace_results_m0.keys(), \
+      factual_instance_idx_mace in mace_results.keys(), \
       f'missing results for `{factual_instance_idx_mace}` in mace_results.'
     print(f'\t done.')
-    return incrementIndices(mace_results_m0[factual_instance_idx_mace]['action_set'])
+    return incrementIndices(mace_results[factual_instance_idx_mace]['action_set'])
 
-  elif counterfactual_type == 'm1':
+  elif load_or_compute == 'compute':
 
-    print(f'\t[INFO] Loading optimal action set for m1 from saved MINT results...', end='')
-    mace_results_m1 = pickle.load(open(SAVED_MACE_RESULTS_PATH_M1, 'rb'))
-    factual_instance_idx_mace = f'sample_{factual_instance_idx}'
-    assert \
-      factual_instance_idx_mace in mace_results_m1.keys(), \
-      f'missing results for `{factual_instance_idx_mace}` in mace_results.'
-    print(f'\t done.')
-    return incrementIndices(mace_results_m1[factual_instance_idx_mace]['action_set'])
+    valid_action_sets = getValidDiscretizedActionSets()
+    print(f'\t[INFO] Computing optimal {counterfactual_type}: grid searching over {len(valid_action_sets)} action sets...')
 
-  elif counterfactual_type == 'm2':
+    if counterfactual_type == 'm0':
+      constraint_handle = isM0ConstraintSatisfied
+    elif counterfactual_type == 'm1':
+      constraint_handle = isM1ConstraintSatisfied
+    elif counterfactual_type == 'm2':
+      constraint_handle = isM2ConstraintSatisfied
 
-    GRANULARITY = 5
-    x1_possible_actions = list(np.around(np.linspace(-2, 2, GRANULARITY+1), 2))
-    x2_possible_actions = list(np.around(np.linspace(-2, 2, GRANULARITY+1), 2))
-    x3_possible_actions = list(np.around(np.linspace(-2, 2, GRANULARITY+1), 2))
-    x1_possible_actions.append('n/a')
-    x2_possible_actions.append('n/a')
-    x3_possible_actions.append('n/a')
-
-    all_action_sets = []
-    for x1_action in x1_possible_actions:
-      for x2_action in x2_possible_actions:
-        for x3_action in x3_possible_actions:
-          all_action_sets.append({
-            'x1': x1_action,
-            'x2': x2_action,
-            'x3': x3_action,
-          })
-
-    # go through, and for any action_set that has a value = 'n/a', remove ONLY
-    # THAT key, value pair, NOT THE ENTIRE action_set.
-    valid_action_sets = []
-    for action_set in all_action_sets:
-      valid_action_sets.append({k:v for k,v in action_set.items() if v != 'n/a'})
-
-    # ipsh()
-    # # FOR TEST PURPOSES ONLY
-    # valid_action_sets = [ \
-    #   {'x1': 1}, \
-    #   {'x2': 1}, \
-    #   {'x3': 1}, \
-    # ]
-    # valid_action_sets = list(np.random.choice(valid_action_sets, 10))
-
-    print(f'\t[INFO] Computing optimal M2: grid searching over {len(valid_action_sets)} action sets...', end='')
-
-    min_cost = 1e3
+    min_cost = 1e10
     min_cost_action_set = {}
-    for action_set in valid_action_sets:
-      if isM2ConstraintSatisfied(factual_instance, action_set) == True:
-        cost_of_action_set = measureActionSetCost(factual_instance, action_set, 2)
+    for action_set in tqdm(valid_action_sets):
+      if constraint_handle(factual_instance, action_set):
+        cost_of_action_set = measureActionSetCost(factual_instance, action_set, NORM_TYPE)
         if cost_of_action_set < min_cost:
           min_cost = cost_of_action_set
           min_cost_action_set = action_set
@@ -285,9 +313,6 @@ def getOptimalActionSet(factual_instance, factual_instance_idx, counterfactual_t
     print(f'\t done.')
 
     return min_cost_action_set
-
-  else:
-    raise Exception(f'{counterfactual_type} not recognized.')
 
 
 def scatterDecisionBoundary(ax):
@@ -433,11 +458,11 @@ def experiment2(X_train, X_test, y_train, y_test):
 def experiment3(X_train, X_test, y_train, y_test):
   ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
 
-  NUM_SAMPLES = 16
+  NUM_SAMPLES = 9
   NUM_PLOT_ROWS = np.sqrt(NUM_SAMPLES)
+  NUM_PLOT_COLS = np.ceil(NUM_SAMPLES / NUM_PLOT_ROWS)
 
-  factual_instances_df = X_test.iloc[:NUM_SAMPLES].copy()
-  factual_instances_dict = factual_instances_df.T.to_dict()
+  factual_instances_dict = X_test.iloc[:NUM_SAMPLES].T.to_dict()
 
   fig = pyplot.figure()
 
@@ -449,7 +474,7 @@ def experiment3(X_train, X_test, y_train, y_test):
     print(f'[INFO] Computing counterfactuals (M0, M1, M2) for factual instance #{index+1} / {NUM_SAMPLES} (id #{factual_instance_idx})...')
 
     ax = pyplot.subplot(
-      len(factual_instances_dict) // NUM_PLOT_ROWS + int(not(len(factual_instances_dict) % NUM_PLOT_ROWS == 0)),
+      NUM_PLOT_COLS,
       NUM_PLOT_ROWS,
       idx_sample + 1,
       projection = '3d')
@@ -458,13 +483,9 @@ def experiment3(X_train, X_test, y_train, y_test):
 
     scatterFactual(factual_instance, ax)
 
-    m0_optimal_action_set = getOptimalActionSet(factual_instance, factual_instance_idx, 'm0')
-    m1_optimal_action_set = getOptimalActionSet(factual_instance, factual_instance_idx, 'm1')
-    m2_optimal_action_set = getOptimalActionSet(factual_instance, factual_instance_idx, 'm2')
-
-    m0_optimal_action_set_cost = measureActionSetCost(factual_instance, m0_optimal_action_set, 2)
-    m1_optimal_action_set_cost = measureActionSetCost(factual_instance, m1_optimal_action_set, 2)
-    m2_optimal_action_set_cost = measureActionSetCost(factual_instance, m2_optimal_action_set, 2)
+    m0_optimal_action_set = getOptimalActionSet(factual_instance, factual_instance_idx, 'm0', 'compute')
+    m1_optimal_action_set = getOptimalActionSet(factual_instance, factual_instance_idx, 'm1', 'compute')
+    m2_optimal_action_set = getOptimalActionSet(factual_instance, factual_instance_idx, 'm2', 'compute')
 
     scatterCounterfactuals(factual_instance, m0_optimal_action_set, 'm0', 'true', 'o', ax)
     scatterCounterfactuals(factual_instance, m1_optimal_action_set, 'm1', 'true', 's', ax)
@@ -477,9 +498,9 @@ def experiment3(X_train, X_test, y_train, y_test):
     ax.set_zlabel('x3')
     ax.set_title(
       f'sample_{factual_instance_idx} - {prettyPrintInstance(factual_instance)}'
-      f'\n m0 action set: do({prettyPrintActionSet(m0_optimal_action_set)}); cost: {m0_optimal_action_set_cost:.2f}'
-      f'\n m1 action set: do({prettyPrintActionSet(m1_optimal_action_set)}); cost: {m1_optimal_action_set_cost:.2f}'
-      f'\n m2 action set: do({prettyPrintActionSet(m2_optimal_action_set)}); cost: {m2_optimal_action_set_cost:.2f}'
+      f'\n m0 action set: do({prettyPrintActionSet(m0_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m0_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m1 action set: do({prettyPrintActionSet(m1_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m1_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m2 action set: do({prettyPrintActionSet(m2_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m2_optimal_action_set, NORM_TYPE):.2f}'
     , fontsize=8, horizontalalignment='left')
     ax.view_init(elev=20, azim=-30)
     print('[INFO] done.')
