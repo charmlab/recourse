@@ -28,7 +28,7 @@ np.random.seed(RANDOM_SEED)
 NUM_TEST_SAMPLES = 4
 NORM_TYPE = 2
 GRID_SEARCH_BOUND = 2
-GRID_SEARCH_BINS = 2
+GRID_SEARCH_BINS = 5
 NUMBER_OF_MONTE_CARLO_SAMPLES = 100
 LAMBDA_LCB = 1
 SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
@@ -44,6 +44,7 @@ class Memoize:
       self.memo[args] = self.fn(*args)
     return self.memo[args]
 
+@Memoize
 def loadDataset():
   dataset_obj = loadData.loadDataset('random', return_one_hot = False, load_from_cache = False)
   dataset_obj.data_frame_long = dataset_obj.data_frame_long.rename(columns={'x0': 'x1', 'x1': 'x2', 'x2': 'x3'})
@@ -169,8 +170,8 @@ def getStructuralEquation(variable_index, scm_type):
     X_all = X_train.append(X_test)
     param_grid = {"alpha": [1e0, 1e-1, 1e-2, 1e-3],
                   "kernel": [ExpSineSquared(l, p)
-                             for l in np.logspace(-2, 2, 10)
-                             for p in np.logspace(0, 2, 10)]}
+                             for l in np.logspace(-2, 2, 5)
+                             for p in np.logspace(0, 2, 5)]}
 
     if variable_index == 'x1':
 
@@ -189,8 +190,7 @@ def getStructuralEquation(variable_index, scm_type):
       return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
 
 
-
-def computeCounterfactual(factual_instance, action_set, scm_type):
+def computeCounterfactualInstance(factual_instance, action_set, scm_type):
 
   structural_equations = {}
   structural_equations['x1'] = getStructuralEquation('x1', scm_type)
@@ -223,7 +223,7 @@ def computeCounterfactual(factual_instance, action_set, scm_type):
   return counterfactual_instance
 
 
-def getRandomM2Sample(factual_instance, action_set):
+def getRandomInterventionalSample(factual_instance, action_set):
   # intervening_set = {'x2'}, conditioning_set = {'x1'}):
   # TODO: we're using the SCM to get the samples for now; later we need to use conditional KDE
 
@@ -248,7 +248,6 @@ def getRandomM2Sample(factual_instance, action_set):
     intervention_value = action_set[node]
     structural_equations[node] = lambdaWrapper(intervention_value)
 
-  # ipsh()
   # generate random noise and pass in through structural_equations from the top!
   noise_variables = {}
   noise_variables['x1'] = np.random.normal(0,1)
@@ -263,27 +262,16 @@ def getRandomM2Sample(factual_instance, action_set):
   return counterfactual_instance
 
 
-# def isM0ConstraintSatisfied(factual_instance, action_set):
-#   return \
-#     getPrediction(factual_instance) != \
-#     getPrediction(computeCounterfactual(factual_instance, action_set, 'true'))
-
-
-# def isM1ConstraintSatisfied(factual_instance, action_set):
-#   return \
-#     getPrediction(factual_instance) != \
-#     getPrediction(computeCounterfactual(factual_instance, action_set, 'approx_lin'))
-
 def isPointConstraintSatisfied(factual_instance, action_set, scm_type):
-  return \
-    getPrediction(factual_instance) != \
-    getPrediction(computeCounterfactual(factual_instance, action_set, scm_type))
+  return didFlip(factual_instance, computeCounterfactualInstance(factual_instance, action_set, scm_type))
+    # getPrediction(factual_instance) != \
+    # getPrediction(computeCounterfactualInstance(factual_instance, action_set, scm_type))
 
 
-def isM2ConstraintSatisfied(factual_instance, action_set):
+def isDistrConstraintSatisfied(factual_instance, action_set):
   monte_carlo_samples = []
   for i in range(NUMBER_OF_MONTE_CARLO_SAMPLES):
-    monte_carlo_sample = getRandomM2Sample(factual_instance, action_set)
+    monte_carlo_sample = getRandomInterventionalSample(factual_instance, action_set)
     monte_carlo_samples.append(monte_carlo_sample)
 
   monte_carlo_predictions = getPredictionBatch(pd.DataFrame(monte_carlo_samples).to_numpy())
@@ -325,7 +313,6 @@ def getValidDiscretizedActionSets():
   for action_set in all_action_sets:
     valid_action_sets.append({k:v for k,v in action_set.items() if v != 'n/a'})
 
-  # ipsh()
   # # FOR TEST PURPOSES ONLY
   # valid_action_sets = [ \
   #   {'x1': 1}, \
@@ -337,54 +324,32 @@ def getValidDiscretizedActionSets():
   return valid_action_sets
 
 
-def getOptimalActionSet(factual_instance, factual_instance_idx, counterfactual_type, load_or_compute):
+# TODO: bugfix: why does m0 turn out red?
 
-  assert counterfactual_type in {'m0', 'm1', 'm2'}, f'{counterfactual_type} not recognized.'
-  assert load_or_compute in {'load', 'compute'}, f'{load_or_compute} not recognized.'
-  assert \
-    not (counterfactual_type == 'm2' and load_or_compute == 'load'), \
-    f'Cannot {counterfactual_type} counterfactuals for counterfactuals of type {counterfactual_type}.'
+def computeOptimalActionSet(factual_instance, recourse_type, scm_type):
 
-  if load_or_compute == 'load':
+  assert recourse_type in {'point', 'distr'}, f'{recourse_type} not recognized.'
 
-    if counterfactual_type == 'm0':
-      saved_mace_results_path = SAVED_MACE_RESULTS_PATH_M0
-    elif counterfactual_type == 'm1':
-      saved_mace_results_path = SAVED_MACE_RESULTS_PATH_M1
+  valid_action_sets = getValidDiscretizedActionSets()
+  print(f'\t[INFO] Computing optimal {recourse_type}-{scm_type}: grid searching over {len(valid_action_sets)} action sets...')
 
-    print(f'\t[INFO] Loading optimal action set for {counterfactual_type} from saved MINT results...', end='')
-    mace_results = pickle.load(open(saved_mace_results_path, 'rb'))
-    factual_instance_idx_mace = f'sample_{factual_instance_idx}'
-    assert \
-      factual_instance_idx_mace in mace_results.keys(), \
-      f'missing results for `{factual_instance_idx_mace}` in mace_results.'
-    print(f'\t done.')
-    return incrementIndices(mace_results[factual_instance_idx_mace]['action_set'])
+  if recourse_type == 'point':
+    constraint_handle = lambda a, b: isPointConstraintSatisfied(a, b, scm_type)
+  elif recourse_type == 'distr':
+    constraint_handle = isDistrConstraintSatisfied
 
-  elif load_or_compute == 'compute':
+  min_cost = 1e10
+  min_cost_action_set = {}
+  for action_set in tqdm(valid_action_sets):
+    if constraint_handle(factual_instance, action_set):
+      cost_of_action_set = measureActionSetCost(factual_instance, action_set, NORM_TYPE)
+      if cost_of_action_set < min_cost:
+        min_cost = cost_of_action_set
+        min_cost_action_set = action_set
 
-    valid_action_sets = getValidDiscretizedActionSets()
-    print(f'\t[INFO] Computing optimal {counterfactual_type}: grid searching over {len(valid_action_sets)} action sets...')
+  print(f'\t done.')
 
-    if counterfactual_type == 'm0':
-      constraint_handle = lambda a, b: isPointConstraintSatisfied(a, b, 'true')
-    elif counterfactual_type == 'm1':
-      constraint_handle = lambda a, b: isPointConstraintSatisfied(a, b, 'approx_nonlin')
-    elif counterfactual_type == 'm2':
-      constraint_handle = isM2ConstraintSatisfied
-
-    min_cost = 1e10
-    min_cost_action_set = {}
-    for action_set in tqdm(valid_action_sets):
-      if constraint_handle(factual_instance, action_set):
-        cost_of_action_set = measureActionSetCost(factual_instance, action_set, NORM_TYPE)
-        if cost_of_action_set < min_cost:
-          min_cost = cost_of_action_set
-          min_cost_action_set = action_set
-
-    print(f'\t done.')
-
-    return min_cost_action_set
+  return min_cost_action_set
 
 
 def scatterDecisionBoundary(ax):
@@ -416,51 +381,45 @@ def scatterDataset(X_train, X_test, y_train, y_test, ax):
 
 
 def scatterFactual(factual_instance, ax):
-  fc = factual_instance
-  ax.scatter(fc['x1'], fc['x2'], fc['x3'], marker='P', color='black', s=70)
+  ax.scatter(
+    factual_instance['x1'],
+    factual_instance['x2'],
+    factual_instance['x3'],
+    marker='P',
+    color='black',
+    s=70
+  )
 
 
-def scatterCounterfactuals(factual_instance, action_set, counterfactual_type, scm_type, marker_type, ax):
+def scatterRecourse(factual_instance, action_set, recourse_type, scm_type, marker_type, ax):
 
-  if counterfactual_type == 'm0':
+  if recourse_type == 'point':
 
-    m0 = computeCounterfactual(factual_instance, action_set, scm_type)
-    color_string = 'green' if didFlip(factual_instance, m0) else 'red'
-    ax.scatter(m0['x1'], m0['x2'], m0['x3'], marker = marker_type, color=color_string, s=70)
+    point = computeCounterfactualInstance(factual_instance, action_set, scm_type)
+    color_string = 'green' if didFlip(factual_instance, point) else 'red'
+    ax.scatter(point['x1'], point['x2'], point['x3'], marker = marker_type, color=color_string, s=70)
 
-  elif counterfactual_type == 'm1':
-
-    # TODO: do something better here... should not have to manually handle this!
-    m1 = computeCounterfactual(factual_instance, action_set, scm_type)
-    color_string = 'green' if didFlip(factual_instance, m1) else 'red'
-    ax.scatter(m1['x1'], m1['x2'], m1['x3'], marker = marker_type, color=color_string, s=70)
-
-  elif counterfactual_type == 'm2':
-    list_m2 = []
+  elif recourse_type == 'distr':
+    distr_samples = []
 
     for idx in range(100):
-      m2 = getRandomM2Sample(factual_instance, action_set)
-      list_m2.append(m2)
-      color_string = 'green' if didFlip(factual_instance, m2) else 'red'
-      ax.scatter(m2['x1'], m2['x2'], m2['x3'], marker = marker_type, color=color_string, alpha=0.1, s=30)
+      # TODO: accept # of samples of distr
+      sample = getRandomInterventionalSample(factual_instance, action_set)
+      distr_samples.append(sample)
+      color_string = 'green' if didFlip(factual_instance, sample) else 'red'
+      ax.scatter(sample['x1'], sample['x2'], sample['x3'], marker = marker_type, color=color_string, alpha=0.1, s=30)
 
-    list_m2_x1 = [elem['x1'] for elem in list_m2]
-    list_m2_x2 = [elem['x2'] for elem in list_m2]
-    list_m2_x3 = [elem['x3'] for elem in list_m2]
-
-    # TODO: choose whether to show mean / median or not.. (conflicts with above?)
-    mean_m2_instance = {
-      'x1': np.mean(list_m2_x1),
-      'x2': np.mean(list_m2_x2),
-      'x3': np.mean(list_m2_x3),
+    mean_distr_samples = {
+      'x1': np.mean([elem['x1'] for elem in distr_samples]),
+      'x2': np.mean([elem['x2'] for elem in distr_samples]),
+      'x3': np.mean([elem['x3'] for elem in distr_samples]),
     }
-    color_string = 'green' if didFlip(factual_instance, mean_m2_instance) else 'red'
-    ax.scatter(mean_m2_instance['x1'], mean_m2_instance['x2'], mean_m2_instance['x3'], marker = marker_type, color=color_string, alpha=0.5, s=70)
-    # ax.scatter(np.median(list_m2_x1), np.median(list_m2_x2), np.median(list_m2_x3), marker = 's', color='blue', alpha=0.5, s=70)
+    color_string = 'green' if didFlip(factual_instance, mean_distr_samples) else 'red'
+    ax.scatter(mean_distr_samples['x1'], mean_distr_samples['x2'], mean_distr_samples['x3'], marker = marker_type, color=color_string, alpha=0.5, s=70)
 
   else:
 
-    raise Exception(f'{counterfactual_type} not recognized.')
+    raise Exception(f'{recourse_type} not recognized.')
 
 
 def experiment1(X_train, X_test, y_train, y_test):
@@ -473,14 +432,10 @@ def experiment1(X_train, X_test, y_train, y_test):
   # action_set = {'x3': +1}
   # action_set = {'x1': +2, 'x2': +1}
 
-  oracle_counterfactual_instance = computeCounterfactual(factual_instance, action_set, 'true')
-  approx_counterfactual_instance = computeCounterfactual(factual_instance, action_set, 'approx_lin')
-  cate_counterfactual_instance = getRandomM2Sample(factual_instance, action_set)
-
   print(f'Factual instance: \t\t{factual_instance}')
-  print(f'M0 structural counterfactual: \t{oracle_counterfactual_instance}')
-  print(f'M1 structural counterfactual: \t{approx_counterfactual_instance}')
-  print(f'M2 cate counterfactual: \t{cate_counterfactual_instance}')
+  print(f'M0: \t{computeCounterfactualInstance(factual_instance, action_set, "true")}')
+  print(f'M1: \t{computeCounterfactualInstance(factual_instance, action_set, "approx_lin")}')
+  print(f'M2: \t{getRandomInterventionalSample(factual_instance, action_set)}')
 
 
 def experiment2(X_train, X_test, y_train, y_test):
@@ -506,9 +461,9 @@ def experiment2(X_train, X_test, y_train, y_test):
         idx_sample * len(action_sets) + idx_action + 1,
         projection = '3d')
       scatterFactual(factual_instance, ax)
-      scatterCounterfactuals(factual_instance, action_set, 'm0', 'true', 'o', ax)
-      scatterCounterfactuals(factual_instance, action_set, 'm1', 'approx_lin', 's', ax)
-      scatterCounterfactuals(factual_instance, action_set, 'm2', 'n/a', '^', ax)
+      scatterRecourse(factual_instance, action_set, 'point', 'true', '*', ax)
+      scatterRecourse(factual_instance, action_set, 'point', 'approx_lin', 's', ax)
+      scatterRecourse(factual_instance, action_set, 'distr', 'n/a', '^', ax)
       scatterDecisionBoundary(ax)
       ax.set_xlabel('x1')
       ax.set_ylabel('x2')
@@ -541,7 +496,7 @@ def experiment3(X_train, X_test, y_train, y_test):
     factual_instance_idx = key
     factual_instance = value
 
-    print(f'[INFO] Computing counterfactuals (M0, M1, M2) for factual instance #{index+1} / {NUM_TEST_SAMPLES} (id #{factual_instance_idx})...')
+    print(f'\n\n[INFO] Computing counterfactuals (M0, M1, M2) for factual instance #{index+1} / {NUM_TEST_SAMPLES} (id #{factual_instance_idx})...')
 
     ax = pyplot.subplot(
       NUM_PLOT_COLS,
@@ -553,14 +508,16 @@ def experiment3(X_train, X_test, y_train, y_test):
 
     scatterFactual(factual_instance, ax)
 
-    m0_optimal_action_set = getOptimalActionSet(factual_instance, factual_instance_idx, 'm0', 'compute')
-    m1_optimal_action_set = getOptimalActionSet(factual_instance, factual_instance_idx, 'm1', 'compute')
-    m2_optimal_action_set = getOptimalActionSet(factual_instance, factual_instance_idx, 'm2', 'compute')
+    m0_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'true')
+    m11_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'approx_lin')
+    m12_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'approx_nonlin')
+    m2_optimal_action_set = computeOptimalActionSet(factual_instance, 'distr', 'n/a')
 
-    scatterCounterfactuals(factual_instance, m0_optimal_action_set, 'm0', 'true', 'o', ax)
-    scatterCounterfactuals(factual_instance, m1_optimal_action_set, 'm1', 'true', 's', ax)
-    # scatterCounterfactuals(factual_instance, m1_optimal_action_set, 'm2', 'n/a', 's', ax) # how many of m2 suggested by m1 would fail
-    scatterCounterfactuals(factual_instance, m2_optimal_action_set, 'm2', 'n/a', '^', ax)
+    scatterRecourse(factual_instance, m0_optimal_action_set, 'point', 'true', '*', ax)
+    scatterRecourse(factual_instance, m11_optimal_action_set, 'point', 'true', 's', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
+    scatterRecourse(factual_instance, m12_optimal_action_set, 'point', 'true', 'D', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
+    # scatterRecourse(factual_instance, m1_optimal_action_set, 'distr', 'n/a', 's', ax) # how many of m2 suggested by m1 would fail
+    scatterRecourse(factual_instance, m2_optimal_action_set, 'distr', 'n/a', '^', ax)
 
     scatterDecisionBoundary(ax)
     ax.set_xlabel('x1')
@@ -569,7 +526,8 @@ def experiment3(X_train, X_test, y_train, y_test):
     ax.set_title(
       f'sample_{factual_instance_idx} - {prettyPrintInstance(factual_instance)}'
       f'\n m0 action set: do({prettyPrintActionSet(m0_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m0_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m1 action set: do({prettyPrintActionSet(m1_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m1_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m11 action set: do({prettyPrintActionSet(m11_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m11_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m12 action set: do({prettyPrintActionSet(m12_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m12_optimal_action_set, NORM_TYPE):.2f}'
       f'\n m2 action set: do({prettyPrintActionSet(m2_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m2_optimal_action_set, NORM_TYPE):.2f}'
     , fontsize=8, horizontalalignment='left')
     ax.view_init(elev=20, azim=-30)
@@ -583,7 +541,6 @@ def experiment3(X_train, X_test, y_train, y_test):
   # TODO: fix
   # handles, labels = ax.get_legend_handles_labels()
   # fig.legend(handles, labels, loc='upper center')
-  # ipsh()
 
   pyplot.suptitle(f'Compare M0, M1, M2 on {NUM_TEST_SAMPLES} factual samples and **optimal** action sets.', fontsize=14)
   pyplot.show()
