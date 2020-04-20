@@ -2,6 +2,7 @@ appnope==0.1.0
 backcall==0.1.0
 cycler==0.10.0
 decorator==4.4.2
+GPy==1.9.9
 ipython==7.13.0
 ipython-genutils==0.2.0
 jedi==0.16.0
@@ -10,6 +11,7 @@ kiwisolver==1.1.0
 matplotlib==3.2.1
 numpy==1.18.2
 pandas==1.0.3
+paramz==0.9.5
 parso==0.6.2
 pexpect==4.8.0
 pickleshare==0.7.5

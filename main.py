@@ -5,18 +5,16 @@ import pandas as pd
 from tqdm import tqdm
 from matplotlib import pyplot
 
+import utils
 import loadData
 import loadModel
-# from sklearn.neighbors import KernelDensity
+
 from sklearn.model_selection import GridSearchCV
-from sklearn.linear_model import Lasso
 from sklearn.linear_model import Ridge
-from sklearn.linear_model import LinearRegression
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.gaussian_process.kernels import WhiteKernel, ExpSineSquared
 
-
-from scipy import stats
+import GPy
 
 from debug import ipsh
 
@@ -34,19 +32,10 @@ LAMBDA_LCB = 1
 SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
 SAVED_MACE_RESULTS_PATH_M1 = '/Users/a6karimi/dev/recourse/_minimum_distances_m1'
 
-# See https://www.python-course.eu/python3_memoization.php
-class Memoize:
-  def __init__(self, fn):
-    self.fn = fn
-    self.memo = {}
-  def __call__(self, *args):
-    if args not in self.memo:
-      self.memo[args] = self.fn(*args)
-    return self.memo[args]
 
-@Memoize
+@utils.Memoize
 def loadDataset():
-  dataset_obj = loadData.loadDataset('random', return_one_hot = False, load_from_cache = False)
+  dataset_obj = loadData.loadDataset('random', return_one_hot = True, load_from_cache = False)
   dataset_obj.data_frame_long = dataset_obj.data_frame_long.rename(columns={'x0': 'x1', 'x1': 'x2', 'x2': 'x3'})
   dataset_obj.data_frame_kurz = dataset_obj.data_frame_kurz.rename(columns={'x0': 'x1', 'x1': 'x2', 'x2': 'x3'})
   X_train, X_test, y_train, y_test = loadData.getTrainTestData(dataset_obj, RANDOM_SEED, standardize_data = False)
@@ -121,7 +110,7 @@ def lambdaWrapper(intervention_value):
 
 
 # TODO: should have a class of defining SCM with this as a method
-@Memoize
+@utils.Memoize
 def getStructuralEquation(variable_index, scm_type):
 
   if scm_type == 'true':
@@ -164,7 +153,7 @@ def getStructuralEquation(variable_index, scm_type):
       model.fit(X_all[['x1', 'x2']], X_all[['x3']])
       return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
 
-  elif scm_type == 'approx_nonlin':
+  elif scm_type == 'approx_krr':
 
     X_train, X_test, y_train, y_test = loadDataset()
     X_all = X_train.append(X_test)
@@ -174,20 +163,74 @@ def getStructuralEquation(variable_index, scm_type):
                              for p in np.logspace(0, 2, 5)]}
 
     if variable_index == 'x1':
+      print(f'[INFO] Fitting KRR (parent: n/a; child: x1) may be very expensive, memoizing aftewards.')
 
       return lambda n1: n1
 
     elif variable_index == 'x2':
+      print(f'[INFO] Fitting KRR (parent: x1; child: x2) may be very expensive, memoizing aftewards.')
 
       model = GridSearchCV(KernelRidge(), param_grid=param_grid)
       model.fit(X_all[['x1']], X_all[['x2']])
       return lambda x1, n2: model.predict([[x1]])[0][0] + n2
 
     elif variable_index == 'x3':
+      print(f'[INFO] Fitting KRR (parent: x1, x2; child: x3) may be very expensive, memoizing aftewards.')
 
       model = GridSearchCV(KernelRidge(), param_grid=param_grid)
       model.fit(X_all[['x1', 'x2']], X_all[['x3']])
       return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
+
+
+# TODO: should not memoize this function, should memoize the GP fit, but not the sampling
+@utils.Memoize
+def getGPSample(variable_index):
+  X_train, X_test, y_train, y_test = loadDataset()
+  X_all = X_train.append(X_test)
+  X_all = X_all[:10]
+
+  if variable_index == 'x1':
+
+    return 'TODO: update'
+
+  elif variable_index == 'x2':
+
+    print(f'[INFO] Fitting GP (parent: x1; child: x2) may be very expensive, memoizing aftewards.')
+    X = X_all[['x1']].to_numpy()
+    Y = X_all[['x2']].to_numpy()
+    kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
+    model = GPy.models.GPRegression(X, Y, kernel)
+    model.optimize_restarts(parallel=True, num_restarts = 5)
+
+  elif variable_index == 'x3':
+
+    print(f'[INFO] Fitting GP (parent: x1, x2; child: x3) may be very expensive, memoizing aftewards.')
+    X = X_all[['x1', 'x2']].to_numpy()
+    Y = X_all[['x3']].to_numpy()
+    kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
+    model = GPy.models.GPRegression(X, Y, kernel)
+    model.optimize_restarts(parallel=True, num_restarts = 5)
+
+  K = kernel.K(X)
+  sigma_noise = np.array(model.Gaussian_noise.variance)
+
+  N = K.shape[0]
+  def noise_posterior_mean(K, sigma, Y):
+    S = np.linalg.inv(K + sigma * np.eye(N))
+    return sigma * np.dot(S, Y)
+
+  def noise_posterior_covariance(K, sigma):
+    S = np.linalg.inv(K + sigma * np.eye(N))
+    return  sigma * (np.eye(N) - sigma * S)
+
+  mu_post = noise_posterior_mean(K, sigma_noise, Y)
+  cov_post = noise_posterior_covariance(K, sigma_noise)
+  var_post = np.array([cov_post[i,i] for i in range(N)])
+  conf_post = 1.96 * np.sqrt(var_post)
+
+  mu_prior = np.zeros_like(mu_post)
+  var_prior = sigma_noise * np.ones_like(var_post)
+  conf_prior = 1.96 * np.sqrt(var_prior)
 
 
 def computeCounterfactualInstance(factual_instance, action_set, scm_type):
@@ -223,55 +266,83 @@ def computeCounterfactualInstance(factual_instance, action_set, scm_type):
   return counterfactual_instance
 
 
-def getRandomInterventionalSample(factual_instance, action_set):
+# TODO: naming isn't 100% accurate, in case of true SCM and HI-VAE, this function
+# returns interventional samples, but counterfactual samples for GP regression
+# Also fix naming, because we are not returning a `counterfactual_instance` per se.
+def getRandomInterventionalSample(factual_instance, action_set, scm_type):
   # intervening_set = {'x2'}, conditioning_set = {'x1'}):
-  # TODO: we're using the SCM to get the samples for now; later we need to use conditional KDE
 
-  structural_equations = {}
-  structural_equations['x1'] = getStructuralEquation('x1', 'true')
-  structural_equations['x2'] = getStructuralEquation('x2', 'true')
-  structural_equations['x3'] = getStructuralEquation('x3', 'true')
+  if scm_type == 'approx_gp':
+    pass
+    # intervening_set = set(action_set.keys())
+    # conditioning_set = set()
 
-  intervening_set = set(action_set.keys())
-  conditioning_set = set()
+    # for node in action_set.keys():
+    #   for ancestor in getAncestors(node):
+    #     conditioning_set.add(ancestor)
 
-  for node in action_set.keys():
-    for ancestor in getAncestors(node):
-      conditioning_set.add(ancestor)
+    # counterfactual_instance = {}
 
-  # intervening takes precedence over conditioning; order them accordingly
-  for node in conditioning_set:
-    intervention_value = factual_instance[node]
-    structural_equations[node] = lambdaWrapper(intervention_value)
+    # for node in conditioning_set:
+    #   counterfactual_instance[node] = factual_instance[node]
 
-  for node in intervening_set:
-    intervention_value = action_set[node]
-    structural_equations[node] = lambdaWrapper(intervention_value)
+    # for node in intervening_set:
+    #   counterfactual_instance[node] = action_set[node]
 
-  # generate random noise and pass in through structural_equations from the top!
-  noise_variables = {}
-  noise_variables['x1'] = np.random.normal(0,1)
-  noise_variables['x2'] = np.random.normal(0,1)
-  noise_variables['x3'] = np.random.normal(0,1)
+    # ipsh()
+    # # counterfactual_instance[x]  = for k,v in action_set
+    # ipsh()
 
-  counterfactual_instance = {}
-  counterfactual_instance['x1'] = structural_equations['x1'](noise_variables['x1'])
-  counterfactual_instance['x2'] = structural_equations['x2'](counterfactual_instance['x1'], noise_variables['x2'])
-  counterfactual_instance['x3'] = structural_equations['x3'](counterfactual_instance['x1'], counterfactual_instance['x2'], noise_variables['x3'])
+    # getGPSample()
+
+  elif scm_type == 'cate_true':
+
+    structural_equations = {}
+    structural_equations['x1'] = getStructuralEquation('x1', 'true')
+    structural_equations['x2'] = getStructuralEquation('x2', 'true')
+    structural_equations['x3'] = getStructuralEquation('x3', 'true')
+
+    intervening_set = set(action_set.keys())
+    conditioning_set = set()
+
+    for node in action_set.keys():
+      for ancestor in getAncestors(node):
+        conditioning_set.add(ancestor)
+
+    # intervening takes precedence over conditioning; order them accordingly
+    for node in conditioning_set:
+      intervention_value = factual_instance[node]
+      structural_equations[node] = lambdaWrapper(intervention_value)
+
+    for node in intervening_set:
+      intervention_value = action_set[node]
+      structural_equations[node] = lambdaWrapper(intervention_value)
+
+    # generate random noise and pass in through structural_equations from the top!
+    noise_variables = {}
+    noise_variables['x1'] = np.random.normal(0,1)
+    noise_variables['x2'] = np.random.normal(0,1)
+    noise_variables['x3'] = np.random.normal(0,1)
+
+    counterfactual_instance = {}
+    counterfactual_instance['x1'] = structural_equations['x1'](noise_variables['x1'])
+    counterfactual_instance['x2'] = structural_equations['x2'](counterfactual_instance['x1'], noise_variables['x2'])
+    counterfactual_instance['x3'] = structural_equations['x3'](counterfactual_instance['x1'], counterfactual_instance['x2'], noise_variables['x3'])
+
+  elif scm_type == 'cate_hivae':
+    pass
 
   return counterfactual_instance
 
 
 def isPointConstraintSatisfied(factual_instance, action_set, scm_type):
   return didFlip(factual_instance, computeCounterfactualInstance(factual_instance, action_set, scm_type))
-    # getPrediction(factual_instance) != \
-    # getPrediction(computeCounterfactualInstance(factual_instance, action_set, scm_type))
 
 
-def isDistrConstraintSatisfied(factual_instance, action_set):
+def isDistrConstraintSatisfied(factual_instance, action_set, scm_type):
   monte_carlo_samples = []
   for i in range(NUMBER_OF_MONTE_CARLO_SAMPLES):
-    monte_carlo_sample = getRandomInterventionalSample(factual_instance, action_set)
+    monte_carlo_sample = getRandomInterventionalSample(factual_instance, action_set, scm_type)
     monte_carlo_samples.append(monte_carlo_sample)
 
   monte_carlo_predictions = getPredictionBatch(pd.DataFrame(monte_carlo_samples).to_numpy())
@@ -324,24 +395,27 @@ def getValidDiscretizedActionSets():
   return valid_action_sets
 
 
-# TODO: bugfix: why does m0 turn out red?
-
 def computeOptimalActionSet(factual_instance, recourse_type, scm_type):
 
+  # TODO: add option to select computation: brute-force, using MACE/MINT, or SGD
+
   assert recourse_type in {'point', 'distr'}, f'{recourse_type} not recognized.'
+  assert scm_type in {'true', 'approx_lin', 'approx_krr', 'approx_gp', 'cate_true', 'cate_hivae'}, f'{scm_type} not recognized.'
+
+  if recourse_type == 'point':
+    assert scm_type in {'true', 'approx_lin', 'approx_krr'}, f'SCM type `{scm_type}` not recognized for recourse_type `{recourse_type}`.'
+    constraint_handle = isPointConstraintSatisfied
+  elif recourse_type == 'distr':
+    assert scm_type in {'approx_gp', 'cate_true', 'cate_hivae'}, f'SCM type `{scm_type}` not recognized for recourse_type `{recourse_type}`.'
+    constraint_handle = isDistrConstraintSatisfied
 
   valid_action_sets = getValidDiscretizedActionSets()
   print(f'\t[INFO] Computing optimal {recourse_type}-{scm_type}: grid searching over {len(valid_action_sets)} action sets...')
 
-  if recourse_type == 'point':
-    constraint_handle = lambda a, b: isPointConstraintSatisfied(a, b, scm_type)
-  elif recourse_type == 'distr':
-    constraint_handle = isDistrConstraintSatisfied
-
   min_cost = 1e10
   min_cost_action_set = {}
   for action_set in tqdm(valid_action_sets):
-    if constraint_handle(factual_instance, action_set):
+    if constraint_handle(factual_instance, action_set, scm_type):
       cost_of_action_set = measureActionSetCost(factual_instance, action_set, NORM_TYPE)
       if cost_of_action_set < min_cost:
         min_cost = cost_of_action_set
@@ -404,7 +478,7 @@ def scatterRecourse(factual_instance, action_set, recourse_type, scm_type, marke
 
     for idx in range(100):
       # TODO: accept # of samples of distr
-      sample = getRandomInterventionalSample(factual_instance, action_set)
+      sample = getRandomInterventionalSample(factual_instance, action_set, scm_type)
       distr_samples.append(sample)
       color_string = 'green' if didFlip(factual_instance, sample) else 'red'
       ax.scatter(sample['x1'], sample['x2'], sample['x3'], marker = marker_type, color=color_string, alpha=0.1, s=30)
@@ -427,15 +501,18 @@ def experiment1(X_train, X_test, y_train, y_test):
   factual_instance = X_test.iloc[0].T.to_dict()
 
   # iterative over a number of action sets and compare the three counterfactuals
-  action_set = {'x1': -3}
-  # action_set = {'x2': +1}
+  # action_set = {'x1': -3}
+  action_set = {'x2': +1}
   # action_set = {'x3': +1}
   # action_set = {'x1': +2, 'x2': +1}
 
-  print(f'Factual instance: \t\t{factual_instance}')
+  print(f'FC: \t{factual_instance}')
   print(f'M0: \t{computeCounterfactualInstance(factual_instance, action_set, "true")}')
-  print(f'M1: \t{computeCounterfactualInstance(factual_instance, action_set, "approx_lin")}')
-  print(f'M2: \t{getRandomInterventionalSample(factual_instance, action_set)}')
+  print(f'M11: \t{computeCounterfactualInstance(factual_instance, action_set, "approx_lin")}')
+  # print(f'M12: \t{computeCounterfactualInstance(factual_instance, action_set, "approx_krr")}')
+  print(f'M13: \t{getRandomInterventionalSample(factual_instance, action_set, "approx_gp")}')
+  print(f'M21: \t{getRandomInterventionalSample(factual_instance, action_set, "cate_true")}')
+  # print(f'M22: \t{getRandomInterventionalSample(factual_instance, action_set, "cate_hivae")}')
 
 
 def experiment2(X_train, X_test, y_train, y_test):
@@ -510,14 +587,18 @@ def experiment3(X_train, X_test, y_train, y_test):
 
     m0_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'true')
     m11_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'approx_lin')
-    m12_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'approx_nonlin')
-    m2_optimal_action_set = computeOptimalActionSet(factual_instance, 'distr', 'n/a')
+    m12_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'approx_krr')
+    m13_optimal_action_set = computeOptimalActionSet(factual_instance, 'distr', 'approx_gp')
+    m21_optimal_action_set = computeOptimalActionSet(factual_instance, 'distr', 'cate_true')
+    m22_optimal_action_set = computeOptimalActionSet(factual_instance, 'distr', 'cate_hivae')
 
     scatterRecourse(factual_instance, m0_optimal_action_set, 'point', 'true', '*', ax)
     scatterRecourse(factual_instance, m11_optimal_action_set, 'point', 'true', 's', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
     scatterRecourse(factual_instance, m12_optimal_action_set, 'point', 'true', 'D', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
     # scatterRecourse(factual_instance, m1_optimal_action_set, 'distr', 'n/a', 's', ax) # how many of m2 suggested by m1 would fail
-    scatterRecourse(factual_instance, m2_optimal_action_set, 'distr', 'n/a', '^', ax)
+    scatterRecourse(factual_instance, m13_optimal_action_set, 'distr', 'approx_gp', 'p', ax)
+    scatterRecourse(factual_instance, m21_optimal_action_set, 'distr', 'cate_true', '^', ax)
+    scatterRecourse(factual_instance, m22_optimal_action_set, 'distr', 'cate_hivae', 'v', ax)
 
     scatterDecisionBoundary(ax)
     ax.set_xlabel('x1')
@@ -528,7 +609,9 @@ def experiment3(X_train, X_test, y_train, y_test):
       f'\n m0 action set: do({prettyPrintActionSet(m0_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m0_optimal_action_set, NORM_TYPE):.2f}'
       f'\n m11 action set: do({prettyPrintActionSet(m11_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m11_optimal_action_set, NORM_TYPE):.2f}'
       f'\n m12 action set: do({prettyPrintActionSet(m12_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m12_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m2 action set: do({prettyPrintActionSet(m2_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m2_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m13 action set: do({prettyPrintActionSet(m13_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m13_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m21 action set: do({prettyPrintActionSet(m21_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m21_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m12 action set: do({prettyPrintActionSet(m22_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m22_optimal_action_set, NORM_TYPE):.2f}'
     , fontsize=8, horizontalalignment='left')
     ax.view_init(elev=20, azim=-30)
     print('[INFO] done.')
@@ -537,10 +620,6 @@ def experiment3(X_train, X_test, y_train, y_test):
     #   ax.view_init(30, angle)
     #   pyplot.draw()
     #   pyplot.pause(.001)
-
-  # TODO: fix
-  # handles, labels = ax.get_legend_handles_labels()
-  # fig.legend(handles, labels, loc='upper center')
 
   pyplot.suptitle(f'Compare M0, M1, M2 on {NUM_TEST_SAMPLES} factual samples and **optimal** action sets.', fontsize=14)
   pyplot.show()
@@ -568,13 +647,14 @@ if __name__ == "__main__":
 
   # only load once so shuffling order is the same
   X_train, X_test, y_train, y_test = loadDataset()
+  # TODO: create experiment folder and save model there
 
   ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
-  # experiment1(X_train, X_test, y_train, y_test)
+  experiment1(X_train, X_test, y_train, y_test)
   ''' compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets '''
   # experiment2(X_train, X_test, y_train, y_test)
   ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
-  experiment3(X_train, X_test, y_train, y_test)
+  # experiment3(X_train, X_test, y_train, y_test)
 
   # sanity check
   # visualizeDatasetAndFixedModel(X_train, X_test, y_train, y_test)
