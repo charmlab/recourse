@@ -43,7 +43,7 @@ def loadDataset():
   dataset_obj = loadData.loadDataset('random', return_one_hot = True, load_from_cache = False)
   dataset_obj.data_frame_long = dataset_obj.data_frame_long.rename(columns={'x0': 'x1', 'x1': 'x2', 'x2': 'x3'})
   dataset_obj.data_frame_kurz = dataset_obj.data_frame_kurz.rename(columns={'x0': 'x1', 'x1': 'x2', 'x2': 'x3'})
-  X_train, X_test, y_train, y_test = loadData.getTrainTestData(dataset_obj, RANDOM_SEED, standardize_data = False)
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   return X_train, X_test, y_train, y_test
 
 
@@ -488,8 +488,10 @@ def getRecourseDistributionSample(factual_instance, action_set, scm_type, num_sa
     conditioning_set = set()
 
     for node in action_set.keys():
-      for ancestor in getAncestors(node):
+      for ancestor in getAncestors(node): # TODO: this should be non-descendents
         conditioning_set.add(ancestor)
+
+    # TODO: think about and fix action_set = {'x1', 'x3'}
 
     # intervening takes precedence over conditioning; this order matters.
     for node in conditioning_set:
