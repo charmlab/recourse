@@ -3,6 +3,7 @@ venv/
 _venv/
 __pycache__/
 _tmp/
+_tmp_hivae/
 
 ### LaTeX ###
 ## Core latex/pdflatex auxiliary files:
@@ -48,3 +49,9 @@ _tmp/
 *.pdfsync
 
 _data_main/german_processed.csv
+
+
+Saved_Networks/
+Results/
+Results_csv/
+Results_test_csv/

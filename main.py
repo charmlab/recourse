@@ -1,5 +1,7 @@
 import time
 import pickle
+import pathlib
+import subprocess
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -23,10 +25,13 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
-NUM_TEST_SAMPLES = 4
+CODE_MODE = 'dev'
+# CODE_MODE = 'eval'
+
+NUM_TEST_SAMPLES = 4 if CODE_MODE == 'eval' else 1
 NORM_TYPE = 2
 GRID_SEARCH_BOUND = 2
-GRID_SEARCH_BINS = 5
+GRID_SEARCH_BINS = 5 if CODE_MODE == 'eval' else 1
 NUMBER_OF_MONTE_CARLO_SAMPLES = 100
 LAMBDA_LCB = 1
 SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
@@ -77,6 +82,15 @@ def getAncestors(node):
     return {'x1'}
   elif node == 'x3':
     return {'x1', 'x2'}
+
+# TODO: write recursively?
+def getDescendents(node):
+  if node == 'x1':
+    return {'x2', 'x3'}
+  elif node == 'x2':
+    return {'x3'}
+  elif node == 'x3':
+    return {}
 
 
 def getParents(node):
@@ -232,8 +246,141 @@ def getGPSample(variable_index):
   var_prior = sigma_noise * np.ones_like(var_post)
   conf_prior = 1.96 * np.sqrt(var_prior)
 
+  return 'TODO'
+
+
+@utils.Memoize
+def trainHIVAE():
+  print(f'[INFO] Training HI-VAE on complete data; this may be very expensive, memoizing aftewards.')
+  X_train, X_test, y_train, y_test = loadDataset()
+  X_all = X_train.append(X_test)
+  # X_all = X_train
+
+  data_train_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/data_train.csv'
+  data_types_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/data_types.csv'
+  miss_train_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/miss_train.csv'
+
+  # gen _tmp_hivae/data_train.csv
+  X_all.to_csv(data_train_path, index = False, header=False)
+
+  # gen _tmp_hivae/data_types.csv
+  # TODO: use dataset_obj
+
+  hivae_model = 'model_HIVAE_inputDropout'
+  dataset = 'random' # TODO: change
+  training_setup = f'{hivae_model}_{dataset}'
+  subprocess.run([
+    '/Users/a6karimi/dev/HI-VAE/_venv/bin/python',
+    '/Users/a6karimi/dev/HI-VAE/main_scripts.py',
+    '--model_name', f'{hivae_model}',
+    '--batch_size', '100',
+    '--epochs', '200',
+    '--data_file', f'{data_train_path}',
+    '--types_file', f'{data_types_path}',
+    '--dim_latent_z', '2',
+    '--dim_latent_y', '5',
+    '--dim_latent_s', '1',
+    '--save_file', training_setup,
+    # '--miss_file', f'{miss_train_path}',
+  ])
+
+  return True # this along with Memoize means that this function will only ever be executed once
+
+
+def sampleHIVAE(samples_df, sample_for_node):
+  # counterfactual_instance keys are the conditioning + intervening set, therefore
+  # we should create something like Missing1050_1.csv where rows are like this:
+  # 10,1
+  # 10,2
+  # 10,3
+  # 11,5
+  # 11,13
+  # 12,13
+
+  X_train, X_test, y_train, y_test = loadDataset()
+  X_all = X_train.append(X_test)
+  X_all = X_all[:10]
+  # X_all = X_test
+
+  data_test_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/data_test.csv'
+  data_types_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/data_types.csv'
+  miss_test_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/miss_test.csv'
+
+  # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  # Testing correctness of hi-vae against mean-imputation
+  # X_all.to_csv(data_test_path, index = False, header=False)
+
+  # with open(miss_test_path, 'w') as out_file:
+  #   for sample_idx in np.random.randint(0, X_all.shape[0], 50):
+  #     for feature_idx in np.random.randint(0, 3, 1):
+  #       out_file.write(f'{sample_idx+1},{feature_idx+1}\n')
+  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+  # gen _tmp_hivae/data_test.csv:
+  samples_df \
+    .fillna(1e-10) \
+    .to_csv(data_test_path, index = False, header=False)
+  # Add some data first that doesn't have missing values
+  # (I think this is needed for hi-vae test time to work)
+  X_all.to_csv(data_test_path, index = False, header=False, mode='a')
+
+  # IMPORTANT: set all columns with NaNs to missing. E.g., for x2, x3 will still
+  #            have NaNs and we want to not condition on x3 when we sample from p(x2 | x1).
+  nan_indices = np.argwhere(np.isnan(samples_df).to_numpy())
+  nan_indices += 1 # both sample_idx and feature_idx for hi-vae start indexing at 1
+  np.savetxt(miss_test_path, nan_indices, fmt="%d", delimiter=",")
+
+  hivae_model = 'model_HIVAE_inputDropout'
+  dataset = 'random' # TODO: change
+  training_setup = f'{hivae_model}_{dataset}'
+  subprocess.run([
+    '/Users/a6karimi/dev/HI-VAE/_venv/bin/python',
+    '/Users/a6karimi/dev/HI-VAE/main_scripts.py',
+    '--model_name', f'{hivae_model}',
+    '--batch_size', '1000000',
+    '--epochs', '1',
+    '--data_file', f'{data_test_path}',
+    '--types_file', f'{data_types_path}',
+    '--dim_latent_z', '2',
+    '--dim_latent_y', '5',
+    '--dim_latent_s', '1',
+    '--save_file', training_setup,
+    '--miss_file', f'{miss_test_path}',
+    '--train', '0',
+    '--restore', '1',
+  ])
+
+  # Read from wherever est_data is saved
+  reconstructed_data = pd.read_csv(
+    f'Results/{training_setup}/{training_setup}_data_reconstruction_samples.csv',
+    names = X_all.columns,
+  )
+  reconstructed_data = reconstructed_data[:samples_df.shape[0]] # remove the fixed (unimputed) samples
+  samples_df[sample_for_node] = reconstructed_data[sample_for_node]
+  return samples_df
+
+  # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  # # Testing correctness of hi-vae against mean-imputation
+  # all_reconstruct_error = []
+  # all_mean_impute_error = []
+  # for line in open(miss_test_path).readlines():
+  #   sample_idx, feature_idx = line.strip().split(',')
+  #   sample_idx = int(sample_idx) - 1
+  #   feature_idx = int(feature_idx) - 1
+  #   reconstruct_error = np.linalg.norm(X_test.iloc[sample_idx, feature_idx] - reconstructed_data.iloc[sample_idx, feature_idx])
+  #   mean_impute_error = np.linalg.norm(X_test.iloc[sample_idx, feature_idx] - np.mean(X_train.iloc[:,feature_idx]))
+  #   all_reconstruct_error.append(reconstruct_error)
+  #   all_mean_impute_error.append(mean_impute_error)
+  #   print(f'\tReconstruction Error: {reconstruct_error} vs. Mean Impute Error: {mean_impute_error}')
+
+  # print('\n' + '-'*40 + f'\nAverage Reconstruction Error: {np.mean(all_reconstruct_error)} vs. Average Mean Impute Error: {np.mean(all_mean_impute_error)}')
+  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
 
 def computeCounterfactualInstance(factual_instance, action_set, scm_type):
+
+  if not bool(action_set): # if action_set is empty, CFE = F
+    return factual_instance
 
   structural_equations = {}
   structural_equations['x1'] = getStructuralEquation('x1', scm_type)
@@ -266,11 +413,46 @@ def computeCounterfactualInstance(factual_instance, action_set, scm_type):
   return counterfactual_instance
 
 
-# TODO: naming isn't 100% accurate, in case of true SCM and HI-VAE, this function
-# returns interventional samples, but counterfactual samples for GP regression
-# Also fix naming, because we are not returning a `counterfactual_instance` per se.
-def getRandomInterventionalSample(factual_instance, action_set, scm_type):
-  # intervening_set = {'x2'}, conditioning_set = {'x1'}):
+def getRecourseDistributionSample(factual_instance, action_set, scm_type, num_samples):
+
+  # REWRITE??
+  # if not bool(action_set): # if action_set is empty, CFE = F
+  #   ipsh()
+  #   return factual_instance
+
+  intervening_set = set(action_set.keys())
+  conditioning_set = set()
+
+  for node in action_set.keys():
+    for ancestor in getAncestors(node):
+      conditioning_set.add(ancestor)
+
+  counterfactual_template = {
+    'x1': np.NaN,
+    'x2': np.NaN,
+    'x3': np.NaN,
+  }
+
+  # intervening takes precedence over conditioning; this order matters.
+  for node in conditioning_set:
+    counterfactual_template[node] = factual_instance[node]
+  for node in intervening_set:
+    counterfactual_template[node] = action_set[node]
+
+  samples_df = pd.DataFrame({
+    'x1': [counterfactual_template['x1']] * num_samples,
+    'x2': [counterfactual_template['x2']] * num_samples,
+    'x3': [counterfactual_template['x3']] * num_samples,
+  })
+
+  if not bool(action_set): # if action_set is empty, CFE = F
+    samples_df = pd.DataFrame({
+      'x1': [factual_instance['x1']] * num_samples,
+      'x2': [factual_instance['x2']] * num_samples,
+      'x3': [factual_instance['x3']] * num_samples,
+    })
+    return samples_df
+
 
   if scm_type == 'approx_gp':
     pass
@@ -283,9 +465,9 @@ def getRandomInterventionalSample(factual_instance, action_set, scm_type):
 
     # counterfactual_instance = {}
 
+    # # intervening takes precedence over conditioning; this order matters.
     # for node in conditioning_set:
     #   counterfactual_instance[node] = factual_instance[node]
-
     # for node in intervening_set:
     #   counterfactual_instance[node] = action_set[node]
 
@@ -309,30 +491,49 @@ def getRandomInterventionalSample(factual_instance, action_set, scm_type):
       for ancestor in getAncestors(node):
         conditioning_set.add(ancestor)
 
-    # intervening takes precedence over conditioning; order them accordingly
+    # intervening takes precedence over conditioning; this order matters.
     for node in conditioning_set:
-      intervention_value = factual_instance[node]
-      structural_equations[node] = lambdaWrapper(intervention_value)
-
+      conditioning_value = factual_instance[node]
+      structural_equations[node] = lambdaWrapper(conditioning_value)
     for node in intervening_set:
       intervention_value = action_set[node]
       structural_equations[node] = lambdaWrapper(intervention_value)
 
-    # generate random noise and pass in through structural_equations from the top!
-    noise_variables = {}
-    noise_variables['x1'] = np.random.normal(0,1)
-    noise_variables['x2'] = np.random.normal(0,1)
-    noise_variables['x3'] = np.random.normal(0,1)
+    # REWRITE??
 
-    counterfactual_instance = {}
-    counterfactual_instance['x1'] = structural_equations['x1'](noise_variables['x1'])
-    counterfactual_instance['x2'] = structural_equations['x2'](counterfactual_instance['x1'], noise_variables['x2'])
-    counterfactual_instance['x3'] = structural_equations['x3'](counterfactual_instance['x1'], counterfactual_instance['x2'], noise_variables['x3'])
+    for sample_idx in range(num_samples):
+      # generate random noise and pass in through structural_equations from the top!
+      noise_variables = {}
+      noise_variables['x1'] = np.random.normal(0,1)
+      noise_variables['x2'] = np.random.normal(0,1)
+      noise_variables['x3'] = np.random.normal(0,1)
+
+      counterfactual_instance = {}
+      counterfactual_instance['x1'] = structural_equations['x1'](noise_variables['x1'])
+      counterfactual_instance['x2'] = structural_equations['x2'](counterfactual_instance['x1'], noise_variables['x2'])
+      counterfactual_instance['x3'] = structural_equations['x3'](counterfactual_instance['x1'], counterfactual_instance['x2'], noise_variables['x3'])
+
+      for node in {'x1', 'x2', 'x3'}:
+        samples_df.loc[sample_idx, node] = counterfactual_instance[node]
 
   elif scm_type == 'cate_hivae':
-    pass
 
-  return counterfactual_instance
+    # TODO: run once per dataset and cache (read from cache if available)
+    # trainHIVAE()
+
+    # Simply traverse the graph in order, and populate nodes as we go! (via sampling from hi-vae)
+
+    # NOTE: at least the root node must be set, otherwise, action_set was empty
+    #       and we would have already returned...
+    assert not samples_df['x1'].isnull().values.any()
+
+    if samples_df['x2'].isnull().values.any():
+      samples_df = sampleHIVAE(samples_df, 'x2')
+
+    if samples_df['x3'].isnull().values.any():
+      samples_df = sampleHIVAE(samples_df, 'x3')
+
+  return samples_df
 
 
 def isPointConstraintSatisfied(factual_instance, action_set, scm_type):
@@ -340,12 +541,8 @@ def isPointConstraintSatisfied(factual_instance, action_set, scm_type):
 
 
 def isDistrConstraintSatisfied(factual_instance, action_set, scm_type):
-  monte_carlo_samples = []
-  for i in range(NUMBER_OF_MONTE_CARLO_SAMPLES):
-    monte_carlo_sample = getRandomInterventionalSample(factual_instance, action_set, scm_type)
-    monte_carlo_samples.append(monte_carlo_sample)
-
-  monte_carlo_predictions = getPredictionBatch(pd.DataFrame(monte_carlo_samples).to_numpy())
+  monte_carlo_samples_df = getRecourseDistributionSample(factual_instance, action_set, scm_type, NUMBER_OF_MONTE_CARLO_SAMPLES)
+  monte_carlo_predictions = getPredictionBatch(monte_carlo_samples_df.to_numpy())
 
   # IMPORTANT... WE ARE CONSIDERING {0,1} LABELS AND FACTUAL SAMPLES MAY BE OF
   # EITHER CLASS. THEREFORE, THE CONSTRAINT IS SATISFIED WHEN SIGNIFICANTLY
@@ -403,10 +600,12 @@ def computeOptimalActionSet(factual_instance, recourse_type, scm_type):
   assert scm_type in {'true', 'approx_lin', 'approx_krr', 'approx_gp', 'cate_true', 'cate_hivae'}, f'{scm_type} not recognized.'
 
   if recourse_type == 'point':
-    assert scm_type in {'true', 'approx_lin', 'approx_krr'}, f'SCM type `{scm_type}` not recognized for recourse_type `{recourse_type}`.'
+    assert scm_type in {'true', 'approx_lin', 'approx_krr'}, \
+      f'SCM type `{scm_type}` not recognized for recourse_type `{recourse_type}`.'
     constraint_handle = isPointConstraintSatisfied
   elif recourse_type == 'distr':
-    assert scm_type in {'approx_gp', 'cate_true', 'cate_hivae'}, f'SCM type `{scm_type}` not recognized for recourse_type `{recourse_type}`.'
+    assert scm_type in {'approx_gp', 'cate_true', 'cate_hivae'}, \
+      f'SCM type `{scm_type}` not recognized for recourse_type `{recourse_type}`.'
     constraint_handle = isDistrConstraintSatisfied
 
   valid_action_sets = getValidDiscretizedActionSets()
@@ -474,19 +673,17 @@ def scatterRecourse(factual_instance, action_set, recourse_type, scm_type, marke
     ax.scatter(point['x1'], point['x2'], point['x3'], marker = marker_type, color=color_string, s=70)
 
   elif recourse_type == 'distr':
-    distr_samples = []
 
-    for idx in range(100):
-      # TODO: accept # of samples of distr
-      sample = getRandomInterventionalSample(factual_instance, action_set, scm_type)
-      distr_samples.append(sample)
+    samples_df = getRecourseDistributionSample(factual_instance, action_set, scm_type, 100)
+    for sample_idx in range(samples_df.shape[0]):
+      sample = samples_df.iloc[sample_idx].to_dict()
       color_string = 'green' if didFlip(factual_instance, sample) else 'red'
       ax.scatter(sample['x1'], sample['x2'], sample['x3'], marker = marker_type, color=color_string, alpha=0.1, s=30)
 
     mean_distr_samples = {
-      'x1': np.mean([elem['x1'] for elem in distr_samples]),
-      'x2': np.mean([elem['x2'] for elem in distr_samples]),
-      'x3': np.mean([elem['x3'] for elem in distr_samples]),
+      'x1': np.mean(samples_df['x1']),
+      'x2': np.mean(samples_df['x2']),
+      'x3': np.mean(samples_df['x3']),
     }
     color_string = 'green' if didFlip(factual_instance, mean_distr_samples) else 'red'
     ax.scatter(mean_distr_samples['x1'], mean_distr_samples['x2'], mean_distr_samples['x3'], marker = marker_type, color=color_string, alpha=0.5, s=70)
@@ -501,8 +698,8 @@ def experiment1(X_train, X_test, y_train, y_test):
   factual_instance = X_test.iloc[0].T.to_dict()
 
   # iterative over a number of action sets and compare the three counterfactuals
-  # action_set = {'x1': -3}
-  action_set = {'x2': +1}
+  action_set = {'x1': -3}
+  # action_set = {'x2': +1}
   # action_set = {'x3': +1}
   # action_set = {'x1': +2, 'x2': +1}
 
@@ -510,9 +707,9 @@ def experiment1(X_train, X_test, y_train, y_test):
   print(f'M0: \t{computeCounterfactualInstance(factual_instance, action_set, "true")}')
   print(f'M11: \t{computeCounterfactualInstance(factual_instance, action_set, "approx_lin")}')
   # print(f'M12: \t{computeCounterfactualInstance(factual_instance, action_set, "approx_krr")}')
-  print(f'M13: \t{getRandomInterventionalSample(factual_instance, action_set, "approx_gp")}')
-  print(f'M21: \t{getRandomInterventionalSample(factual_instance, action_set, "cate_true")}')
-  # print(f'M22: \t{getRandomInterventionalSample(factual_instance, action_set, "cate_hivae")}')
+  # print(f'M13: \t{getRecourseDistributionSample(factual_instance, action_set, "approx_gp", 1).iloc[0].to_dict()}')
+  print(f'M21: \t{getRecourseDistributionSample(factual_instance, action_set, "cate_true", 1).iloc[0].to_dict()}')
+  print(f'M22: \t{getRecourseDistributionSample(factual_instance, action_set, "cate_hivae", 1).iloc[0].to_dict()}')
 
 
 def experiment2(X_train, X_test, y_train, y_test):
@@ -587,16 +784,16 @@ def experiment3(X_train, X_test, y_train, y_test):
 
     m0_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'true')
     m11_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'approx_lin')
-    m12_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'approx_krr')
-    m13_optimal_action_set = computeOptimalActionSet(factual_instance, 'distr', 'approx_gp')
+    # m12_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'approx_krr')
+    # m13_optimal_action_set = computeOptimalActionSet(factual_instance, 'distr', 'approx_gp')
     m21_optimal_action_set = computeOptimalActionSet(factual_instance, 'distr', 'cate_true')
     m22_optimal_action_set = computeOptimalActionSet(factual_instance, 'distr', 'cate_hivae')
 
     scatterRecourse(factual_instance, m0_optimal_action_set, 'point', 'true', '*', ax)
     scatterRecourse(factual_instance, m11_optimal_action_set, 'point', 'true', 's', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
-    scatterRecourse(factual_instance, m12_optimal_action_set, 'point', 'true', 'D', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
+    # scatterRecourse(factual_instance, m12_optimal_action_set, 'point', 'true', 'D', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
     # scatterRecourse(factual_instance, m1_optimal_action_set, 'distr', 'n/a', 's', ax) # how many of m2 suggested by m1 would fail
-    scatterRecourse(factual_instance, m13_optimal_action_set, 'distr', 'approx_gp', 'p', ax)
+    # scatterRecourse(factual_instance, m13_optimal_action_set, 'distr', 'approx_gp', 'p', ax)
     scatterRecourse(factual_instance, m21_optimal_action_set, 'distr', 'cate_true', '^', ax)
     scatterRecourse(factual_instance, m22_optimal_action_set, 'distr', 'cate_hivae', 'v', ax)
 
@@ -608,10 +805,10 @@ def experiment3(X_train, X_test, y_train, y_test):
       f'sample_{factual_instance_idx} - {prettyPrintInstance(factual_instance)}'
       f'\n m0 action set: do({prettyPrintActionSet(m0_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m0_optimal_action_set, NORM_TYPE):.2f}'
       f'\n m11 action set: do({prettyPrintActionSet(m11_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m11_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m12 action set: do({prettyPrintActionSet(m12_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m12_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m13 action set: do({prettyPrintActionSet(m13_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m13_optimal_action_set, NORM_TYPE):.2f}'
+      # f'\n m12 action set: do({prettyPrintActionSet(m12_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m12_optimal_action_set, NORM_TYPE):.2f}'
+      # f'\n m13 action set: do({prettyPrintActionSet(m13_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m13_optimal_action_set, NORM_TYPE):.2f}'
       f'\n m21 action set: do({prettyPrintActionSet(m21_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m21_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m12 action set: do({prettyPrintActionSet(m22_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m22_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m22 action set: do({prettyPrintActionSet(m22_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m22_optimal_action_set, NORM_TYPE):.2f}'
     , fontsize=8, horizontalalignment='left')
     ax.view_init(elev=20, azim=-30)
     print('[INFO] done.')
@@ -650,11 +847,11 @@ if __name__ == "__main__":
   # TODO: create experiment folder and save model there
 
   ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
-  experiment1(X_train, X_test, y_train, y_test)
+  # experiment1(X_train, X_test, y_train, y_test)
   ''' compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets '''
   # experiment2(X_train, X_test, y_train, y_test)
   ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
-  # experiment3(X_train, X_test, y_train, y_test)
+  experiment3(X_train, X_test, y_train, y_test)
 
   # sanity check
   # visualizeDatasetAndFixedModel(X_train, X_test, y_train, y_test)

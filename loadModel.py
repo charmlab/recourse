@@ -40,6 +40,7 @@ SIMPLIFY_TREES = False
 #   return np.around(input_obj, 4).astype('float32')
 
 @utils.Memoize
+# def loadModelForDataset(model_class, dataset_string, experiment_folder_name = None):
 def loadModelForDataset(model_class, dataset_string, experiment_folder_name = None):
 
   if experiment_folder_name != None:
@@ -110,7 +111,8 @@ def loadModelForDataset(model_class, dataset_string, experiment_folder_name = No
         print('\tdone.', file=log_file)
       treeUtils.saveTreeVisualization(model_trained.estimators_[tree_idx], model_class, f'tree{tree_idx}', X_test, feature_names, experiment_folder_name)
 
-  pickle.dump(model_trained, open(f'{experiment_folder_name}/_model_trained', 'wb'))
+  if experiment_folder_name:
+    pickle.dump(model_trained, open(f'{experiment_folder_name}/_model_trained', 'wb'))
   return model_trained
 
 
