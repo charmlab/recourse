@@ -7,6 +7,7 @@ import pandas as pd
 from tqdm import tqdm
 from matplotlib import pyplot
 
+from scm import CausalModel
 import utils
 import loadData
 import loadModel
@@ -54,18 +55,18 @@ def measureActionSetCost(factual_instance, action_set, norm_type):
   return np.linalg.norm(deltas, norm_type)
 
 
-def incrementIndices(tmp_dict):
-  new_dict = {}
-  for key, value in tmp_dict.items():
-    # TODO: only works for single digit x variables; use find
-    new_dict['x' + str(int(key[-1]) + 1)] = value
-  return new_dict
+# def incrementIndices(tmp_dict):
+#   new_dict = {}
+#   for key, value in tmp_dict.items():
+#     # TODO: only works for single digit x variables; use find
+#     new_dict['x' + str(int(key[-1]) + 1)] = value
+#   return new_dict
 
 
-def prettyPrintActionSet(action_set):
-  for key, value in action_set.items():
-    action_set[key] = np.around(value, 2)
-  return action_set
+def prettyPrintActionSet(instance):
+  for key, value in instance.items():
+    instance[key] = np.around(value, 2)
+  return instance
 
 
 def prettyPrintInstance(instance):
@@ -847,6 +848,15 @@ if __name__ == "__main__":
   # only load once so shuffling order is the same
   X_train, X_test, y_train, y_test = loadDataset()
   # TODO: create experiment folder and save model there
+
+  scm = CausalModel({
+    'x1': lambda         n_samples: np.random.normal(size=n_samples),
+    'x2': lambda     x1, n_samples: x1 + 1,
+    'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2),
+    'x4': lambda     x3, n_samples: x3 + 5,
+    'x5': lambda     x2, n_samples: x2 + 5,
+  })
+
 
   ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
   # experiment1(X_train, X_test, y_train, y_test)
