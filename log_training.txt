@@ -1,5 +1,0 @@
-[INFO] Training `lr` on 700 samples (%70.00 of 1,000 samples)...
-	Training accuracy: %98.86
-	Testing accuracy: %99.33
-[INFO] done.
-

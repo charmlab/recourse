@@ -1,11 +1,14 @@
+import os
 import time
 import pickle
 import pathlib
+import argparse
 import subprocess
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from matplotlib import pyplot
+from datetime import datetime
 
 from scm import CausalModel
 import utils
@@ -40,95 +43,94 @@ SAVED_MACE_RESULTS_PATH_M1 = '/Users/a6karimi/dev/recourse/_minimum_distances_m1
 
 
 @utils.Memoize
-def loadDataset():
-  dataset_obj = loadData.loadDataset('random', return_one_hot = True, load_from_cache = False)
-  dataset_obj.data_frame_long = dataset_obj.data_frame_long.rename(columns={'x0': 'x1', 'x1': 'x2', 'x2': 'x3'})
-  dataset_obj.data_frame_kurz = dataset_obj.data_frame_kurz.rename(columns={'x0': 'x1', 'x1': 'x2', 'x2': 'x3'})
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  return X_train, X_test, y_train, y_test
+def loadDataset(dataset_class):
+
+  def incrementIndices(old_indices):
+    new_indices = ['x' + str(int(index[1:]) + 1) for index in old_indices]
+    return new_indices
+
+  dataset_obj = loadData.loadDataset(dataset_class, return_one_hot = True, load_from_cache = False)
+  # only change data_frame_kurz/attributes_kurz (data_frame_long/attributes_long
+  # may contain non-numeric columns)
+  replacement_dict = dict(zip(
+    dataset_obj.getInputAttributeNames(),
+    incrementIndices(dataset_obj.getInputAttributeNames()),
+  ))
+
+  # update data_frame_kurz
+  dataset_obj.data_frame_kurz = dataset_obj.data_frame_kurz.rename(columns=replacement_dict)
+  # update attributes_kurz
+  old_keys = dataset_obj.attributes_kurz.keys()
+  new_keys = [replacement_dict[key] if key in replacement_dict.keys() else key for key in old_keys]
+  dataset_obj.attributes_kurz= dict(zip(new_keys, dataset_obj.attributes_kurz.values()))
+
+  # TODO: the above may cause problems becuase attribute become out of sync with
+  #       class methods; maybe use setter/getter??
+
+  return dataset_obj
 
 
-def measureActionSetCost(factual_instance, action_set, norm_type):
+@utils.Memoize
+def loadClassifier(dataset_class, model_class, experiment_folder_name):
+  return loadModel.loadModelForDataset(model_class, dataset_class, experiment_folder_name)
+
+
+@utils.Memoize
+def loadCausalModel(dataset_class, experiment_folder_name):
+  # raise NotImplementedError
+  scm = CausalModel({
+    'x1': lambda         n_samples: np.random.normal(size=n_samples),
+    'x2': lambda     x1, n_samples: x1 + 1,
+    'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2),
+    # 'x4': lambda     x3, n_samples: x3 + 5,
+    # 'x5': lambda     x2, n_samples: x2 + 5,
+  })
+  scm.visualizeGraph(experiment_folder_name)
+  return scm
+
+
+# TODO: the cost should be measured in normalized space over all features
+#       pass in dataset_obj to get..
+def measureActionSetCost(dataset_obj, factual_instance, action_set, norm_type):
   deltas = []
   for key in action_set.keys():
     deltas.append(action_set[key] - factual_instance[key])
   return np.linalg.norm(deltas, norm_type)
 
 
-# def incrementIndices(tmp_dict):
-#   new_dict = {}
-#   for key, value in tmp_dict.items():
-#     # TODO: only works for single digit x variables; use find
-#     new_dict['x' + str(int(key[-1]) + 1)] = value
-#   return new_dict
+def prettyPrintDict(my_dict):
+  for key, value in my_dict.items():
+    my_dict[key] = np.around(value, 2)
+  return my_dict
 
 
-def prettyPrintActionSet(instance):
-  for key, value in instance.items():
-    instance[key] = np.around(value, 2)
-  return instance
-
-
-def prettyPrintInstance(instance):
-  for key, value in instance.items():
-    instance[key] = np.around(value, 2)
-  return instance
-
-
-# TODO: write recursively?
-def getAncestors(node):
-  if node == 'x1':
-    return {}
-  elif node == 'x2':
-    return {'x1'}
-  elif node == 'x3':
-    return {'x1', 'x2'}
-
-# TODO: write recursively?
-def getDescendents(node):
-  if node == 'x1':
-    return {'x2', 'x3'}
-  elif node == 'x2':
-    return {'x3'}
-  elif node == 'x3':
-    return {}
-
-
-def getParents(node):
-  if node == 'x1':
-    return {}
-  elif node == 'x2':
-    return {'x1'}
-  elif node == 'x3':
-    return {'x1', 'x2'}
-
-
-def getPredictionBatch(instances_df):
-  sklearn_model = loadModel.loadModelForDataset('lr', 'random')
+def getPredictionBatch(dataset_obj, classifier_obj, causal_model_obj, instances_df):
+  sklearn_model = classifier_obj
   return sklearn_model.predict(instances_df)
 
 
-def getPrediction(instance):
-  sklearn_model = loadModel.loadModelForDataset('lr', 'random')
+def getPrediction(dataset_obj, classifier_obj, causal_model_obj, instance):
+  sklearn_model = classifier_obj
   prediction = sklearn_model.predict(np.array(list(instance.values())).reshape(1,-1))[0]
   assert prediction in {0, 1}, f'Expected prediction in {0,1}; got {prediction}'
   return prediction
 
 
-def didFlip(factual_instance, counterfactual_instance):
-  return getPrediction(factual_instance) != getPrediction(counterfactual_instance)
+def didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, counterfactual_instance):
+  return \
+    getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) != \
+    getPrediction(dataset_obj, classifier_obj, causal_model_obj, counterfactual_instance)
 
 
 # See https://stackoverflow.com/a/25670697
-def lambdaWrapper(intervention_value):
-  return lambda *args: intervention_value
+def lambdaWrapper(new_value):
+  return lambda *args: new_value
 
 
-# TODO: should have a class of defining SCM with this as a method
 @utils.Memoize
-def getStructuralEquation(variable_index, scm_type):
+def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, variable_index, recourse_type):
 
-  if scm_type == 'true':
+  if recourse_type == 'true':
 
     if variable_index == 'x1':
       return lambda n1: n1
@@ -137,7 +139,7 @@ def getStructuralEquation(variable_index, scm_type):
     elif variable_index == 'x3':
       return lambda x1, x2, n3: np.sqrt(3) * x1 * x2 * x2 + n3
 
-  # elif scm_type == 'approx_deprecated':
+  # elif recourse_type == 'approx_deprecated':
 
   #   if variable_index == 'x1':
   #     return lambda n1: n1
@@ -146,9 +148,9 @@ def getStructuralEquation(variable_index, scm_type):
   #   elif variable_index == 'x3':
   #     return lambda x1, x2, n3: 5.5 * x1 + 3.5 * x2 - 0.1 + n3
 
-  elif scm_type == 'approx_lin':
+  elif recourse_type == 'approx_lin':
 
-    X_train, X_test, y_train, y_test = loadDataset()
+    X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
     X_all = X_train.append(X_test)
     param_grid = {"alpha": np.linspace(0,10,11)}
 
@@ -168,9 +170,9 @@ def getStructuralEquation(variable_index, scm_type):
       model.fit(X_all[['x1', 'x2']], X_all[['x3']])
       return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
 
-  elif scm_type == 'approx_krr':
+  elif recourse_type == 'approx_krr':
 
-    X_train, X_test, y_train, y_test = loadDataset()
+    X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
     X_all = X_train.append(X_test)
     param_grid = {"alpha": [1e0, 1e-1, 1e-2, 1e-3],
                   "kernel": [ExpSineSquared(l, p)
@@ -197,63 +199,67 @@ def getStructuralEquation(variable_index, scm_type):
       return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
 
 
-# TODO: should not memoize this function, should memoize the GP fit, but not the sampling
-@utils.Memoize
-def getGPSample(variable_index):
-  X_train, X_test, y_train, y_test = loadDataset()
-  X_all = X_train.append(X_test)
-  X_all = X_all[:10]
-
-  if variable_index == 'x1':
-
-    return 'TODO: update'
-
-  elif variable_index == 'x2':
-
-    print(f'[INFO] Fitting GP (parent: x1; child: x2) may be very expensive, memoizing aftewards.')
-    X = X_all[['x1']].to_numpy()
-    Y = X_all[['x2']].to_numpy()
-    kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
-    model = GPy.models.GPRegression(X, Y, kernel)
-    model.optimize_restarts(parallel=True, num_restarts = 5)
-
-  elif variable_index == 'x3':
-
-    print(f'[INFO] Fitting GP (parent: x1, x2; child: x3) may be very expensive, memoizing aftewards.')
-    X = X_all[['x1', 'x2']].to_numpy()
-    Y = X_all[['x3']].to_numpy()
-    kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
-    model = GPy.models.GPRegression(X, Y, kernel)
-    model.optimize_restarts(parallel=True, num_restarts = 5)
-
-  K = kernel.K(X)
-  sigma_noise = np.array(model.Gaussian_noise.variance)
-
-  N = K.shape[0]
-  def noise_posterior_mean(K, sigma, Y):
-    S = np.linalg.inv(K + sigma * np.eye(N))
-    return sigma * np.dot(S, Y)
-
-  def noise_posterior_covariance(K, sigma):
-    S = np.linalg.inv(K + sigma * np.eye(N))
-    return  sigma * (np.eye(N) - sigma * S)
-
-  mu_post = noise_posterior_mean(K, sigma_noise, Y)
-  cov_post = noise_posterior_covariance(K, sigma_noise)
-  var_post = np.array([cov_post[i,i] for i in range(N)])
-  conf_post = 1.96 * np.sqrt(var_post)
-
-  mu_prior = np.zeros_like(mu_post)
-  var_prior = sigma_noise * np.ones_like(var_post)
-  conf_prior = 1.96 * np.sqrt(var_prior)
-
-  return 'TODO'
+def sampleGP(dataset_obj):
+  raise NotImplementedError
 
 
 @utils.Memoize
-def trainHIVAE():
+def trainGP(dataset_obj, variable_index):
+  raise NotImplementedError
+  # X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  # X_all = X_train.append(X_test)
+  # X_all = X_all[:10]
+
+  # if variable_index == 'x1':
+
+  #   return 'TODO: update'
+
+  # elif variable_index == 'x2':
+
+  #   print(f'[INFO] Fitting GP (parent: x1; child: x2) may be very expensive, memoizing aftewards.')
+  #   X = X_all[['x1']].to_numpy()
+  #   Y = X_all[['x2']].to_numpy()
+  #   kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
+  #   model = GPy.models.GPRegression(X, Y, kernel)
+  #   model.optimize_restarts(parallel=True, num_restarts = 5)
+
+  # elif variable_index == 'x3':
+
+  #   print(f'[INFO] Fitting GP (parent: x1, x2; child: x3) may be very expensive, memoizing aftewards.')
+  #   X = X_all[['x1', 'x2']].to_numpy()
+  #   Y = X_all[['x3']].to_numpy()
+  #   kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
+  #   model = GPy.models.GPRegression(X, Y, kernel)
+  #   model.optimize_restarts(parallel=True, num_restarts = 5)
+
+  # K = kernel.K(X)
+  # sigma_noise = np.array(model.Gaussian_noise.variance)
+
+  # N = K.shape[0]
+  # def noise_posterior_mean(K, sigma, Y):
+  #   S = np.linalg.inv(K + sigma * np.eye(N))
+  #   return sigma * np.dot(S, Y)
+
+  # def noise_posterior_covariance(K, sigma):
+  #   S = np.linalg.inv(K + sigma * np.eye(N))
+  #   return  sigma * (np.eye(N) - sigma * S)
+
+  # mu_post = noise_posterior_mean(K, sigma_noise, Y)
+  # cov_post = noise_posterior_covariance(K, sigma_noise)
+  # var_post = np.array([cov_post[i,i] for i in range(N)])
+  # conf_post = 1.96 * np.sqrt(var_post)
+
+  # mu_prior = np.zeros_like(mu_post)
+  # var_prior = sigma_noise * np.ones_like(var_post)
+  # conf_prior = 1.96 * np.sqrt(var_prior)
+
+  # return 'TODO'
+
+
+@utils.Memoize
+def trainHIVAE(dataset_obj):
   print(f'[INFO] Training HI-VAE on complete data; this may be very expensive, memoizing aftewards.')
-  X_train, X_test, y_train, y_test = loadDataset()
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   # X_all = X_train
 
@@ -268,8 +274,7 @@ def trainHIVAE():
   # TODO: use dataset_obj
 
   hivae_model = 'model_HIVAE_inputDropout'
-  dataset = 'random' # TODO: change
-  training_setup = f'{hivae_model}_{dataset}'
+  training_setup = f'{hivae_model}_{dataset_obj.dataset_name}'
   subprocess.run([
     '/Users/a6karimi/dev/HI-VAE/_venv/bin/python',
     '/Users/a6karimi/dev/HI-VAE/main_scripts.py',
@@ -288,17 +293,12 @@ def trainHIVAE():
   return True # this along with Memoize means that this function will only ever be executed once
 
 
-def sampleHIVAE(samples_df, sample_for_node):
+def sampleHIVAE(dataset_obj, samples_df, sample_for_node):
   # counterfactual_instance keys are the conditioning + intervening set, therefore
   # we should create something like Missing1050_1.csv where rows are like this:
-  # 10,1
-  # 10,2
-  # 10,3
-  # 11,5
-  # 11,13
-  # 12,13
+  # 10,1   \n   10,2   \n   10,3   \n   11,5   \n   11,13   \n   12,13
 
-  X_train, X_test, y_train, y_test = loadDataset()
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   X_all = X_all[:10]
   # X_all = X_test
@@ -332,8 +332,7 @@ def sampleHIVAE(samples_df, sample_for_node):
   np.savetxt(miss_test_path, nan_indices, fmt="%d", delimiter=",")
 
   hivae_model = 'model_HIVAE_inputDropout'
-  dataset = 'random' # TODO: change
-  training_setup = f'{hivae_model}_{dataset}'
+  training_setup = f'{hivae_model}_{dataset_obj.dataset_name}'
   subprocess.run([
     '/Users/a6karimi/dev/HI-VAE/_venv/bin/python',
     '/Users/a6karimi/dev/HI-VAE/main_scripts.py',
@@ -378,15 +377,15 @@ def sampleHIVAE(samples_df, sample_for_node):
   # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
-def computeCounterfactualInstance(factual_instance, action_set, scm_type):
+def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
 
   if not bool(action_set): # if action_set is empty, CFE = F
     return factual_instance
 
   structural_equations = {}
-  structural_equations['x1'] = getStructuralEquation('x1', scm_type)
-  structural_equations['x2'] = getStructuralEquation('x2', scm_type)
-  structural_equations['x3'] = getStructuralEquation('x3', scm_type)
+  structural_equations['x1'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x1', recourse_type)
+  structural_equations['x2'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x2', recourse_type)
+  structural_equations['x3'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x3', recourse_type)
 
   # Step 1. abduction: get value of noise variables
   # tip: pass in n* = 0 to structural_equations (lambda functions)
@@ -414,7 +413,7 @@ def computeCounterfactualInstance(factual_instance, action_set, scm_type):
   return counterfactual_instance
 
 
-def getRecourseDistributionSample(factual_instance, action_set, scm_type, num_samples):
+def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples):
 
   # REWRITE??
   # if not bool(action_set): # if action_set is empty, CFE = F
@@ -425,7 +424,7 @@ def getRecourseDistributionSample(factual_instance, action_set, scm_type, num_sa
   conditioning_set = set()
 
   for node in action_set.keys():
-    for ancestor in getAncestors(node):
+    for ancestor in causal_model_obj.getNonDescendentsForNode(node):
       conditioning_set.add(ancestor)
 
   counterfactual_template = {
@@ -455,13 +454,13 @@ def getRecourseDistributionSample(factual_instance, action_set, scm_type, num_sa
     return samples_df
 
 
-  if scm_type == 'approx_gp':
+  if recourse_type == 'approx_gp':
     pass
     # intervening_set = set(action_set.keys())
     # conditioning_set = set()
 
     # for node in action_set.keys():
-    #   for ancestor in getAncestors(node):
+    #   for ancestor in causal_model_obj.getNonDescendentsForNode(node):
     #     conditioning_set.add(ancestor)
 
     # counterfactual_instance = {}
@@ -476,20 +475,20 @@ def getRecourseDistributionSample(factual_instance, action_set, scm_type, num_sa
     # # counterfactual_instance[x]  = for k,v in action_set
     # ipsh()
 
-    # getGPSample()
+    # getGPSample(dataset_obj, )
 
-  elif scm_type == 'cate_true':
+  elif recourse_type == 'cate_true':
 
     structural_equations = {}
-    structural_equations['x1'] = getStructuralEquation('x1', 'true')
-    structural_equations['x2'] = getStructuralEquation('x2', 'true')
-    structural_equations['x3'] = getStructuralEquation('x3', 'true')
+    structural_equations['x1'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x1', 'true')
+    structural_equations['x2'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x2', 'true')
+    structural_equations['x3'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x3', 'true')
 
     intervening_set = set(action_set.keys())
     conditioning_set = set()
 
     for node in action_set.keys():
-      for ancestor in getAncestors(node): # TODO: this should be non-descendents
+      for ancestor in causal_model_obj.getNonDescendentsForNode(node):
         conditioning_set.add(ancestor)
 
     # TODO: think about and fix action_set = {'x1', 'x3'}
@@ -519,10 +518,10 @@ def getRecourseDistributionSample(factual_instance, action_set, scm_type, num_sa
       for node in {'x1', 'x2', 'x3'}:
         samples_df.loc[sample_idx, node] = counterfactual_instance[node]
 
-  elif scm_type == 'cate_hivae':
+  elif recourse_type == 'cate_hivae':
 
-    # TODO: run once per dataset and cache (read from cache if available)
-    # trainHIVAE()
+    # TODO: run once per dataset and cache/save in experiment folder? (read from cache if available)
+    # trainHIVAE(dataset_obj)
 
     # Simply traverse the graph in order, and populate nodes as we go! (via sampling from hi-vae)
 
@@ -531,21 +530,21 @@ def getRecourseDistributionSample(factual_instance, action_set, scm_type, num_sa
     assert not samples_df['x1'].isnull().values.any()
 
     if samples_df['x2'].isnull().values.any():
-      samples_df = sampleHIVAE(samples_df, 'x2')
+      samples_df = sampleHIVAE(dataset_obj, samples_df, 'x2')
 
     if samples_df['x3'].isnull().values.any():
-      samples_df = sampleHIVAE(samples_df, 'x3')
+      samples_df = sampleHIVAE(dataset_obj, samples_df, 'x3')
 
   return samples_df
 
 
-def isPointConstraintSatisfied(factual_instance, action_set, scm_type):
-  return didFlip(factual_instance, computeCounterfactualInstance(factual_instance, action_set, scm_type))
+def isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
+  return didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type))
 
 
-def isDistrConstraintSatisfied(factual_instance, action_set, scm_type):
-  monte_carlo_samples_df = getRecourseDistributionSample(factual_instance, action_set, scm_type, NUMBER_OF_MONTE_CARLO_SAMPLES)
-  monte_carlo_predictions = getPredictionBatch(monte_carlo_samples_df.to_numpy())
+def isDistrConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
+  monte_carlo_samples_df = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, NUMBER_OF_MONTE_CARLO_SAMPLES)
+  monte_carlo_predictions = getPredictionBatch(dataset_obj, classifier_obj, causal_model_obj, monte_carlo_samples_df.to_numpy())
 
   # IMPORTANT... WE ARE CONSIDERING {0,1} LABELS AND FACTUAL SAMPLES MAY BE OF
   # EITHER CLASS. THEREFORE, THE CONSTRAINT IS SATISFIED WHEN SIGNIFICANTLY
@@ -554,16 +553,16 @@ def isDistrConstraintSatisfied(factual_instance, action_set, scm_type):
   expectation = np.mean(monte_carlo_predictions)
   variance = np.sum(np.power(monte_carlo_predictions - expectation, 2)) / (len(monte_carlo_predictions) - 1)
 
-  if getPrediction(factual_instance) == 0:
+  if getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) == 0:
     return expectation - LAMBDA_LCB * np.sqrt(variance) > 0.5 # NOTE DIFFERNCE IN SIGN OF STD
   else: # factual_prediction == 1
     return expectation + LAMBDA_LCB * np.sqrt(variance) < 0.5 # NOTE DIFFERNCE IN SIGN OF STD
 
 
-def getValidDiscretizedActionSets():
-  x1_possible_actions = list(np.around(np.linspace(-GRID_SEARCH_BOUND, GRID_SEARCH_BOUND, GRID_SEARCH_BINS+1), 2))
-  x2_possible_actions = list(np.around(np.linspace(-GRID_SEARCH_BOUND, GRID_SEARCH_BOUND, GRID_SEARCH_BINS+1), 2))
-  x3_possible_actions = list(np.around(np.linspace(-GRID_SEARCH_BOUND, GRID_SEARCH_BOUND, GRID_SEARCH_BINS+1), 2))
+def getValidDiscretizedActionSets(dataset_obj):
+  x1_possible_actions = list(np.around(np.linspace(dataset_obj.attributes_kurz['x1'].lower_bound, dataset_obj.attributes_kurz['x1'].upper_bound, GRID_SEARCH_BINS + 1), 2))
+  x2_possible_actions = list(np.around(np.linspace(dataset_obj.attributes_kurz['x2'].lower_bound, dataset_obj.attributes_kurz['x2'].upper_bound, GRID_SEARCH_BINS + 1), 2))
+  x3_possible_actions = list(np.around(np.linspace(dataset_obj.attributes_kurz['x3'].lower_bound, dataset_obj.attributes_kurz['x3'].upper_bound, GRID_SEARCH_BINS + 1), 2))
   x1_possible_actions.append('n/a')
   x2_possible_actions.append('n/a')
   x3_possible_actions.append('n/a')
@@ -595,30 +594,25 @@ def getValidDiscretizedActionSets():
   return valid_action_sets
 
 
-def computeOptimalActionSet(factual_instance, recourse_type, scm_type):
+def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, recourse_type):
 
   # TODO: add option to select computation: brute-force, using MACE/MINT, or SGD
 
-  assert recourse_type in {'point', 'distr'}, f'{recourse_type} not recognized.'
-  assert scm_type in {'true', 'approx_lin', 'approx_krr', 'approx_gp', 'cate_true', 'cate_hivae'}, f'{scm_type} not recognized.'
-
-  if recourse_type == 'point':
-    assert scm_type in {'true', 'approx_lin', 'approx_krr'}, \
-      f'SCM type `{scm_type}` not recognized for recourse_type `{recourse_type}`.'
+  if recourse_type in {'true', 'approx_lin', 'approx_krr'}:
     constraint_handle = isPointConstraintSatisfied
-  elif recourse_type == 'distr':
-    assert scm_type in {'approx_gp', 'cate_true', 'cate_hivae'}, \
-      f'SCM type `{scm_type}` not recognized for recourse_type `{recourse_type}`.'
+  elif recourse_type in {'approx_gp', 'cate_true', 'cate_hivae'}:
     constraint_handle = isDistrConstraintSatisfied
+  else:
+    raise Exception(f'{recourse_type} not recognized.')
 
-  valid_action_sets = getValidDiscretizedActionSets()
-  print(f'\t[INFO] Computing optimal {recourse_type}-{scm_type}: grid searching over {len(valid_action_sets)} action sets...')
+  valid_action_sets = getValidDiscretizedActionSets(dataset_obj)
+  print(f'\t[INFO] Computing optimal {recourse_type}: grid searching over {len(valid_action_sets)} action sets...')
 
   min_cost = 1e10
   min_cost_action_set = {}
   for action_set in tqdm(valid_action_sets):
-    if constraint_handle(factual_instance, action_set, scm_type):
-      cost_of_action_set = measureActionSetCost(factual_instance, action_set, NORM_TYPE)
+    if constraint_handle(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
+      cost_of_action_set = measureActionSetCost(dataset_obj, factual_instance, action_set, NORM_TYPE)
       if cost_of_action_set < min_cost:
         min_cost = cost_of_action_set
         min_cost_action_set = action_set
@@ -628,8 +622,8 @@ def computeOptimalActionSet(factual_instance, recourse_type, scm_type):
   return min_cost_action_set
 
 
-def scatterDecisionBoundary(ax):
-  sklearn_model = loadModel.loadModelForDataset('lr', 'random')
+def scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax):
+  sklearn_model = classifier_obj
   fixed_model_w = sklearn_model.coef_
   fixed_model_b = sklearn_model.intercept_
 
@@ -643,7 +637,8 @@ def scatterDecisionBoundary(ax):
   surf = ax.plot_wireframe(X, Y, Z, alpha=0.3)
 
 
-def scatterDataset(X_train, X_test, y_train, y_test, ax):
+def scatterDataset(dataset_obj, ax):
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_train_numpy = X_train.to_numpy()
   X_test_numpy = X_test.to_numpy()
   y_train = y_train.to_numpy()
@@ -667,20 +662,22 @@ def scatterFactual(factual_instance, ax):
   )
 
 
-def scatterRecourse(factual_instance, action_set, recourse_type, scm_type, marker_type, ax):
+def scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, marker_type, ax):
 
-  if recourse_type == 'point':
+  if recourse_type in {'true', 'approx_lin', 'approx_krr'}:
+    # point recourse
 
-    point = computeCounterfactualInstance(factual_instance, action_set, scm_type)
-    color_string = 'green' if didFlip(factual_instance, point) else 'red'
+    point = computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type)
+    color_string = 'green' if didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, point) else 'red'
     ax.scatter(point['x1'], point['x2'], point['x3'], marker = marker_type, color=color_string, s=70)
 
-  elif recourse_type == 'distr':
+  elif recourse_type in {'approx_gp', 'cate_true', 'cate_hivae'}:
+    # distr recourse
 
-    samples_df = getRecourseDistributionSample(factual_instance, action_set, scm_type, 100)
+    samples_df = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, 100)
     for sample_idx in range(samples_df.shape[0]):
       sample = samples_df.iloc[sample_idx].to_dict()
-      color_string = 'green' if didFlip(factual_instance, sample) else 'red'
+      color_string = 'green' if didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, sample) else 'red'
       ax.scatter(sample['x1'], sample['x2'], sample['x3'], marker = marker_type, color=color_string, alpha=0.1, s=30)
 
     mean_distr_samples = {
@@ -688,7 +685,7 @@ def scatterRecourse(factual_instance, action_set, recourse_type, scm_type, marke
       'x2': np.mean(samples_df['x2']),
       'x3': np.mean(samples_df['x3']),
     }
-    color_string = 'green' if didFlip(factual_instance, mean_distr_samples) else 'red'
+    color_string = 'green' if didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, mean_distr_samples) else 'red'
     ax.scatter(mean_distr_samples['x1'], mean_distr_samples['x2'], mean_distr_samples['x3'], marker = marker_type, color=color_string, alpha=0.5, s=70)
 
   else:
@@ -696,8 +693,9 @@ def scatterRecourse(factual_instance, action_set, recourse_type, scm_type, marke
     raise Exception(f'{recourse_type} not recognized.')
 
 
-def experiment1(X_train, X_test, y_train, y_test):
+def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   factual_instance = X_test.iloc[0].T.to_dict()
 
   # iterative over a number of action sets and compare the three counterfactuals
@@ -707,17 +705,17 @@ def experiment1(X_train, X_test, y_train, y_test):
   # action_set = {'x1': +2, 'x2': +1}
 
   print(f'FC: \t{factual_instance}')
-  print(f'M0: \t{computeCounterfactualInstance(factual_instance, action_set, "true")}')
-  print(f'M11: \t{computeCounterfactualInstance(factual_instance, action_set, "approx_lin")}')
-  # print(f'M12: \t{computeCounterfactualInstance(factual_instance, action_set, "approx_krr")}')
-  # print(f'M13: \t{getRecourseDistributionSample(factual_instance, action_set, "approx_gp", 1).iloc[0].to_dict()}')
-  print(f'M21: \t{getRecourseDistributionSample(factual_instance, action_set, "cate_true", 1).iloc[0].to_dict()}')
-  print(f'M22: \t{getRecourseDistributionSample(factual_instance, action_set, "cate_hivae", 1).iloc[0].to_dict()}')
+  print(f'M0: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "true")}')
+  print(f'M11: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_lin")}')
+  # print(f'M12: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_krr")}')
+  # print(f'M13: \t{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_gp", 1).iloc[0].to_dict()}')
+  print(f'M21: \t{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "cate_true", 1).iloc[0].to_dict()}')
+  print(f'M22: \t{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "cate_hivae", 1).iloc[0].to_dict()}')
 
 
-def experiment2(X_train, X_test, y_train, y_test):
+def experiment2(dataset_obj, classifier_obj, causal_model_obj):
   ''' compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets '''
-
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   factual_instances_dict = X_test.iloc[:3].T.to_dict()
   action_sets = [ \
     {'x1': 1}, \
@@ -738,14 +736,14 @@ def experiment2(X_train, X_test, y_train, y_test):
         idx_sample * len(action_sets) + idx_action + 1,
         projection = '3d')
       scatterFactual(factual_instance, ax)
-      scatterRecourse(factual_instance, action_set, 'point', 'true', '*', ax)
-      scatterRecourse(factual_instance, action_set, 'point', 'approx_lin', 's', ax)
-      scatterRecourse(factual_instance, action_set, 'distr', 'n/a', '^', ax)
-      scatterDecisionBoundary(ax)
+      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'true', '*', ax)
+      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'approx_lin', 's', ax)
+      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'n/a', '^', ax)
+      scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
       ax.set_xlabel('x1')
       ax.set_ylabel('x2')
       ax.set_zlabel('x3')
-      ax.set_title(f'sample_{factual_instance_idx} \n do({prettyPrintActionSet(action_set)})', fontsize=8, horizontalalignment='left')
+      ax.set_title(f'sample_{factual_instance_idx} \n do({prettyPrintDict(action_set)})', fontsize=8, horizontalalignment='left')
       ax.view_init(elev=15, azim=10)
 
 
@@ -758,11 +756,12 @@ def experiment2(X_train, X_test, y_train, y_test):
   pyplot.show()
 
 
-def experiment3(X_train, X_test, y_train, y_test):
+def experiment3(dataset_obj, classifier_obj, causal_model_obj):
   ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
 
-  NUM_PLOT_ROWS = np.floor(np.sqrt(NUM_TEST_SAMPLES))
-  NUM_PLOT_COLS = np.ceil(NUM_TEST_SAMPLES / NUM_PLOT_ROWS)
+  num_plot_rows = np.floor(np.sqrt(NUM_TEST_SAMPLES))
+  num_plot_cols = np.ceil(NUM_TEST_SAMPLES / num_plot_rows)
 
   factual_instances_dict = X_test.iloc[:NUM_TEST_SAMPLES].T.to_dict()
 
@@ -776,42 +775,41 @@ def experiment3(X_train, X_test, y_train, y_test):
     print(f'\n\n[INFO] Computing counterfactuals (M0, M1, M2) for factual instance #{index+1} / {NUM_TEST_SAMPLES} (id #{factual_instance_idx})...')
 
     ax = pyplot.subplot(
-      NUM_PLOT_COLS,
-      NUM_PLOT_ROWS,
+      num_plot_cols,
+      num_plot_rows,
       idx_sample + 1,
       projection = '3d')
 
-    # scatterDataset(X_train, X_test, y_train, y_test, ax)
+    # scatterDataset(dataset_obj, ax)
 
     scatterFactual(factual_instance, ax)
 
-    m0_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'true')
-    m11_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'approx_lin')
-    # m12_optimal_action_set = computeOptimalActionSet(factual_instance, 'point', 'approx_krr')
-    # m13_optimal_action_set = computeOptimalActionSet(factual_instance, 'distr', 'approx_gp')
-    m21_optimal_action_set = computeOptimalActionSet(factual_instance, 'distr', 'cate_true')
-    m22_optimal_action_set = computeOptimalActionSet(factual_instance, 'distr', 'cate_hivae')
+    m0_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'true')
+    m11_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'approx_lin')
+    # m12_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'approx_krr')
+    # m13_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'approx_gp')
+    m21_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'cate_true')
+    m22_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'cate_hivae')
 
-    scatterRecourse(factual_instance, m0_optimal_action_set, 'point', 'true', '*', ax)
-    scatterRecourse(factual_instance, m11_optimal_action_set, 'point', 'true', 's', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
-    # scatterRecourse(factual_instance, m12_optimal_action_set, 'point', 'true', 'D', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
-    # scatterRecourse(factual_instance, m1_optimal_action_set, 'distr', 'n/a', 's', ax) # how many of m2 suggested by m1 would fail
-    # scatterRecourse(factual_instance, m13_optimal_action_set, 'distr', 'approx_gp', 'p', ax)
-    scatterRecourse(factual_instance, m21_optimal_action_set, 'distr', 'cate_true', '^', ax)
-    scatterRecourse(factual_instance, m22_optimal_action_set, 'distr', 'cate_hivae', 'v', ax)
+    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m0_optimal_action_set, 'true', '*', ax)
+    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m11_optimal_action_set, 'true', 's', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
+    # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m12_optimal_action_set, 'true', 'D', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
+    # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m13_optimal_action_set, 'approx_gp', 'p', ax)
+    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m21_optimal_action_set, 'cate_true', '^', ax)
+    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m22_optimal_action_set, 'cate_hivae', 'v', ax)
 
-    scatterDecisionBoundary(ax)
+    scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
     ax.set_xlabel('x1')
     ax.set_ylabel('x2')
     ax.set_zlabel('x3')
     ax.set_title(
-      f'sample_{factual_instance_idx} - {prettyPrintInstance(factual_instance)}'
-      f'\n m0 action set: do({prettyPrintActionSet(m0_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m0_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m11 action set: do({prettyPrintActionSet(m11_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m11_optimal_action_set, NORM_TYPE):.2f}'
-      # f'\n m12 action set: do({prettyPrintActionSet(m12_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m12_optimal_action_set, NORM_TYPE):.2f}'
-      # f'\n m13 action set: do({prettyPrintActionSet(m13_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m13_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m21 action set: do({prettyPrintActionSet(m21_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m21_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m22 action set: do({prettyPrintActionSet(m22_optimal_action_set)}); cost: {measureActionSetCost(factual_instance, m22_optimal_action_set, NORM_TYPE):.2f}'
+      f'sample_{factual_instance_idx} - {prettyPrintDict(factual_instance)}'
+      f'\n m0 action set: do({prettyPrintDict(m0_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m0_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m11 action set: do({prettyPrintDict(m11_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m11_optimal_action_set, NORM_TYPE):.2f}'
+      # f'\n m12 action set: do({prettyPrintDict(m12_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m12_optimal_action_set, NORM_TYPE):.2f}'
+      # f'\n m13 action set: do({prettyPrintDict(m13_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m13_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m21 action set: do({prettyPrintDict(m21_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m21_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m22 action set: do({prettyPrintDict(m22_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m22_optimal_action_set, NORM_TYPE):.2f}'
     , fontsize=8, horizontalalignment='left')
     ax.view_init(elev=20, azim=-30)
     print('[INFO] done.')
@@ -825,13 +823,13 @@ def experiment3(X_train, X_test, y_train, y_test):
   pyplot.show()
 
 
-def visualizeDatasetAndFixedModel(X_train, X_test, y_train, y_test):
+def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):
 
   fig = pyplot.figure()
   ax = pyplot.subplot(1, 1, 1, projection='3d')
 
-  scatterDataset(X_train, X_test, y_train, y_test, ax)
-  scatterDecisionBoundary(ax)
+  scatterDataset(dataset_obj, ax)
+  scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
 
   ax.set_xlabel('x1')
   ax.set_ylabel('x2')
@@ -845,28 +843,57 @@ def visualizeDatasetAndFixedModel(X_train, X_test, y_train, y_test):
 
 if __name__ == "__main__":
 
+  parser = argparse.ArgumentParser()
+
+  parser.add_argument(
+    '-d', '--dataset_class',
+    type = str,
+    default = 'random',
+    help = 'Name of dataset to train explanation model for: german, random, mortgage, twomoon')
+
+  parser.add_argument(
+    '-m', '--model_class',
+    type = str,
+    default = 'lr',
+      help = 'Model class that will learn data: lr, mlp')
+
+  parser.add_argument(
+    '-p', '--process_id',
+    type = str,
+    default = '0',
+    help = 'When running parallel tests on the cluster, process_id guarantees (in addition to time stamped experiment folder) that experiments do not conflict.')
+
+  # parsing the args
+  args = parser.parse_args()
+  dataset_class = args.dataset_class
+  model_class = args.model_class
+
+  if not (dataset_class in {'random', 'mortgage', 'twomoon', 'german', 'credit', 'compass', 'adult'}):
+    raise Exception(f'{dataset_class} not supported.')
+
+  if not (model_class in {'lr', 'mlp'}):
+    raise Exception(f'{model_class} not supported.')
+
+
+  setup_name = f'{dataset_class}__{model_class}'
+  experiment_folder_name = f"_experiments/{datetime.now().strftime('%Y.%m.%d_%H.%M.%S')}__{setup_name}"
+  os.mkdir(f'{experiment_folder_name}')
+
   # only load once so shuffling order is the same
-  X_train, X_test, y_train, y_test = loadDataset()
-  # TODO: create experiment folder and save model there
-
-  scm = CausalModel({
-    'x1': lambda         n_samples: np.random.normal(size=n_samples),
-    'x2': lambda     x1, n_samples: x1 + 1,
-    'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2),
-    'x4': lambda     x3, n_samples: x3 + 5,
-    'x5': lambda     x2, n_samples: x2 + 5,
-  })
-
+  dataset_obj = loadDataset(dataset_class)
+  classifier_obj = loadClassifier(dataset_class, model_class, experiment_folder_name)
+  causal_model_obj = loadCausalModel(dataset_class, experiment_folder_name)
+  # assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
   ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
-  # experiment1(X_train, X_test, y_train, y_test)
+  # experiment1(dataset_obj, classifier_obj, causal_model_obj)
   ''' compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets '''
-  # experiment2(X_train, X_test, y_train, y_test)
+  # experiment2(dataset_obj, classifier_obj, causal_model_obj)
   ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
-  experiment3(X_train, X_test, y_train, y_test)
+  experiment3(dataset_obj, classifier_obj, causal_model_obj)
 
   # sanity check
-  # visualizeDatasetAndFixedModel(X_train, X_test, y_train, y_test)
+  # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)
 
 
 

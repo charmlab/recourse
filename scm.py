@@ -24,36 +24,38 @@ class CausalModel(object):
     self.scm = StructuralCausalModel(*args)
     self.cgm = self.scm.cgm
 
+  def getTopologicalOrdering(self):
+    return nx.topological_sort(self.cgm.dag)
 
   def getChildrenForNode(self, node):
     return set(self.cgm.dag.successors(node))
 
-
   def getDescendentsForNode(self, node):
     return nx.descendants(self.cgm.dag, node)
-
 
   def getParentsForNode(self, node):
     return set(self.cgm.dag.predecessors(node))
 
-
   def getAncestorsForNode(self, node):
     return nx.ancestors(self.cgm.dag, node)
-
 
   def getNonDescendentsForNode(self, node):
     return set(nx.topological_sort(self.cgm.dag)) \
       .difference(self.getDescendentsForNode(node)) \
       .symmetric_difference(set([node]))
 
-
   def getStructuralEquationForNode(self, node):
     # self.scm.assignment[node]
     raise NotImplementedError
 
-
-  def visualizeGraph(self):
-    self.cgm.draw().render('_tmp/cgm.gv', view=True)
+  def visualizeGraph(self, experiment_folder_name = None):
+    if experiment_folder_name:
+      save_path = f'{experiment_folder_name}/causal_graph'
+      view_flag = False
+    else:
+      save_path = '_tmp/causal_graph'
+      view_flag = True
+    self.cgm.draw().render(save_path, view=view_flag)
 
 
 
