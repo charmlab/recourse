@@ -3,10 +3,12 @@ import time
 import pickle
 import pathlib
 import argparse
+import itertools
 import subprocess
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from pprint import pprint
 from matplotlib import pyplot
 from datetime import datetime
 
@@ -43,29 +45,41 @@ SAVED_MACE_RESULTS_PATH_M1 = '/Users/a6karimi/dev/recourse/_minimum_distances_m1
 
 
 @utils.Memoize
-def loadDataset(dataset_class):
+def loadDataset(dataset_class, increment_indices = True):
 
   def incrementIndices(old_indices):
     new_indices = ['x' + str(int(index[1:]) + 1) for index in old_indices]
     return new_indices
 
   dataset_obj = loadData.loadDataset(dataset_class, return_one_hot = True, load_from_cache = False)
-  # only change data_frame_kurz/attributes_kurz (data_frame_long/attributes_long
-  # may contain non-numeric columns)
-  replacement_dict = dict(zip(
-    dataset_obj.getInputAttributeNames(),
-    incrementIndices(dataset_obj.getInputAttributeNames()),
-  ))
 
-  # update data_frame_kurz
-  dataset_obj.data_frame_kurz = dataset_obj.data_frame_kurz.rename(columns=replacement_dict)
-  # update attributes_kurz
-  old_keys = dataset_obj.attributes_kurz.keys()
-  new_keys = [replacement_dict[key] if key in replacement_dict.keys() else key for key in old_keys]
-  dataset_obj.attributes_kurz= dict(zip(new_keys, dataset_obj.attributes_kurz.values()))
+  if increment_indices:
 
-  # TODO: the above may cause problems becuase attribute become out of sync with
-  #       class methods; maybe use setter/getter??
+    # only change data_frame_kurz/attributes_kurz (data_frame_long/attributes_long
+    # may contain non-numeric columns)
+    replacement_dict = dict(zip(
+      dataset_obj.getInputAttributeNames(),
+      incrementIndices(dataset_obj.getInputAttributeNames()),
+    ))
+
+    # update data_frame_kurz
+    dataset_obj.data_frame_kurz = dataset_obj.data_frame_kurz.rename(columns=replacement_dict)
+
+    # update attributes_kurz
+    old_attributes_kurz = dataset_obj.attributes_kurz
+    new_attributes_kurz = {}
+
+    for old_key, old_value in old_attributes_kurz.items():
+      if old_key in replacement_dict.keys():
+        new_key = replacement_dict[old_key]
+        new_value = old_value
+        new_value.attr_name_kurz = replacement_dict[old_key]
+      else:
+        new_key = old_key
+        new_value = old_value
+      new_attributes_kurz[new_key] = new_value
+
+    dataset_obj.attributes_kurz = new_attributes_kurz
 
   return dataset_obj
 
@@ -77,14 +91,18 @@ def loadClassifier(dataset_class, model_class, experiment_folder_name):
 
 @utils.Memoize
 def loadCausalModel(dataset_class, experiment_folder_name):
-  # raise NotImplementedError
   scm = CausalModel({
     'x1': lambda         n_samples: np.random.normal(size=n_samples),
     'x2': lambda     x1, n_samples: x1 + 1,
     'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2),
-    # 'x4': lambda     x3, n_samples: x3 + 5,
-    # 'x5': lambda     x2, n_samples: x2 + 5,
   })
+  # scm = CausalModel({
+  #   'x1': lambda         n_samples: np.random.normal(size=n_samples),
+  #   'x2': lambda     x1, n_samples: x1 + 1,
+  #   'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2),
+  #   'x4': lambda     x3, n_samples: x3 + 5,
+  #   'x5': lambda x2, x4, n_samples: x2 + 5 * x4,
+  # })
   scm.visualizeGraph(experiment_folder_name)
   return scm
 
@@ -267,10 +285,10 @@ def trainHIVAE(dataset_obj):
   data_types_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/data_types.csv'
   miss_train_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/miss_train.csv'
 
-  # gen _tmp_hivae/data_train.csv
+  # generate _tmp_hivae/data_train.csv
   X_all.to_csv(data_train_path, index = False, header=False)
 
-  # gen _tmp_hivae/data_types.csv
+  # generate _tmp_hivae/data_types.csv
   # TODO: use dataset_obj
 
   hivae_model = 'model_HIVAE_inputDropout'
@@ -288,13 +306,14 @@ def trainHIVAE(dataset_obj):
     '--dim_latent_s', '1',
     '--save_file', training_setup,
     # '--miss_file', f'{miss_train_path}',
+    '--debug_flag', '0',
   ])
 
   return True # this along with Memoize means that this function will only ever be executed once
 
 
-def sampleHIVAE(dataset_obj, samples_df, sample_for_node):
-  # counterfactual_instance keys are the conditioning + intervening set, therefore
+def sampleHIVAE(dataset_obj, samples_df, node, parents):
+  # counterfactual_instance keys are the conditioning + intervention set, therefore
   # we should create something like Missing1050_1.csv where rows are like this:
   # 10,1   \n   10,2   \n   10,3   \n   11,5   \n   11,13   \n   12,13
 
@@ -317,18 +336,18 @@ def sampleHIVAE(dataset_obj, samples_df, sample_for_node):
   #       out_file.write(f'{sample_idx+1},{feature_idx+1}\n')
   # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-  # gen _tmp_hivae/data_test.csv:
+  # generate _tmp_hivae/data_test.csv:
   samples_df \
     .fillna(1e-10) \
     .to_csv(data_test_path, index = False, header=False)
-  # Add some data first that doesn't have missing values
-  # (I think this is needed for hi-vae test time to work)
+  # Add some data after adding missing values (needed for hi-vae test time to work)
   X_all.to_csv(data_test_path, index = False, header=False, mode='a')
 
-  # IMPORTANT: set all columns with NaNs to missing. E.g., for x2, x3 will still
-  #            have NaNs and we want to not condition on x3 when we sample from p(x2 | x1).
-  nan_indices = np.argwhere(np.isnan(samples_df).to_numpy())
-  nan_indices += 1 # both sample_idx and feature_idx for hi-vae start indexing at 1
+  # To sample from p(x_i | pa_i), all columns other than pa_i should be missing
+  col_indices = [samples_df.columns.get_loc(col) for col in set.difference(set(samples_df.columns), parents)]
+  row_indices = range(samples_df.shape[0])
+  nan_indices = list(itertools.product(row_indices, col_indices))
+  nan_indices = [(coord[0]+1, coord[1]+1) for coord in nan_indices]
   np.savetxt(miss_test_path, nan_indices, fmt="%d", delimiter=",")
 
   hivae_model = 'model_HIVAE_inputDropout'
@@ -348,6 +367,7 @@ def sampleHIVAE(dataset_obj, samples_df, sample_for_node):
     '--miss_file', f'{miss_test_path}',
     '--train', '0',
     '--restore', '1',
+    '--debug_flag', '0',
   ])
 
   # Read from wherever est_data is saved
@@ -356,7 +376,7 @@ def sampleHIVAE(dataset_obj, samples_df, sample_for_node):
     names = X_all.columns,
   )
   reconstructed_data = reconstructed_data[:samples_df.shape[0]] # remove the fixed (unimputed) samples
-  samples_df[sample_for_node] = reconstructed_data[sample_for_node]
+  samples_df[node] = reconstructed_data[node]
   return samples_df
 
   # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -415,60 +435,57 @@ def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj,
 
 def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples):
 
-  # REWRITE??
-  # if not bool(action_set): # if action_set is empty, CFE = F
-  #   ipsh()
-  #   return factual_instance
+  if not bool(action_set): # if action_set is empty, CFE = F
+    return pd.DataFrame(dict(zip(
+      dataset_obj.getInputAttributeNames(),
+      [num_samples * [factual_instance[node]] for node in dataset_obj.getInputAttributeNames()],
+    )))
 
-  intervening_set = set(action_set.keys())
-  conditioning_set = set()
+  counterfactual_template = dict.fromkeys(
+    dataset_obj.getInputAttributeNames(),
+    np.NaN,
+  )
 
-  for node in action_set.keys():
-    for ancestor in causal_model_obj.getNonDescendentsForNode(node):
-      conditioning_set.add(ancestor)
+  # get intervention and conditioning sets
+  intervention_set = set(action_set.keys())
 
-  counterfactual_template = {
-    'x1': np.NaN,
-    'x2': np.NaN,
-    'x3': np.NaN,
-  }
+  # intersection_of_non_descendents_of_intervened_upon_variables
+  conditioning_set = set.intersection(*
+  [
+    causal_model_obj.getNonDescendentsForNode(node)
+    for node in intervention_set
+  ])
 
-  # intervening takes precedence over conditioning; this order matters.
+  # assert there is no intersection
+  assert set.intersection(intervention_set, conditioning_set) == set()
+
+  # set values in intervention and conditioning sets
   for node in conditioning_set:
     counterfactual_template[node] = factual_instance[node]
-  for node in intervening_set:
+
+  for node in intervention_set:
     counterfactual_template[node] = action_set[node]
 
-  samples_df = pd.DataFrame({
-    'x1': [counterfactual_template['x1']] * num_samples,
-    'x2': [counterfactual_template['x2']] * num_samples,
-    'x3': [counterfactual_template['x3']] * num_samples,
-  })
-
-  if not bool(action_set): # if action_set is empty, CFE = F
-    samples_df = pd.DataFrame({
-      'x1': [factual_instance['x1']] * num_samples,
-      'x2': [factual_instance['x2']] * num_samples,
-      'x3': [factual_instance['x3']] * num_samples,
-    })
-    return samples_df
-
+  samples_df = pd.DataFrame(dict(zip(
+    dataset_obj.getInputAttributeNames(),
+    [num_samples * [counterfactual_template[node]] for node in dataset_obj.getInputAttributeNames()],
+  )))
 
   if recourse_type == 'approx_gp':
     pass
-    # intervening_set = set(action_set.keys())
+    # intervention_set = set(action_set.keys())
     # conditioning_set = set()
 
     # for node in action_set.keys():
-    #   for ancestor in causal_model_obj.getNonDescendentsForNode(node):
-    #     conditioning_set.add(ancestor)
+    #   for non_descendent in causal_model_obj.getNonDescendentsForNode(node):
+    #     conditioning_set.add(non_descendent)
 
     # counterfactual_instance = {}
 
-    # # intervening takes precedence over conditioning; this order matters.
+    # # intervention takes precedence over conditioning; this order matters.
     # for node in conditioning_set:
     #   counterfactual_instance[node] = factual_instance[node]
-    # for node in intervening_set:
+    # for node in intervention_set:
     #   counterfactual_instance[node] = action_set[node]
 
     # ipsh()
@@ -484,20 +501,18 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
     structural_equations['x2'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x2', 'true')
     structural_equations['x3'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x3', 'true')
 
-    intervening_set = set(action_set.keys())
+    intervention_set = set(action_set.keys())
     conditioning_set = set()
 
     for node in action_set.keys():
-      for ancestor in causal_model_obj.getNonDescendentsForNode(node):
-        conditioning_set.add(ancestor)
+      for non_descendent in causal_model_obj.getNonDescendentsForNode(node):
+        conditioning_set.add(non_descendent)
 
-    # TODO: think about and fix action_set = {'x1', 'x3'}
-
-    # intervening takes precedence over conditioning; this order matters.
+    # intervention takes precedence over conditioning; this order matters.
     for node in conditioning_set:
       conditioning_value = factual_instance[node]
       structural_equations[node] = lambdaWrapper(conditioning_value)
-    for node in intervening_set:
+    for node in intervention_set:
       intervention_value = action_set[node]
       structural_equations[node] = lambdaWrapper(intervention_value)
 
@@ -523,17 +538,16 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
     # TODO: run once per dataset and cache/save in experiment folder? (read from cache if available)
     # trainHIVAE(dataset_obj)
 
-    # Simply traverse the graph in order, and populate nodes as we go! (via sampling from hi-vae)
-
-    # NOTE: at least the root node must be set, otherwise, action_set was empty
-    #       and we would have already returned...
-    assert not samples_df['x1'].isnull().values.any()
-
-    if samples_df['x2'].isnull().values.any():
-      samples_df = sampleHIVAE(dataset_obj, samples_df, 'x2')
-
-    if samples_df['x3'].isnull().values.any():
-      samples_df = sampleHIVAE(dataset_obj, samples_df, 'x3')
+    # Simply traverse the graph in order, and populate nodes as we go!
+    # IMPORTANT: do not use set(topo ordering); it sometimes changes ordering!
+    for node in causal_model_obj.getTopologicalOrdering():
+      # if variable value not yet set through intervention or conditioning
+      if samples_df[node].isnull().values.any():
+        parents = causal_model_obj.getParentsForNode(node)
+        # Confirm parents columns are present in samples_df
+        assert not samples_df.loc[:,list(parents)].isnull().values.any()
+        print(f'Sampling HI-VAE from p({node} | {", ".join(sorted(parents))})')
+        samples_df = sampleHIVAE(dataset_obj, samples_df, node, parents)
 
   return samples_df
 
@@ -606,7 +620,7 @@ def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factu
     raise Exception(f'{recourse_type} not recognized.')
 
   valid_action_sets = getValidDiscretizedActionSets(dataset_obj)
-  print(f'\t[INFO] Computing optimal {recourse_type}: grid searching over {len(valid_action_sets)} action sets...')
+  print(f'\t[INFO] Computing optimal `{recourse_type}`: grid searching over {len(valid_action_sets)} action sets...')
 
   min_cost = 1e10
   min_cost_action_set = {}
@@ -702,7 +716,9 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   action_set = {'x1': -3}
   # action_set = {'x2': +1}
   # action_set = {'x3': +1}
-  # action_set = {'x1': +2, 'x2': +1}
+  # action_set = {'x1': +2, 'x3': +1, 'x5': 3}
+  # action_set = {'x0': +2, 'x2': +1}
+  # action_set = {'x1': +2, 'x3': +1}
 
   print(f'FC: \t{factual_instance}')
   print(f'M0: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "true")}')
@@ -710,7 +726,7 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   # print(f'M12: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_krr")}')
   # print(f'M13: \t{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_gp", 1).iloc[0].to_dict()}')
   print(f'M21: \t{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "cate_true", 1).iloc[0].to_dict()}')
-  print(f'M22: \t{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "cate_hivae", 1).iloc[0].to_dict()}')
+  print(f'M22: \t{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "cate_hivae", 10).iloc[0].to_dict()}')
 
 
 def experiment2(dataset_obj, classifier_obj, causal_model_obj):
@@ -745,7 +761,6 @@ def experiment2(dataset_obj, classifier_obj, causal_model_obj):
       ax.set_zlabel('x3')
       ax.set_title(f'sample_{factual_instance_idx} \n do({prettyPrintDict(action_set)})', fontsize=8, horizontalalignment='left')
       ax.view_init(elev=15, azim=10)
-
 
       # for angle in range(0, 360):
       #   ax.view_init(30, angle)
@@ -883,13 +898,10 @@ if __name__ == "__main__":
   dataset_obj = loadDataset(dataset_class)
   classifier_obj = loadClassifier(dataset_class, model_class, experiment_folder_name)
   causal_model_obj = loadCausalModel(dataset_class, experiment_folder_name)
-  # assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
+  assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
-  ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
   # experiment1(dataset_obj, classifier_obj, causal_model_obj)
-  ''' compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets '''
   # experiment2(dataset_obj, classifier_obj, causal_model_obj)
-  ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
   experiment3(dataset_obj, classifier_obj, causal_model_obj)
 
   # sanity check
