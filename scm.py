@@ -33,8 +33,9 @@ class CausalModel(object):
   def getDescendentsForNode(self, node):
     return nx.descendants(self.cgm.dag, node)
 
-  def getParentsForNode(self, node):
-    return set(self.cgm.dag.predecessors(node))
+  def getParentsForNode(self, node, return_sorted = True):
+    tmp = set(self.cgm.dag.predecessors(node))
+    return sorted(tmp) if return_sorted else tmp
 
   def getAncestorsForNode(self, node):
     return nx.ancestors(self.cgm.dag, node)

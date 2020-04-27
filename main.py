@@ -36,8 +36,7 @@ CODE_MODE = 'dev'
 
 NUM_TEST_SAMPLES = 4 if CODE_MODE == 'eval' else 1
 NORM_TYPE = 2
-GRID_SEARCH_BOUND = 2
-GRID_SEARCH_BINS = 5 if CODE_MODE == 'eval' else 1
+GRID_SEARCH_BINS = 5 if CODE_MODE == 'eval' else 5
 NUMBER_OF_MONTE_CARLO_SAMPLES = 100
 LAMBDA_LCB = 1
 SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
@@ -93,8 +92,8 @@ def loadClassifier(dataset_class, model_class, experiment_folder_name):
 def loadCausalModel(dataset_class, experiment_folder_name):
   scm = CausalModel({
     'x1': lambda         n_samples: np.random.normal(size=n_samples),
-    'x2': lambda     x1, n_samples: x1 + 1,
-    'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2),
+    'x2': lambda     x1, n_samples: x1 + 1 + np.random.normal(size=n_samples),
+    'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
   })
   # scm = CausalModel({
   #   'x1': lambda         n_samples: np.random.normal(size=n_samples),
@@ -107,9 +106,9 @@ def loadCausalModel(dataset_class, experiment_folder_name):
   return scm
 
 
-# TODO: the cost should be measured in normalized space over all features
-#       pass in dataset_obj to get..
 def measureActionSetCost(dataset_obj, factual_instance, action_set, norm_type):
+  # TODO: the cost should be measured in normalized space over all features
+  #       pass in dataset_obj to get..
   deltas = []
   for key in action_set.keys():
     deltas.append(action_set[key] - factual_instance[key])
@@ -146,24 +145,24 @@ def lambdaWrapper(new_value):
 
 
 @utils.Memoize
-def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, variable_index, recourse_type):
+def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, recourse_type):
 
   if recourse_type == 'true':
 
-    if variable_index == 'x1':
+    if node == 'x1':
       return lambda n1: n1
-    elif variable_index == 'x2':
+    elif node == 'x2':
       return lambda x1, n2: x1 + 1 + n2
-    elif variable_index == 'x3':
+    elif node == 'x3':
       return lambda x1, x2, n3: np.sqrt(3) * x1 * x2 * x2 + n3
 
   # elif recourse_type == 'approx_deprecated':
 
-  #   if variable_index == 'x1':
+  #   if node == 'x1':
   #     return lambda n1: n1
-  #   elif variable_index == 'x2':
+  #   elif node == 'x2':
   #     return lambda x1, n2: 1 * x1 + 1 + n2
-  #   elif variable_index == 'x3':
+  #   elif node == 'x3':
   #     return lambda x1, x2, n3: 5.5 * x1 + 3.5 * x2 - 0.1 + n3
 
   elif recourse_type == 'approx_lin':
@@ -172,17 +171,17 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, variabl
     X_all = X_train.append(X_test)
     param_grid = {"alpha": np.linspace(0,10,11)}
 
-    if variable_index == 'x1':
+    if node == 'x1':
 
       return lambda n1: n1
 
-    elif variable_index == 'x2':
+    elif node == 'x2':
 
       model = GridSearchCV(Ridge(), param_grid=param_grid)
       model.fit(X_all[['x1']], X_all[['x2']])
       return lambda x1, n2: model.predict([[x1]])[0][0] + n2
 
-    elif variable_index == 'x3':
+    elif node == 'x3':
 
       model = GridSearchCV(Ridge(), param_grid=param_grid)
       model.fit(X_all[['x1', 'x2']], X_all[['x3']])
@@ -197,19 +196,19 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, variabl
                              for l in np.logspace(-2, 2, 5)
                              for p in np.logspace(0, 2, 5)]}
 
-    if variable_index == 'x1':
+    if node == 'x1':
       print(f'[INFO] Fitting KRR (parent: n/a; child: x1) may be very expensive, memoizing aftewards.')
 
       return lambda n1: n1
 
-    elif variable_index == 'x2':
+    elif node == 'x2':
       print(f'[INFO] Fitting KRR (parent: x1; child: x2) may be very expensive, memoizing aftewards.')
 
       model = GridSearchCV(KernelRidge(), param_grid=param_grid)
       model.fit(X_all[['x1']], X_all[['x2']])
       return lambda x1, n2: model.predict([[x1]])[0][0] + n2
 
-    elif variable_index == 'x3':
+    elif node == 'x3':
       print(f'[INFO] Fitting KRR (parent: x1, x2; child: x3) may be very expensive, memoizing aftewards.')
 
       model = GridSearchCV(KernelRidge(), param_grid=param_grid)
@@ -222,17 +221,17 @@ def sampleGP(dataset_obj):
 
 
 @utils.Memoize
-def trainGP(dataset_obj, variable_index):
+def trainGP(dataset_obj, node):
   raise NotImplementedError
   # X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   # X_all = X_train.append(X_test)
   # X_all = X_all[:10]
 
-  # if variable_index == 'x1':
+  # if node == 'x1':
 
   #   return 'TODO: update'
 
-  # elif variable_index == 'x2':
+  # elif node == 'x2':
 
   #   print(f'[INFO] Fitting GP (parent: x1; child: x2) may be very expensive, memoizing aftewards.')
   #   X = X_all[['x1']].to_numpy()
@@ -241,7 +240,7 @@ def trainGP(dataset_obj, variable_index):
   #   model = GPy.models.GPRegression(X, Y, kernel)
   #   model.optimize_restarts(parallel=True, num_restarts = 5)
 
-  # elif variable_index == 'x3':
+  # elif node == 'x3':
 
   #   print(f'[INFO] Fitting GP (parent: x1, x2; child: x3) may be very expensive, memoizing aftewards.')
   #   X = X_all[['x1', 'x2']].to_numpy()
@@ -402,35 +401,87 @@ def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj,
   if not bool(action_set): # if action_set is empty, CFE = F
     return factual_instance
 
-  structural_equations = {}
-  structural_equations['x1'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x1', recourse_type)
-  structural_equations['x2'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x2', recourse_type)
-  structural_equations['x3'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x3', recourse_type)
+
+  structural_equations_new = dict(zip(factual_instance.keys(), [
+    getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, recourse_type)
+    for node in factual_instance.keys()
+  ]))
 
   # Step 1. abduction: get value of noise variables
   # tip: pass in n* = 0 to structural_equations (lambda functions)
-  noise_variables = {}
-  noise_variables['x1'] = factual_instance['x1'] - structural_equations['x1'](0)
-  noise_variables['x2'] = factual_instance['x2'] - structural_equations['x2'](factual_instance['x1'], 0)
-  noise_variables['x3'] = factual_instance['x3'] - structural_equations['x3'](factual_instance['x1'], factual_instance['x2'], 0)
+  noise_variables_new = dict(zip(factual_instance.keys(), [
+    factual_instance[node] - structural_equations_new[node](
+      *[factual_instance[node] for node in causal_model_obj.getParentsForNode(node)],
+      0,
+    )
+    for node in factual_instance.keys()
+  ]))
 
   # Step 2. action: update structural equations
   for key, value in action_set.items():
     node = key
     intervention_value = value
-    structural_equations[node] = lambdaWrapper(intervention_value)
+    structural_equations_new[node] = lambdaWrapper(intervention_value)
     # *args is used to allow for ignoring arguments that may be passed into this
     # function (consider, for example, an intervention on x2 which then requires
     # no inputs to call the second structural equation function, but we still pass
     # in the arugments a few lines down)
 
   # Step 3. prediction: compute counterfactual values starting from root node
-  counterfactual_instance = {}
-  counterfactual_instance['x1'] = structural_equations['x1'](noise_variables['x1'])
-  counterfactual_instance['x2'] = structural_equations['x2'](counterfactual_instance['x1'], noise_variables['x2'])
-  counterfactual_instance['x3'] = structural_equations['x3'](counterfactual_instance['x1'], counterfactual_instance['x2'], noise_variables['x3'])
+  # CANNOT USE THE COMMENTED CODE BELOW; BECAUSE CF VALUES FOR X_i DEPENDs ON CF
+  # VALUES OF PA_i, WHICH IS NOT DEFINED YET IN THE ONE-LINER
+  # counterfactual_instance_new = dict(zip(factual_instance.keys(), [
+  #   structural_equations_new[node](
+  #     *[counterfactual_instance_new[node] for node in causal_model_obj.getParentsForNode(node)],
+  #     noise_variables_new[node],
+  #   )
+  #   for node in factual_instance.keys()
+  # ]))
+  counterfactual_instance_new = {}
+  for node in factual_instance.keys():
+    counterfactual_instance_new[node] = structural_equations_new[node](
+      *[counterfactual_instance_new[node] for node in causal_model_obj.getParentsForNode(node)],
+      noise_variables_new[node],
+    )
 
-  return counterfactual_instance
+  return counterfactual_instance_new
+
+  # # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+  # structural_equations = {}
+  # structural_equations['x1'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x1', recourse_type)
+  # structural_equations['x2'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x2', recourse_type)
+  # structural_equations['x3'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x3', recourse_type)
+
+  # # Step 1. abduction: get value of noise variables
+  # # tip: pass in n* = 0 to structural_equations (lambda functions)
+  # noise_variables = {}
+  # noise_variables['x1'] = factual_instance['x1'] - structural_equations['x1'](0)
+  # noise_variables['x2'] = factual_instance['x2'] - structural_equations['x2'](factual_instance['x1'], 0)
+  # noise_variables['x3'] = factual_instance['x3'] - structural_equations['x3'](factual_instance['x1'], factual_instance['x2'], 0)
+
+  # # Step 2. action: update structural equations
+  # for key, value in action_set.items():
+  #   node = key
+  #   intervention_value = value
+  #   structural_equations[node] = lambdaWrapper(intervention_value)
+  #   # *args is used to allow for ignoring arguments that may be passed into this
+  #   # function (consider, for example, an intervention on x2 which then requires
+  #   # no inputs to call the second structural equation function, but we still pass
+  #   # in the arugments a few lines down)
+
+  # # Step 3. prediction: compute counterfactual values starting from root node
+  # counterfactual_instance = {}
+  # counterfactual_instance['x1'] = structural_equations['x1'](noise_variables['x1'])
+  # counterfactual_instance['x2'] = structural_equations['x2'](counterfactual_instance['x1'], noise_variables['x2'])
+  # counterfactual_instance['x3'] = structural_equations['x3'](counterfactual_instance['x1'], counterfactual_instance['x2'], noise_variables['x3'])
+
+  # print(counterfactual_instance)
+  # print(counterfactual_instance_new)
+
+  # return counterfactual_instance
+
+  # # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
 def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples):
@@ -450,8 +501,7 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
   intervention_set = set(action_set.keys())
 
   # intersection_of_non_descendents_of_intervened_upon_variables
-  conditioning_set = set.intersection(*
-  [
+  conditioning_set = set.intersection(*[
     causal_model_obj.getNonDescendentsForNode(node)
     for node in intervention_set
   ])
@@ -472,66 +522,24 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
   )))
 
   if recourse_type == 'approx_gp':
-    pass
-    # intervention_set = set(action_set.keys())
-    # conditioning_set = set()
-
-    # for node in action_set.keys():
-    #   for non_descendent in causal_model_obj.getNonDescendentsForNode(node):
-    #     conditioning_set.add(non_descendent)
-
-    # counterfactual_instance = {}
-
-    # # intervention takes precedence over conditioning; this order matters.
-    # for node in conditioning_set:
-    #   counterfactual_instance[node] = factual_instance[node]
-    # for node in intervention_set:
-    #   counterfactual_instance[node] = action_set[node]
-
-    # ipsh()
-    # # counterfactual_instance[x]  = for k,v in action_set
-    # ipsh()
+    raise NotImplementedError
 
     # getGPSample(dataset_obj, )
 
   elif recourse_type == 'cate_true':
 
-    structural_equations = {}
-    structural_equations['x1'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x1', 'true')
-    structural_equations['x2'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x2', 'true')
-    structural_equations['x3'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x3', 'true')
+    scm_do = causal_model_obj.scm
+    preassigned_nodes = samples_df.columns[~samples_df.isnull().all()]
+    for node in samples_df.columns[~samples_df.isnull().all()]:
+      scm_do = scm_do.do(node)
 
-    intervention_set = set(action_set.keys())
-    conditioning_set = set()
-
-    for node in action_set.keys():
-      for non_descendent in causal_model_obj.getNonDescendentsForNode(node):
-        conditioning_set.add(non_descendent)
-
-    # intervention takes precedence over conditioning; this order matters.
-    for node in conditioning_set:
-      conditioning_value = factual_instance[node]
-      structural_equations[node] = lambdaWrapper(conditioning_value)
-    for node in intervention_set:
-      intervention_value = action_set[node]
-      structural_equations[node] = lambdaWrapper(intervention_value)
-
-    # REWRITE??
-
-    for sample_idx in range(num_samples):
-      # generate random noise and pass in through structural_equations from the top!
-      noise_variables = {}
-      noise_variables['x1'] = np.random.normal(0,1)
-      noise_variables['x2'] = np.random.normal(0,1)
-      noise_variables['x3'] = np.random.normal(0,1)
-
-      counterfactual_instance = {}
-      counterfactual_instance['x1'] = structural_equations['x1'](noise_variables['x1'])
-      counterfactual_instance['x2'] = structural_equations['x2'](counterfactual_instance['x1'], noise_variables['x2'])
-      counterfactual_instance['x3'] = structural_equations['x3'](counterfactual_instance['x1'], counterfactual_instance['x2'], noise_variables['x3'])
-
-      for node in {'x1', 'x2', 'x3'}:
-        samples_df.loc[sample_idx, node] = counterfactual_instance[node]
+    samples_df = scm_do.sample(
+      n_samples = num_samples,
+      set_values = dict(zip(
+        preassigned_nodes,
+        samples_df[preassigned_nodes].T.to_numpy()
+      )),
+    )
 
   elif recourse_type == 'cate_hivae':
 
@@ -546,7 +554,7 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         parents = causal_model_obj.getParentsForNode(node)
         # Confirm parents columns are present in samples_df
         assert not samples_df.loc[:,list(parents)].isnull().values.any()
-        print(f'Sampling HI-VAE from p({node} | {", ".join(sorted(parents))})')
+        print(f'Sampling HI-VAE from p({node} | {", ".join(parents)})')
         samples_df = sampleHIVAE(dataset_obj, samples_df, node, parents)
 
   return samples_df
@@ -574,36 +582,55 @@ def isDistrConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, fa
 
 
 def getValidDiscretizedActionSets(dataset_obj):
-  x1_possible_actions = list(np.around(np.linspace(dataset_obj.attributes_kurz['x1'].lower_bound, dataset_obj.attributes_kurz['x1'].upper_bound, GRID_SEARCH_BINS + 1), 2))
-  x2_possible_actions = list(np.around(np.linspace(dataset_obj.attributes_kurz['x2'].lower_bound, dataset_obj.attributes_kurz['x2'].upper_bound, GRID_SEARCH_BINS + 1), 2))
-  x3_possible_actions = list(np.around(np.linspace(dataset_obj.attributes_kurz['x3'].lower_bound, dataset_obj.attributes_kurz['x3'].upper_bound, GRID_SEARCH_BINS + 1), 2))
-  x1_possible_actions.append('n/a')
-  x2_possible_actions.append('n/a')
-  x3_possible_actions.append('n/a')
+  # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  # # TODO: should only discretize real-values variables
+  # x1_possible_actions = list(np.around(np.linspace(dataset_obj.attributes_kurz['x1'].lower_bound, dataset_obj.attributes_kurz['x1'].upper_bound, GRID_SEARCH_BINS + 1), 2))
+  # x2_possible_actions = list(np.around(np.linspace(dataset_obj.attributes_kurz['x2'].lower_bound, dataset_obj.attributes_kurz['x2'].upper_bound, GRID_SEARCH_BINS + 1), 2))
+  # x3_possible_actions = list(np.around(np.linspace(dataset_obj.attributes_kurz['x3'].lower_bound, dataset_obj.attributes_kurz['x3'].upper_bound, GRID_SEARCH_BINS + 1), 2))
+  # x1_possible_actions.append('n/a')
+  # x2_possible_actions.append('n/a')
+  # x3_possible_actions.append('n/a')
 
-  all_action_sets = []
-  for x1_action in x1_possible_actions:
-    for x2_action in x2_possible_actions:
-      for x3_action in x3_possible_actions:
-        all_action_sets.append({
-          'x1': x1_action,
-          'x2': x2_action,
-          'x3': x3_action,
-        })
+  # all_action_sets = []
+  # for x1_action in x1_possible_actions:
+  #   for x2_action in x2_possible_actions:
+  #     for x3_action in x3_possible_actions:
+  #       all_action_sets.append({
+  #         'x1': x1_action,
+  #         'x2': x2_action,
+  #         'x3': x3_action,
+  #       })
+  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-  # go through, and for any action_set that has a value = 'n/a', remove ONLY
+  possible_actions_per_node = []
+  for node in dataset_obj.getInputAttributeNames():
+    # TODO: should only discretize real-values variables
+    tmp = list(
+      np.around(
+        np.linspace(
+          dataset_obj.attributes_kurz[node].lower_bound,
+          dataset_obj.attributes_kurz[node].upper_bound,
+          GRID_SEARCH_BINS + 1
+        ),
+      2)
+    )
+    tmp.append('n/a')
+    possible_actions_per_node.append(tmp)
+
+  all_action_tuples = list(itertools.product(
+    *possible_actions_per_node
+  ))
+
+  all_action_sets = [
+    dict(zip(dataset_obj.getInputAttributeNames(), elem))
+    for elem in all_action_tuples
+  ]
+
+  # Go through, and for any action_set that has a value = 'n/a', remove ONLY
   # THAT key, value pair, NOT THE ENTIRE action_set.
   valid_action_sets = []
   for action_set in all_action_sets:
     valid_action_sets.append({k:v for k,v in action_set.items() if v != 'n/a'})
-
-  # # FOR TEST PURPOSES ONLY
-  # valid_action_sets = [ \
-  #   {'x1': 1}, \
-  #   {'x2': 1}, \
-  #   {'x3': 1}, \
-  # ]
-  # valid_action_sets = list(np.random.choice(valid_action_sets, 10))
 
   return valid_action_sets
 
@@ -637,6 +664,7 @@ def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factu
 
 
 def scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax):
+  assert len(factual_instance.keys()) == 3
   sklearn_model = classifier_obj
   fixed_model_w = sklearn_model.coef_
   fixed_model_b = sklearn_model.intercept_
@@ -652,6 +680,7 @@ def scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax):
 
 
 def scatterDataset(dataset_obj, ax):
+  assert len(factual_instance.keys()) == 3
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_train_numpy = X_train.to_numpy()
   X_test_numpy = X_test.to_numpy()
@@ -666,6 +695,7 @@ def scatterDataset(dataset_obj, ax):
 
 
 def scatterFactual(factual_instance, ax):
+  assert len(factual_instance.keys()) == 3
   ax.scatter(
     factual_instance['x1'],
     factual_instance['x2'],
@@ -677,6 +707,8 @@ def scatterFactual(factual_instance, ax):
 
 
 def scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, marker_type, ax):
+
+  assert len(factual_instance.keys()) == 3
 
   if recourse_type in {'true', 'approx_lin', 'approx_krr'}:
     # point recourse
@@ -713,20 +745,20 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   factual_instance = X_test.iloc[0].T.to_dict()
 
   # iterative over a number of action sets and compare the three counterfactuals
-  action_set = {'x1': -3}
-  # action_set = {'x2': +1}
+  # action_set = {'x1': -3}
+  action_set = {'x2': +1}
   # action_set = {'x3': +1}
   # action_set = {'x1': +2, 'x3': +1, 'x5': 3}
   # action_set = {'x0': +2, 'x2': +1}
   # action_set = {'x1': +2, 'x3': +1}
 
-  print(f'FC: \t{factual_instance}')
-  print(f'M0: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "true")}')
-  print(f'M11: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_lin")}')
-  # print(f'M12: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_krr")}')
-  # print(f'M13: \t{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_gp", 1).iloc[0].to_dict()}')
-  print(f'M21: \t{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "cate_true", 1).iloc[0].to_dict()}')
-  print(f'M22: \t{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "cate_hivae", 10).iloc[0].to_dict()}')
+  print(f'FC: \t\t{factual_instance}')
+  print(f'M0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "true")}')
+  print(f'M1_lin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_lin")}')
+  # print(f'M1_krr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_krr")}')
+  # print(f'M1_gp: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_gp", 1)}')
+  print(f'M2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "cate_true", 10)}')
+  print(f'M2_hivae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "cate_hivae", 10)}')
 
 
 def experiment2(dataset_obj, classifier_obj, causal_model_obj):
