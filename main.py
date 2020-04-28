@@ -34,7 +34,7 @@ np.random.seed(RANDOM_SEED)
 CODE_MODE = 'dev'
 # CODE_MODE = 'eval'
 
-NUM_TEST_SAMPLES = 4 if CODE_MODE == 'eval' else 1
+NUM_TEST_SAMPLES = 4 if CODE_MODE == 'eval' else 9
 NORM_TYPE = 2
 GRID_SEARCH_BINS = 5 if CODE_MODE == 'eval' else 5
 NUMBER_OF_MONTE_CARLO_SAMPLES = 100
@@ -154,7 +154,7 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
     elif node == 'x2':
       return lambda x1, n2: x1 + 1 + n2
     elif node == 'x3':
-      return lambda x1, x2, n3: np.sqrt(3) * x1 * x2 * x2 + n3
+      return lambda x1, x2, n3: np.sqrt(3) * x1 * (x2 ** 2) + n3
 
   # elif recourse_type == 'approx_deprecated':
 
@@ -288,9 +288,10 @@ def trainHIVAE(dataset_obj):
   X_all.to_csv(data_train_path, index = False, header=False)
 
   # generate _tmp_hivae/data_types.csv
-  # TODO: use dataset_obj
+  # TODO: use dataset_obj to determine data types for hivae (tf, and perhaps pytorch)
 
   hivae_model = 'model_HIVAE_inputDropout'
+  save_path = '_tmp_hivae/'
   training_setup = f'{hivae_model}_{dataset_obj.dataset_name}'
   subprocess.run([
     '/Users/a6karimi/dev/HI-VAE/_venv/bin/python',
@@ -303,6 +304,7 @@ def trainHIVAE(dataset_obj):
     '--dim_latent_z', '2',
     '--dim_latent_y', '5',
     '--dim_latent_s', '1',
+    '--save_path', save_path,
     '--save_file', training_setup,
     # '--miss_file', f'{miss_train_path}',
     '--debug_flag', '0',
@@ -318,7 +320,7 @@ def sampleHIVAE(dataset_obj, samples_df, node, parents):
 
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
-  X_all = X_all[:10]
+  # X_all = X_all[:10]
   # X_all = X_test
 
   data_test_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/data_test.csv'
@@ -350,6 +352,7 @@ def sampleHIVAE(dataset_obj, samples_df, node, parents):
   np.savetxt(miss_test_path, nan_indices, fmt="%d", delimiter=",")
 
   hivae_model = 'model_HIVAE_inputDropout'
+  save_path = '_tmp_hivae/'
   training_setup = f'{hivae_model}_{dataset_obj.dataset_name}'
   subprocess.run([
     '/Users/a6karimi/dev/HI-VAE/_venv/bin/python',
@@ -362,6 +365,7 @@ def sampleHIVAE(dataset_obj, samples_df, node, parents):
     '--dim_latent_z', '2',
     '--dim_latent_y', '5',
     '--dim_latent_s', '1',
+    '--save_path', save_path,
     '--save_file', training_setup,
     '--miss_file', f'{miss_test_path}',
     '--train', '0',
@@ -371,7 +375,7 @@ def sampleHIVAE(dataset_obj, samples_df, node, parents):
 
   # Read from wherever est_data is saved
   reconstructed_data = pd.read_csv(
-    f'Results/{training_setup}/{training_setup}_data_reconstruction_samples.csv',
+    f'_tmp_hivae/Results/{training_setup}/{training_setup}_data_reconstruction_samples.csv',
     names = X_all.columns,
   )
   reconstructed_data = reconstructed_data[:samples_df.shape[0]] # remove the fixed (unimputed) samples
@@ -544,7 +548,8 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
   elif recourse_type == 'cate_hivae':
 
     # TODO: run once per dataset and cache/save in experiment folder? (read from cache if available)
-    # trainHIVAE(dataset_obj)
+    if not os.path.exists(f'_tmp_hivae/Saved_Networks/model_HIVAE_inputDropout_{dataset_obj.dataset_name}/checkpoint'):
+      trainHIVAE(dataset_obj)
 
     # Simply traverse the graph in order, and populate nodes as we go!
     # IMPORTANT: do not use set(topo ordering); it sometimes changes ordering!
@@ -557,6 +562,10 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         print(f'Sampling HI-VAE from p({node} | {", ".join(parents)})')
         samples_df = sampleHIVAE(dataset_obj, samples_df, node, parents)
 
+
+  # IMPORTANT: if for whatever reason, the columns change order (e.g., as seen in
+  # scm_do.sample), reorder them as they are to be used as inputs to the fixed classifier
+  samples_df = samples_df[dataset_obj.data_frame_kurz.columns[1:]]
   return samples_df
 
 
@@ -814,17 +823,16 @@ def experiment3(dataset_obj, classifier_obj, causal_model_obj):
 
   fig = pyplot.figure()
 
-  for index, (key, value) in enumerate(factual_instances_dict.items()):
-    idx_sample = index
+  for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
     factual_instance_idx = key
     factual_instance = value
 
-    print(f'\n\n[INFO] Computing counterfactuals (M0, M1, M2) for factual instance #{index+1} / {NUM_TEST_SAMPLES} (id #{factual_instance_idx})...')
+    print(f'\n\n[INFO] Computing counterfactuals (M0, M1, M2) for factual instance #{enumeration_idx+1} / {NUM_TEST_SAMPLES} (id #{factual_instance_idx})...')
 
     ax = pyplot.subplot(
       num_plot_cols,
       num_plot_rows,
-      idx_sample + 1,
+      enumeration_idx + 1,
       projection = '3d')
 
     # scatterDataset(dataset_obj, ax)
@@ -868,6 +876,79 @@ def experiment3(dataset_obj, classifier_obj, causal_model_obj):
 
   pyplot.suptitle(f'Compare M0, M1, M2 on {NUM_TEST_SAMPLES} factual samples and **optimal** action sets.', fontsize=14)
   pyplot.show()
+
+
+def experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
+  ''' asserting fscores ~= for cate_true and cate_hivae '''
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+
+  num_plot_rows = np.floor(np.sqrt(NUM_TEST_SAMPLES))
+  num_plot_cols = np.ceil(NUM_TEST_SAMPLES / num_plot_rows)
+
+  factual_instances_dict = X_test.iloc[:NUM_TEST_SAMPLES].T.to_dict()
+
+  fig = pyplot.figure()
+
+  all_results = {}
+
+  for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
+    factual_instance_idx = f'sample_{key}'
+    factual_instance = value
+
+    ax = pyplot.subplot(
+      num_plot_cols,
+      num_plot_rows,
+      enumeration_idx + 1)
+
+    all_results[factual_instance_idx] = {}
+    # all_results[factual_instance_idx]['y_factual'] = getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) == 0
+    all_results[factual_instance_idx]['action_sets'] = []
+    all_results[factual_instance_idx]['cate_true_pred_mean'] = []
+    all_results[factual_instance_idx]['cate_true_pred_var'] = []
+    all_results[factual_instance_idx]['cate_true_pred_fscore'] = []
+    all_results[factual_instance_idx]['cate_hivae_pred_mean'] = []
+    all_results[factual_instance_idx]['cate_hivae_pred_var'] = []
+    all_results[factual_instance_idx]['cate_hivae_pred_fscore'] = []
+
+    valid_action_sets = getValidDiscretizedActionSets(dataset_obj)
+    for action_set in valid_action_sets:
+
+      all_results[factual_instance_idx]['action_sets'].append(str(action_set))
+
+      for recourse_type in {'cate_true', 'cate_hivae'}:
+
+        print(f'[INFO] Computing f-score for `{recourse_type}-{str(action_set)}`...')
+
+        monte_carlo_samples_df = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, NUMBER_OF_MONTE_CARLO_SAMPLES)
+        print(monte_carlo_samples_df.head())
+        monte_carlo_predictions = getPredictionBatch(dataset_obj, classifier_obj, causal_model_obj, monte_carlo_samples_df.to_numpy())
+
+        # IMPORTANT... WE ARE CONSIDERING {0,1} LABELS AND FACTUAL SAMPLES MAY BE OF
+        # EITHER CLASS. THEREFORE, THE CONSTRAINT IS SATISFIED WHEN SIGNIFICANTLY
+        # > 0.5 OR < 0.5 FOR A FACTUAL SAMPLE WITH Y = 0 OR Y = 1, RESPECTIVELY.
+
+        expectation = np.mean(monte_carlo_predictions)
+        variance = np.sum(np.power(monte_carlo_predictions - expectation, 2)) / (len(monte_carlo_predictions) - 1)
+
+        all_results[factual_instance_idx][f'{recourse_type}_pred_mean'].append(np.around(expectation, 2))
+        all_results[factual_instance_idx][f'{recourse_type}_pred_var'].append(np.around(variance, 2))
+        print(getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance))
+        if getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) == 0:
+          all_results[factual_instance_idx][f'{recourse_type}_pred_fscore'].append(expectation - LAMBDA_LCB * np.sqrt(variance)) # NOTE DIFFERNCE IN SIGN OF STD
+        else: # factual_prediction == 1
+          all_results[factual_instance_idx][f'{recourse_type}_pred_fscore'].append(expectation + LAMBDA_LCB * np.sqrt(variance)) # NOTE DIFFERNCE IN SIGN OF STD
+
+    bins = np.linspace(-1, 2, 50)
+    ax.hist(all_results[factual_instance_idx]['cate_true_pred_fscore'], bins, alpha=0.5, label='x')
+    ax.hist(all_results[factual_instance_idx]['cate_hivae_pred_fscore'], bins, alpha=0.5, label='y')
+    ax.legend(loc='upper right')
+    ax.grid()
+    ax.set_title(factual_instance_idx, fontsize=6)
+
+  fig.suptitle('comparing f-score: cate true vs. cate hivae')
+  pyplot.savefig(f'{experiment_folder_name}/comparing_cate_true_cate_hivae.png')
+
+
 
 
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):
@@ -934,7 +1015,8 @@ if __name__ == "__main__":
 
   # experiment1(dataset_obj, classifier_obj, causal_model_obj)
   # experiment2(dataset_obj, classifier_obj, causal_model_obj)
-  experiment3(dataset_obj, classifier_obj, causal_model_obj)
+  # experiment3(dataset_obj, classifier_obj, causal_model_obj)
+  experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)
