@@ -147,7 +147,7 @@ def lambdaWrapper(new_value):
 @utils.Memoize
 def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, recourse_type):
 
-  if recourse_type == 'true':
+  if recourse_type == 'm0_true':
 
     if node == 'x1':
       return lambda n1: n1
@@ -165,7 +165,7 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
   #   elif node == 'x3':
   #     return lambda x1, x2, n3: 5.5 * x1 + 3.5 * x2 - 0.1 + n3
 
-  elif recourse_type == 'approx_lin':
+  elif recourse_type == 'm1_alin':
 
     X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
     X_all = X_train.append(X_test)
@@ -187,7 +187,7 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
       model.fit(X_all[['x1', 'x2']], X_all[['x3']])
       return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
 
-  elif recourse_type == 'approx_krr':
+  elif recourse_type == 'm1_akrr':
 
     X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
     X_all = X_train.append(X_test)
@@ -525,12 +525,12 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
     [num_samples * [counterfactual_template[node]] for node in dataset_obj.getInputAttributeNames()],
   )))
 
-  if recourse_type == 'approx_gp':
+  if recourse_type == 'm1_gaus':
     raise NotImplementedError
 
     # getGPSample(dataset_obj, )
 
-  elif recourse_type == 'cate_true':
+  elif recourse_type == 'm2_true':
 
     scm_do = causal_model_obj.scm
     preassigned_nodes = samples_df.columns[~samples_df.isnull().all()]
@@ -545,7 +545,7 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
       )),
     )
 
-  elif recourse_type == 'cate_hivae':
+  elif recourse_type == 'm2_hvae':
 
     # TODO: run once per dataset and cache/save in experiment folder? (read from cache if available)
     if not os.path.exists(f'_tmp_hivae/Saved_Networks/model_HIVAE_inputDropout_{dataset_obj.dataset_name}/checkpoint'):
@@ -648,9 +648,9 @@ def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factu
 
   # TODO: add option to select computation: brute-force, using MACE/MINT, or SGD
 
-  if recourse_type in {'true', 'approx_lin', 'approx_krr'}:
+  if recourse_type in {'m0_true', 'm1_alin', 'm1_akrr'}:
     constraint_handle = isPointConstraintSatisfied
-  elif recourse_type in {'approx_gp', 'cate_true', 'cate_hivae'}:
+  elif recourse_type in {'m1_gaus', 'm2_true', 'm2_hvae'}:
     constraint_handle = isDistrConstraintSatisfied
   else:
     raise Exception(f'{recourse_type} not recognized.')
@@ -719,14 +719,14 @@ def scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_insta
 
   assert len(factual_instance.keys()) == 3
 
-  if recourse_type in {'true', 'approx_lin', 'approx_krr'}:
+  if recourse_type in {'m0_true', 'm1_alin', 'm1_akrr'}:
     # point recourse
 
     point = computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type)
     color_string = 'green' if didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, point) else 'red'
     ax.scatter(point['x1'], point['x2'], point['x3'], marker = marker_type, color=color_string, s=70)
 
-  elif recourse_type in {'approx_gp', 'cate_true', 'cate_hivae'}:
+  elif recourse_type in {'m1_gaus', 'm2_true', 'm2_hvae'}:
     # distr recourse
 
     samples_df = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, 100)
@@ -763,11 +763,11 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
 
   print(f'FC: \t\t{factual_instance}')
   print(f'M0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "true")}')
-  print(f'M1_lin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_lin")}')
-  # print(f'M1_krr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_krr")}')
-  # print(f'M1_gp: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "approx_gp", 1)}')
-  print(f'M2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "cate_true", 10)}')
-  print(f'M2_hivae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "cate_hivae", 10)}')
+  print(f'M1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
+  # print(f'M1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
+  # print(f'M1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 1)}')
+  print(f'M2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
+  print(f'M2_hvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_hvae", 10)}')
 
 
 def experiment2(dataset_obj, classifier_obj, causal_model_obj):
@@ -793,8 +793,8 @@ def experiment2(dataset_obj, classifier_obj, causal_model_obj):
         idx_sample * len(action_sets) + idx_action + 1,
         projection = '3d')
       scatterFactual(factual_instance, ax)
-      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'true', '*', ax)
-      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'approx_lin', 's', ax)
+      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm0_true', '*', ax)
+      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm1_alin', 's', ax)
       scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'n/a', '^', ax)
       scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
       ax.set_xlabel('x1')
@@ -840,19 +840,19 @@ def experiment3(dataset_obj, classifier_obj, causal_model_obj):
 
     scatterFactual(factual_instance, ax)
 
-    m0_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'true')
-    m11_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'approx_lin')
-    # m12_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'approx_krr')
-    # m13_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'approx_gp')
-    m21_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'cate_true')
-    m22_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'cate_hivae')
+    m0_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm0_true')
+    m11_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm1_alin')
+    # m12_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm1_akrr')
+    # m13_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm1_gaus')
+    m21_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm2_true')
+    m22_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm2_hvae')
 
-    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m0_optimal_action_set, 'true', '*', ax)
-    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m11_optimal_action_set, 'true', 's', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
-    # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m12_optimal_action_set, 'true', 'D', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
-    # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m13_optimal_action_set, 'approx_gp', 'p', ax)
-    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m21_optimal_action_set, 'cate_true', '^', ax)
-    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m22_optimal_action_set, 'cate_hivae', 'v', ax)
+    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m0_optimal_action_set, 'm0_true', '*', ax)
+    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m11_optimal_action_set, 'm0_true', 's', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
+    # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m12_optimal_action_set, 'm0_true', 'D', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
+    # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m13_optimal_action_set, 'm1_gaus', 'p', ax)
+    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m21_optimal_action_set, 'm2_true', '^', ax)
+    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m22_optimal_action_set, 'm2_hvae', 'v', ax)
 
     scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
     ax.set_xlabel('x1')
@@ -860,12 +860,12 @@ def experiment3(dataset_obj, classifier_obj, causal_model_obj):
     ax.set_zlabel('x3')
     ax.set_title(
       f'sample_{factual_instance_idx} - {prettyPrintDict(factual_instance)}'
-      f'\n m0 action set: do({prettyPrintDict(m0_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m0_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m11 action set: do({prettyPrintDict(m11_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m11_optimal_action_set, NORM_TYPE):.2f}'
-      # f'\n m12 action set: do({prettyPrintDict(m12_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m12_optimal_action_set, NORM_TYPE):.2f}'
-      # f'\n m13 action set: do({prettyPrintDict(m13_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m13_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m21 action set: do({prettyPrintDict(m21_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m21_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m22 action set: do({prettyPrintDict(m22_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m22_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m0_true action set: do({prettyPrintDict(m0_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m0_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m1_alin action set: do({prettyPrintDict(m11_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m11_optimal_action_set, NORM_TYPE):.2f}'
+      # f'\n m1_akrr action set: do({prettyPrintDict(m12_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m12_optimal_action_set, NORM_TYPE):.2f}'
+      # f'\n m1_gaus action set: do({prettyPrintDict(m13_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m13_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m2_true action set: do({prettyPrintDict(m21_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m21_optimal_action_set, NORM_TYPE):.2f}'
+      f'\n m2_hvae action set: do({prettyPrintDict(m22_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m22_optimal_action_set, NORM_TYPE):.2f}'
     , fontsize=8, horizontalalignment='left')
     ax.view_init(elev=20, azim=-30)
     print('[INFO] done.')
@@ -880,13 +880,13 @@ def experiment3(dataset_obj, classifier_obj, causal_model_obj):
 
 
 def experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
-  ''' asserting fscores ~= for cate_true and cate_hivae '''
+  ''' asserting fscores ~= for m2_true and m2_hvae '''
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
 
   # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
   factual_instances_dict = X_test.loc[y_test.index[y_test == 0]].iloc[:NUM_TEST_SAMPLES].T.to_dict()
 
-  all_results = {}
+  per_instance_results = {}
 
   for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
     factual_instance_idx = f'sample_{key}'
@@ -894,23 +894,23 @@ def experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
     print(f'\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
 
-    all_results[factual_instance_idx] = {}
-    all_results[factual_instance_idx]['action_sets'] = []
-    all_results[factual_instance_idx]['cate_true_pred_mean'] = []
-    all_results[factual_instance_idx]['cate_true_pred_var'] = []
-    all_results[factual_instance_idx]['cate_true_pred_fscore'] = []
-    all_results[factual_instance_idx]['cate_hivae_pred_mean'] = []
-    all_results[factual_instance_idx]['cate_hivae_pred_var'] = []
-    all_results[factual_instance_idx]['cate_hivae_pred_fscore'] = []
+    per_instance_results[factual_instance_idx] = {}
+    per_instance_results[factual_instance_idx]['action_sets'] = []
+    per_instance_results[factual_instance_idx]['cate_true_pred_mean'] = []
+    per_instance_results[factual_instance_idx]['cate_true_pred_var'] = []
+    per_instance_results[factual_instance_idx]['cate_true_pred_fscore'] = []
+    per_instance_results[factual_instance_idx]['cate_hivae_pred_mean'] = []
+    per_instance_results[factual_instance_idx]['cate_hivae_pred_var'] = []
+    per_instance_results[factual_instance_idx]['cate_hivae_pred_fscore'] = []
 
     valid_action_sets = getValidDiscretizedActionSets(dataset_obj)
     for action_set_idx, action_set in enumerate(valid_action_sets):
 
       print(f'\t[INFO] Processing action set `{str(action_set)}` (#{action_set_idx + 1} / {len(valid_action_sets)})...')
 
-      all_results[factual_instance_idx]['action_sets'].append(str(action_set))
+      per_instance_results[factual_instance_idx]['action_sets'].append(str(action_set))
 
-      for recourse_type in {'cate_true', 'cate_hivae'}:
+      for recourse_type in {'m2_true', 'm2_hvae'}:
 
         print(f'\t\t[INFO] Computing f-score for `{recourse_type}`...')
 
@@ -925,12 +925,12 @@ def experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
         expectation = np.mean(monte_carlo_predictions)
         variance = np.sum(np.power(monte_carlo_predictions - expectation, 2)) / (len(monte_carlo_predictions) - 1)
 
-        all_results[factual_instance_idx][f'{recourse_type}_pred_mean'].append(np.around(expectation, 2))
-        all_results[factual_instance_idx][f'{recourse_type}_pred_var'].append(np.around(variance, 2))
+        per_instance_results[factual_instance_idx][f'{recourse_type}_pred_mean'].append(np.around(expectation, 2))
+        per_instance_results[factual_instance_idx][f'{recourse_type}_pred_var'].append(np.around(variance, 2))
         if getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) == 0:
-          all_results[factual_instance_idx][f'{recourse_type}_pred_fscore'].append(expectation - LAMBDA_LCB * np.sqrt(variance)) # NOTE DIFFERNCE IN SIGN OF STD
+          per_instance_results[factual_instance_idx][f'{recourse_type}_pred_fscore'].append(expectation - LAMBDA_LCB * np.sqrt(variance)) # NOTE DIFFERNCE IN SIGN OF STD
         else: # factual_prediction == 1
-          all_results[factual_instance_idx][f'{recourse_type}_pred_fscore'].append(expectation + LAMBDA_LCB * np.sqrt(variance)) # NOTE DIFFERNCE IN SIGN OF STD
+          per_instance_results[factual_instance_idx][f'{recourse_type}_pred_fscore'].append(expectation + LAMBDA_LCB * np.sqrt(variance)) # NOTE DIFFERNCE IN SIGN OF STD
 
   merged_results = {}
   merged_results['cate_true_pred_mean'] = []
@@ -939,7 +939,7 @@ def experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   merged_results['cate_hivae_pred_mean'] = []
   merged_results['cate_hivae_pred_var'] = []
   merged_results['cate_hivae_pred_fscore'] = []
-  for factual_instance_idx, results in all_results.items():
+  for factual_instance_idx, results in per_instance_results.items():
     merged_results['cate_true_pred_mean'].extend(results['cate_true_pred_mean'])
     merged_results['cate_true_pred_var'].extend(results['cate_true_pred_var'])
     merged_results['cate_true_pred_fscore'].extend(results['cate_true_pred_fscore'])
@@ -958,10 +958,6 @@ def experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   fig.suptitle('comparing f-score: cate true vs. cate hivae')
   pyplot.savefig(f'{experiment_folder_name}/comparing_cate_true_cate_hivae.png')
-
-
-
-
 
 
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):
