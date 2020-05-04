@@ -34,9 +34,9 @@ np.random.seed(RANDOM_SEED)
 CODE_MODE = 'dev'
 # CODE_MODE = 'eval'
 
-NUM_TEST_SAMPLES = 4 if CODE_MODE == 'eval' else 10
+NUM_TEST_SAMPLES = 4 if CODE_MODE == 'eval' else 30
 NORM_TYPE = 2
-GRID_SEARCH_BINS = 5 if CODE_MODE == 'eval' else 5
+GRID_SEARCH_BINS = 5 if CODE_MODE == 'eval' else 4
 NUMBER_OF_MONTE_CARLO_SAMPLES = 100
 LAMBDA_LCB = 1
 SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
@@ -559,7 +559,7 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         parents = causal_model_obj.getParentsForNode(node)
         # Confirm parents columns are present in samples_df
         assert not samples_df.loc[:,list(parents)].isnull().values.any()
-        print(f'Sampling HI-VAE from p({node} | {", ".join(parents)})')
+        # print(f'Sampling HI-VAE from p({node} | {", ".join(parents)})')
         samples_df = sampleHIVAE(dataset_obj, samples_df, node, parents)
 
 
@@ -570,19 +570,59 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
 
 
 def isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
-  return didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type))
+  return didFlip(
+    dataset_obj,
+    classifier_obj,
+    causal_model_obj,
+    factual_instance,
+    computeCounterfactualInstance(
+      dataset_obj,
+      classifier_obj,
+      causal_model_obj,
+      factual_instance,
+      action_set,
+      recourse_type,
+    ),
+  )
+
+
+def getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
+  monte_carlo_samples_df = getRecourseDistributionSample(
+    dataset_obj,
+    classifier_obj,
+    causal_model_obj,
+    factual_instance,
+    action_set,
+    recourse_type,
+    NUMBER_OF_MONTE_CARLO_SAMPLES,
+  )
+  monte_carlo_predictions = getPredictionBatch(
+    dataset_obj,
+    classifier_obj,
+    causal_model_obj,
+    monte_carlo_samples_df.to_numpy(),
+  )
+
+  expectation = np.mean(monte_carlo_predictions)
+  variance = np.sum(np.power(monte_carlo_predictions - expectation, 2)) / (len(monte_carlo_predictions) - 1)
+
+  return expectation, variance
 
 
 def isDistrConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
-  monte_carlo_samples_df = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, NUMBER_OF_MONTE_CARLO_SAMPLES)
-  monte_carlo_predictions = getPredictionBatch(dataset_obj, classifier_obj, causal_model_obj, monte_carlo_samples_df.to_numpy())
+
+  expectation, variance = getExpectationVariance(
+    dataset_obj,
+    classifier_obj,
+    causal_model_obj,
+    factual_instance,
+    action_set,
+    recourse_type,
+  )
 
   # IMPORTANT... WE ARE CONSIDERING {0,1} LABELS AND FACTUAL SAMPLES MAY BE OF
   # EITHER CLASS. THEREFORE, THE CONSTRAINT IS SATISFIED WHEN SIGNIFICANTLY
   # > 0.5 OR < 0.5 FOR A FACTUAL SAMPLE WITH Y = 0 OR Y = 1, RESPECTIVELY.
-
-  expectation = np.mean(monte_carlo_predictions)
-  variance = np.sum(np.power(monte_carlo_predictions - expectation, 2)) / (len(monte_carlo_predictions) - 1)
 
   if getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) == 0:
     return expectation - LAMBDA_LCB * np.sqrt(variance) > 0.5 # NOTE DIFFERNCE IN SIGN OF STD
@@ -656,7 +696,7 @@ def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factu
     raise Exception(f'{recourse_type} not recognized.')
 
   valid_action_sets = getValidDiscretizedActionSets(dataset_obj)
-  print(f'\t[INFO] Computing optimal `{recourse_type}`: grid searching over {len(valid_action_sets)} action sets...')
+  print(f'\n\t[INFO] Computing optimal `{recourse_type}`: grid searching over {len(valid_action_sets)} action sets...')
 
   min_cost = 1e10
   min_cost_action_set = {}
@@ -896,12 +936,12 @@ def experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
     per_instance_results[factual_instance_idx] = {}
     per_instance_results[factual_instance_idx]['action_sets'] = []
-    per_instance_results[factual_instance_idx]['cate_true_pred_mean'] = []
-    per_instance_results[factual_instance_idx]['cate_true_pred_var'] = []
-    per_instance_results[factual_instance_idx]['cate_true_pred_fscore'] = []
-    per_instance_results[factual_instance_idx]['cate_hivae_pred_mean'] = []
-    per_instance_results[factual_instance_idx]['cate_hivae_pred_var'] = []
-    per_instance_results[factual_instance_idx]['cate_hivae_pred_fscore'] = []
+    per_instance_results[factual_instance_idx]['m2_true_pred_mean'] = []
+    per_instance_results[factual_instance_idx]['m2_true_pred_var'] = []
+    per_instance_results[factual_instance_idx]['m2_true_pred_fscore'] = []
+    per_instance_results[factual_instance_idx]['m2_hvae_pred_mean'] = []
+    per_instance_results[factual_instance_idx]['m2_hvae_pred_var'] = []
+    per_instance_results[factual_instance_idx]['m2_hvae_pred_fscore'] = []
 
     valid_action_sets = getValidDiscretizedActionSets(dataset_obj)
     for action_set_idx, action_set in enumerate(valid_action_sets):
@@ -918,46 +958,106 @@ def experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
         # print(monte_carlo_samples_df.head())
         monte_carlo_predictions = getPredictionBatch(dataset_obj, classifier_obj, causal_model_obj, monte_carlo_samples_df.to_numpy())
 
-        # IMPORTANT... WE ARE CONSIDERING {0,1} LABELS AND FACTUAL SAMPLES MAY BE OF
-        # EITHER CLASS. THEREFORE, THE CONSTRAINT IS SATISFIED WHEN SIGNIFICANTLY
-        # > 0.5 OR < 0.5 FOR A FACTUAL SAMPLE WITH Y = 0 OR Y = 1, RESPECTIVELY.
-
         expectation = np.mean(monte_carlo_predictions)
         variance = np.sum(np.power(monte_carlo_predictions - expectation, 2)) / (len(monte_carlo_predictions) - 1)
 
         per_instance_results[factual_instance_idx][f'{recourse_type}_pred_mean'].append(np.around(expectation, 2))
         per_instance_results[factual_instance_idx][f'{recourse_type}_pred_var'].append(np.around(variance, 2))
-        if getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) == 0:
-          per_instance_results[factual_instance_idx][f'{recourse_type}_pred_fscore'].append(expectation - LAMBDA_LCB * np.sqrt(variance)) # NOTE DIFFERNCE IN SIGN OF STD
-        else: # factual_prediction == 1
-          per_instance_results[factual_instance_idx][f'{recourse_type}_pred_fscore'].append(expectation + LAMBDA_LCB * np.sqrt(variance)) # NOTE DIFFERNCE IN SIGN OF STD
+        # IMPORTANT: assume h(x^f) always 0
+        per_instance_results[factual_instance_idx][f'{recourse_type}_pred_fscore'].append(expectation - LAMBDA_LCB * np.sqrt(variance))
 
   merged_results = {}
-  merged_results['cate_true_pred_mean'] = []
-  merged_results['cate_true_pred_var'] = []
-  merged_results['cate_true_pred_fscore'] = []
-  merged_results['cate_hivae_pred_mean'] = []
-  merged_results['cate_hivae_pred_var'] = []
-  merged_results['cate_hivae_pred_fscore'] = []
+  merged_results['m2_true_pred_mean'] = []
+  merged_results['m2_true_pred_var'] = []
+  merged_results['m2_true_pred_fscore'] = []
+  merged_results['m2_hvae_pred_mean'] = []
+  merged_results['m2_hvae_pred_var'] = []
+  merged_results['m2_hvae_pred_fscore'] = []
   for factual_instance_idx, results in per_instance_results.items():
-    merged_results['cate_true_pred_mean'].extend(results['cate_true_pred_mean'])
-    merged_results['cate_true_pred_var'].extend(results['cate_true_pred_var'])
-    merged_results['cate_true_pred_fscore'].extend(results['cate_true_pred_fscore'])
-    merged_results['cate_hivae_pred_mean'].extend(results['cate_hivae_pred_mean'])
-    merged_results['cate_hivae_pred_var'].extend(results['cate_hivae_pred_var'])
-    merged_results['cate_hivae_pred_fscore'].extend(results['cate_hivae_pred_fscore'])
+    merged_results['m2_true_pred_mean'].extend(results['m2_true_pred_mean'])
+    merged_results['m2_true_pred_var'].extend(results['m2_true_pred_var'])
+    merged_results['m2_true_pred_fscore'].extend(results['m2_true_pred_fscore'])
+    merged_results['m2_hvae_pred_mean'].extend(results['m2_hvae_pred_mean'])
+    merged_results['m2_hvae_pred_var'].extend(results['m2_hvae_pred_var'])
+    merged_results['m2_hvae_pred_fscore'].extend(results['m2_hvae_pred_fscore'])
 
   fig, axs = pyplot.subplots(1, 3, sharey = True)
   bins = np.linspace(-1.5, 1.5, 40)
-  axs[0].hist(np.subtract(merged_results['cate_true_pred_mean'], merged_results['cate_hivae_pred_mean']), bins, alpha=0.5)
-  axs[0].set_title('cate mean: true - hivae', fontsize=8)
-  axs[1].hist(np.subtract(merged_results['cate_true_pred_var'], merged_results['cate_hivae_pred_var']), bins, alpha=0.5)
-  axs[1].set_title('cate var: true - hivae', fontsize=8)
-  axs[2].hist(np.subtract(merged_results['cate_true_pred_fscore'], merged_results['cate_hivae_pred_fscore']), bins, alpha=0.5)
-  axs[2].set_title('cate fscore: true - hivae', fontsize=8)
+  axs[0].hist(np.subtract(merged_results['m2_true_pred_mean'], merged_results['m2_hvae_pred_mean']), bins, alpha=0.5)
+  axs[0].set_title('cate mean: true - hvae', fontsize=8)
+  axs[1].hist(np.subtract(merged_results['m2_true_pred_var'], merged_results['m2_hvae_pred_var']), bins, alpha=0.5)
+  axs[1].set_title('cate var: true - hvae', fontsize=8)
+  axs[2].hist(np.subtract(merged_results['m2_true_pred_fscore'], merged_results['m2_hvae_pred_fscore']), bins, alpha=0.5)
+  axs[2].set_title('cate fscore: true - hvae', fontsize=8)
 
-  fig.suptitle('comparing f-score: cate true vs. cate hivae')
-  pyplot.savefig(f'{experiment_folder_name}/comparing_cate_true_cate_hivae.png')
+  fig.suptitle('comparing f-score: cate true vs. cate hvae')
+  pyplot.savefig(f'{experiment_folder_name}/comparing_cate_true_cate_hvae.png')
+
+
+def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+
+  # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
+  factual_instances_dict = X_test.loc[y_test.index[y_test == 0]].iloc[:NUM_TEST_SAMPLES].T.to_dict()
+
+  per_instance_results = {}
+
+  # TODO: hot train hi-vae (TODO: save trained model in experiment_folder_name) and krr, so it doesn't affect runtime evaluations below
+
+  for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
+    factual_instance_idx = f'sample_{key}'
+    factual_instance = value
+
+    print(f'\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
+
+    per_instance_results[factual_instance_idx] = {}
+
+    # for approach in ['m0_true', 'm1_alin', 'm1_akrr', 'm1_gaus', 'm2_true', 'm2_hvae']:
+    for approach in ['m0_true', 'm1_alin', 'm1_akrr', 'm2_true', 'm2_hvae']:
+
+      tmp = {}
+
+      start_time = time.time()
+      tmp['optimal_action_set'] = computeOptimalActionSet(
+        dataset_obj,
+        classifier_obj,
+        causal_model_obj,
+        factual_instance,
+        approach,
+      )
+      end_time = time.time()
+
+      tmp['time'] = np.around(end_time - start_time, 4)
+
+      print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
+
+      tmp['scf_validity']  = isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm0_true')
+
+      # IMPORTANT: assume h(x^f) always 0
+      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_true')
+      tmp['int_conf_true'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
+
+      # IMPORTANT: assume h(x^f) always 0
+      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_hvae')
+      tmp['int_conf_hvae'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
+
+      print(f'\t done.')
+
+      per_instance_results[factual_instance_idx][approach] = tmp
+
+    print(f'[INFO] Saving (overwriting) results...')
+    pickle.dump(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results', 'wb'))
+    pprint(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results.txt', 'w'))
+    print(f'done.')
+
+  # for approach in ['m0_true', 'm1_alin', 'm1_akrr', 'm1_gaus', 'm2_true', 'm2_hvae']:
+  for approach in ['m0_true', 'm1_alin', 'm1_akrr', 'm2_true', 'm2_hvae']:
+    print()
+    for field in ['scf_validity', 'int_conf_true', 'int_conf_hvae', 'time']:
+      print(f'`{approach}-{field}`:', end='\t')
+      print(f'{np.around(np.mean([v[approach][field] for k,v in per_instance_results.items()]), 2):.2f}', end='+/-')
+      print(f'{np.around(np.std([v[approach][field] for k,v in per_instance_results.items()]), 2):.2f}')
+
 
 
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):
@@ -1025,7 +1125,8 @@ if __name__ == "__main__":
   # experiment1(dataset_obj, classifier_obj, causal_model_obj)
   # experiment2(dataset_obj, classifier_obj, causal_model_obj)
   # experiment3(dataset_obj, classifier_obj, causal_model_obj)
-  experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)
