@@ -216,61 +216,62 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
       return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
 
 
-def sampleGP(dataset_obj):
-  raise NotImplementedError
+# @utils.Memoize
+def trainGP(dataset_obj, node, parents, X, Y):
+
+  print(f'[INFO] Fitting GP (parents: {parents}; child: {node}) may be very expensive, memoizing aftewards.')
+  kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
+  model = GPy.models.GPRegression(X, Y, kernel)
+  model.optimize_restarts(parallel=True, num_restarts = 5)
+
+  return kernel, model
 
 
-@utils.Memoize
-def trainGP(dataset_obj, node):
-  raise NotImplementedError
-  # X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  # X_all = X_train.append(X_test)
-  # X_all = X_all[:10]
+def sampleGP(dataset_obj, samples_df, node, parents, factual_instance):
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  X_all = X_train.append(X_test)
+  X_all = X_all[:50] # TODO: remove? use more samples?
+  # make sure factual instance is in training set (you lose indexing, but no need)
+  X_all = X_all.append(factual_instance, ignore_index=True)
+  X = X_all[parents].to_numpy()
+  Y = X_all[[node]].to_numpy()
 
-  # if node == 'x1':
+  def noise_post_mean(K, sigma, Y):
+    N = K.shape[0]
+    S = np.linalg.inv(K + sigma * np.eye(N))
+    return sigma * np.dot(S, Y)
 
-  #   return 'TODO: update'
+  def noise_post_cov(K, sigma):
+    N = K.shape[0]
+    S = np.linalg.inv(K + sigma * np.eye(N))
+    return  sigma * (np.eye(N) - sigma * S)
 
-  # elif node == 'x2':
+  def noise_post_var(K, sigma):
+    N = K.shape[0]
+    C = noise_post_cov(K, sigma)
+    return np.array([C[i,i] for i in range(N)])
 
-  #   print(f'[INFO] Fitting GP (parent: x1; child: x2) may be very expensive, memoizing aftewards.')
-  #   X = X_all[['x1']].to_numpy()
-  #   Y = X_all[['x2']].to_numpy()
-  #   kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
-  #   model = GPy.models.GPRegression(X, Y, kernel)
-  #   model.optimize_restarts(parallel=True, num_restarts = 5)
+  kernel, model = trainGP(dataset_obj, node, parents, X, Y)
 
-  # elif node == 'x3':
+  K = kernel.K(X)
+  sigma_noise = np.array(model.Gaussian_noise.variance)
+  noise_post_means = noise_post_mean(K, sigma_noise, X)
+  noise_post_vars = noise_post_var(K, sigma_noise)
 
-  #   print(f'[INFO] Fitting GP (parent: x1, x2; child: x3) may be very expensive, memoizing aftewards.')
-  #   X = X_all[['x1', 'x2']].to_numpy()
-  #   Y = X_all[['x3']].to_numpy()
-  #   kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
-  #   model = GPy.models.GPRegression(X, Y, kernel)
-  #   model.optimize_restarts(parallel=True, num_restarts = 5)
+  # GP posterior for node at new (intervened & conditioned) input given parents
+  pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
 
-  # K = kernel.K(X)
-  # sigma_noise = np.array(model.Gaussian_noise.variance)
+  # counterfactual distribution for node
+  cf_means = pred_means + noise_post_means[-1] # -1 b/c factual instance was appended as last instance
+  cf_vars = pred_vars + noise_post_vars[-1] # -1 b/c factual instance was appended as last instance
 
-  # N = K.shape[0]
-  # def noise_posterior_mean(K, sigma, Y):
-  #   S = np.linalg.inv(K + sigma * np.eye(N))
-  #   return sigma * np.dot(S, Y)
+  # sample from counterfactual distribution via reparametrisation trick
+  e = np.random.randn(samples_df.shape[0], 1)
+  # X_iv = iv_means + np.sqrt(iv_vars) * e
+  X_cf = cf_means + np.sqrt(cf_vars) * e
 
-  # def noise_posterior_covariance(K, sigma):
-  #   S = np.linalg.inv(K + sigma * np.eye(N))
-  #   return  sigma * (np.eye(N) - sigma * S)
-
-  # mu_post = noise_posterior_mean(K, sigma_noise, Y)
-  # cov_post = noise_posterior_covariance(K, sigma_noise)
-  # var_post = np.array([cov_post[i,i] for i in range(N)])
-  # conf_post = 1.96 * np.sqrt(var_post)
-
-  # mu_prior = np.zeros_like(mu_post)
-  # var_prior = sigma_noise * np.ones_like(var_post)
-  # conf_prior = 1.96 * np.sqrt(var_prior)
-
-  # return 'TODO'
+  samples_df[node] = X_cf
+  return samples_df
 
 
 @utils.Memoize
@@ -313,10 +314,13 @@ def trainHIVAE(dataset_obj):
   return True # this along with Memoize means that this function will only ever be executed once
 
 
-def sampleHIVAE(dataset_obj, samples_df, node, parents):
+def sampleHIVAE(dataset_obj, samples_df, node, parents, debug_flag = False):
   # counterfactual_instance keys are the conditioning + intervention set, therefore
   # we should create something like Missing1050_1.csv where rows are like this:
   # 10,1   \n   10,2   \n   10,3   \n   11,5   \n   11,13   \n   12,13
+
+  if debug_flag:
+    print(f'Sampling HI-VAE from p({node} | {", ".join(parents)})')
 
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
@@ -525,12 +529,8 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
     [num_samples * [counterfactual_template[node]] for node in dataset_obj.getInputAttributeNames()],
   )))
 
-  if recourse_type == 'm1_gaus':
-    raise NotImplementedError
 
-    # getGPSample(dataset_obj, )
-
-  elif recourse_type == 'm2_true':
+  if recourse_type == 'm2_true':
 
     scm_do = causal_model_obj.scm
     preassigned_nodes = samples_df.columns[~samples_df.isnull().all()]
@@ -545,6 +545,18 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
       )),
     )
 
+  elif recourse_type == 'm1_gaus':
+
+    # Simply traverse the graph in order, and populate nodes as we go!
+    # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
+    for node in causal_model_obj.getTopologicalOrdering():
+      # if variable value is not yet set through intervention or conditioning
+      if samples_df[node].isnull().values.any():
+        parents = causal_model_obj.getParentsForNode(node)
+        # Confirm parents columns are present/have assigned values in samples_df
+        assert not samples_df.loc[:,list(parents)].isnull().values.any()
+        samples_df = sampleGP(dataset_obj, samples_df, node, parents, factual_instance)
+
   elif recourse_type == 'm2_hvae':
 
     # TODO: run once per dataset and cache/save in experiment folder? (read from cache if available)
@@ -552,14 +564,13 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
       trainHIVAE(dataset_obj)
 
     # Simply traverse the graph in order, and populate nodes as we go!
-    # IMPORTANT: do not use set(topo ordering); it sometimes changes ordering!
+    # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
     for node in causal_model_obj.getTopologicalOrdering():
-      # if variable value not yet set through intervention or conditioning
+      # if variable value is not yet set through intervention or conditioning
       if samples_df[node].isnull().values.any():
         parents = causal_model_obj.getParentsForNode(node)
-        # Confirm parents columns are present in samples_df
+        # Confirm parents columns are present/have assigned values in samples_df
         assert not samples_df.loc[:,list(parents)].isnull().values.any()
-        # print(f'Sampling HI-VAE from p({node} | {", ".join(parents)})')
         samples_df = sampleHIVAE(dataset_obj, samples_df, node, parents)
 
 
@@ -795,19 +806,19 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
 
   # iterative over a number of action sets and compare the three counterfactuals
   # action_set = {'x1': -3}
-  action_set = {'x2': +1}
+  # action_set = {'x2': +1}
   # action_set = {'x3': +1}
   # action_set = {'x1': +2, 'x3': +1, 'x5': 3}
   # action_set = {'x0': +2, 'x2': +1}
-  # action_set = {'x1': +2, 'x3': +1}
+  action_set = {'x1': +2, 'x3': +1}
 
   print(f'FC: \t\t{factual_instance}')
-  print(f'M0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "true")}')
+  print(f'M0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
   print(f'M1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
   # print(f'M1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
-  # print(f'M1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 1)}')
-  print(f'M2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
-  print(f'M2_hvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_hvae", 10)}')
+  # print(f'M2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
+  print(f'M1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
+  # print(f'M2_hvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_hvae", 10)}')
 
 
 def experiment2(dataset_obj, classifier_obj, causal_model_obj):
@@ -883,15 +894,15 @@ def experiment3(dataset_obj, classifier_obj, causal_model_obj):
     m0_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm0_true')
     m11_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm1_alin')
     # m12_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm1_akrr')
-    # m13_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm1_gaus')
     m21_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm2_true')
+    # m13_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm1_gaus')
     m22_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm2_hvae')
 
     scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m0_optimal_action_set, 'm0_true', '*', ax)
     scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m11_optimal_action_set, 'm0_true', 's', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
     # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m12_optimal_action_set, 'm0_true', 'D', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
-    # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m13_optimal_action_set, 'm1_gaus', 'p', ax)
     scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m21_optimal_action_set, 'm2_true', '^', ax)
+    # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m13_optimal_action_set, 'm1_gaus', 'p', ax)
     scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m22_optimal_action_set, 'm2_hvae', 'v', ax)
 
     scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
@@ -903,8 +914,8 @@ def experiment3(dataset_obj, classifier_obj, causal_model_obj):
       f'\n m0_true action set: do({prettyPrintDict(m0_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m0_optimal_action_set, NORM_TYPE):.2f}'
       f'\n m1_alin action set: do({prettyPrintDict(m11_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m11_optimal_action_set, NORM_TYPE):.2f}'
       # f'\n m1_akrr action set: do({prettyPrintDict(m12_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m12_optimal_action_set, NORM_TYPE):.2f}'
-      # f'\n m1_gaus action set: do({prettyPrintDict(m13_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m13_optimal_action_set, NORM_TYPE):.2f}'
       f'\n m2_true action set: do({prettyPrintDict(m21_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m21_optimal_action_set, NORM_TYPE):.2f}'
+      # f'\n m1_gaus action set: do({prettyPrintDict(m13_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m13_optimal_action_set, NORM_TYPE):.2f}'
       f'\n m2_hvae action set: do({prettyPrintDict(m22_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m22_optimal_action_set, NORM_TYPE):.2f}'
     , fontsize=8, horizontalalignment='left')
     ax.view_init(elev=20, azim=-30)
@@ -1059,7 +1070,6 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
       print(f'{np.around(np.std([v[approach][field] for k,v in per_instance_results.items()]), 2):.2f}')
 
 
-
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):
 
   fig = pyplot.figure()
@@ -1122,11 +1132,11 @@ if __name__ == "__main__":
   causal_model_obj = loadCausalModel(dataset_class, experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
-  # experiment1(dataset_obj, classifier_obj, causal_model_obj)
+  experiment1(dataset_obj, classifier_obj, causal_model_obj)
   # experiment2(dataset_obj, classifier_obj, causal_model_obj)
   # experiment3(dataset_obj, classifier_obj, causal_model_obj)
   # experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)
