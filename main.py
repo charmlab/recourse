@@ -90,18 +90,19 @@ def loadClassifier(dataset_class, model_class, experiment_folder_name):
 
 @utils.Memoize
 def loadCausalModel(dataset_class, experiment_folder_name):
-  scm = CausalModel({
-    'x1': lambda         n_samples: np.random.normal(size=n_samples),
-    'x2': lambda     x1, n_samples: x1 + 1 + np.random.normal(size=n_samples),
-    'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
-  })
   # scm = CausalModel({
   #   'x1': lambda         n_samples: np.random.normal(size=n_samples),
-  #   'x2': lambda     x1, n_samples: x1 + 1,
-  #   'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2),
-  #   'x4': lambda     x3, n_samples: x3 + 5,
-  #   'x5': lambda x2, x4, n_samples: x2 + 5 * x4,
+  #   'x2': lambda     x1, n_samples: x1 + 1 + np.random.normal(size=n_samples),
+  #   'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
   # })
+  scm = CausalModel({
+    'x1': lambda         n_samples:                 1.00 * np.random.normal(size=n_samples),
+    'x2': lambda     x1, n_samples: x1 + 1        + 0.25 * np.random.normal(size=n_samples),
+    'x3': lambda x1, x2, n_samples: 5 * (x1 + x2) + 0.25 * np.random.normal(size=n_samples),
+    'x4': lambda     x3, n_samples: x3            + 0.25 * np.random.normal(size=n_samples),
+    'x5': lambda     x4, n_samples: x4            + 0.25 * np.random.normal(size=n_samples),
+    'x6': lambda     x2, n_samples: x2            + 0.25 * np.random.normal(size=n_samples),
+  })
   scm.visualizeGraph(experiment_folder_name)
   return scm
 
@@ -149,12 +150,26 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
 
   if recourse_type == 'm0_true':
 
+    # TODO: use causal_model_obj to get this?
+    # if node == 'x1':
+    #   return lambda n1: n1
+    # elif node == 'x2':
+    #   return lambda x1, n2: x1 + 1 + n2
+    # elif node == 'x3':
+    #   return lambda x1, x2, n3: np.sqrt(3) * x1 * (x2 ** 2) + n3
+
     if node == 'x1':
       return lambda n1: n1
     elif node == 'x2':
       return lambda x1, n2: x1 + 1 + n2
     elif node == 'x3':
-      return lambda x1, x2, n3: np.sqrt(3) * x1 * (x2 ** 2) + n3
+      return lambda x1, x2, n3: 5 * (x1 + x2) + n3
+    elif node == 'x4':
+      return lambda x3, n4: x3 + n4
+    elif node == 'x5':
+      return lambda x4, n5: x4 + n5
+    elif node == 'x6':
+      return lambda x2, n5: x2 + n5
 
   # elif recourse_type == 'approx_deprecated':
 
@@ -216,6 +231,7 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
       return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
 
 
+# TODO:
 # @utils.Memoize
 def trainGP(dataset_obj, node, parents, X, Y):
 
@@ -265,6 +281,11 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance):
   cf_means = pred_means + noise_post_means[-1] # -1 b/c factual instance was appended as last instance
   cf_vars = pred_vars + noise_post_vars[-1] # -1 b/c factual instance was appended as last instance
 
+  # TODO
+  # # interventional distribution for node
+  # # cf_means = pred_means + 0
+  # cf_vars = pred_vars + sigma_noise
+
   # sample from counterfactual distribution via reparametrisation trick
   e = np.random.randn(samples_df.shape[0], 1)
   # X_iv = iv_means + np.sqrt(iv_vars) * e
@@ -286,10 +307,14 @@ def trainHIVAE(dataset_obj):
   miss_train_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/miss_train.csv'
 
   # generate _tmp_hivae/data_train.csv
-  X_all.to_csv(data_train_path, index = False, header=False)
+  X_all.to_csv(data_train_path, index = False, header = False)
 
   # generate _tmp_hivae/data_types.csv
   # TODO: use dataset_obj to determine data types for hivae (tf, and perhaps pytorch)
+  with open(data_types_path, 'a') as tmp_file:
+    tmp_file.write('type,dim,nclass\n')
+    for _ in range(X_all.shape[1]):
+      tmp_file.write('real,1,\n')
 
   hivae_model = 'model_HIVAE_inputDropout'
   save_path = '_tmp_hivae/'
@@ -299,7 +324,7 @@ def trainHIVAE(dataset_obj):
     '/Users/a6karimi/dev/HI-VAE/main_scripts.py',
     '--model_name', f'{hivae_model}',
     '--batch_size', '100',
-    '--epochs', '200',
+    '--epochs', '1000',
     '--data_file', f'{data_train_path}',
     '--types_file', f'{data_types_path}',
     '--dim_latent_z', '2',
@@ -314,7 +339,7 @@ def trainHIVAE(dataset_obj):
   return True # this along with Memoize means that this function will only ever be executed once
 
 
-def sampleHIVAE(dataset_obj, samples_df, node, parents, debug_flag = False):
+def sampleHIVAE(dataset_obj, samples_df, node, parents, debug_flag = True):
   # counterfactual_instance keys are the conditioning + intervention set, therefore
   # we should create something like Missing1050_1.csv where rows are like this:
   # 10,1   \n   10,2   \n   10,3   \n   11,5   \n   11,13   \n   12,13
@@ -573,6 +598,27 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         assert not samples_df.loc[:,list(parents)].isnull().values.any()
         samples_df = sampleHIVAE(dataset_obj, samples_df, node, parents)
 
+  elif recourse_type == 'm2_hvae_new':
+
+    # TODO: run once per dataset and cache/save in experiment folder? (read from cache if available)
+    if not os.path.exists(f'_tmp_hivae/Saved_Networks/model_HIVAE_inputDropout_{dataset_obj.dataset_name}/checkpoint'):
+      trainHIVAE(dataset_obj)
+
+    # Simply traverse the graph in order, and populate nodes as we go!
+    # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
+    for node in causal_model_obj.getTopologicalOrdering():
+      # if variable value is not yet set through intervention or conditioning
+      if samples_df[node].isnull().values.any():
+        parents = causal_model_obj.getParentsForNode(node)
+
+        intervened_node = list(action_set.keys())[0] # VERY HACKY ONLY WORKS FOR THIS EXAMPLE
+        non_descendents = causal_model_obj.getNonDescendentsForNode(node)
+        parents = list(set(parents).union(non_descendents))
+
+        # Confirm parents columns are present/have assigned values in samples_df
+        assert not samples_df.loc[:,list(parents)].isnull().values.any()
+        samples_df = sampleHIVAE(dataset_obj, samples_df, node, parents)
+
 
   # IMPORTANT: if for whatever reason, the columns change order (e.g., as seen in
   # scm_do.sample), reorder them as they are to be used as inputs to the fixed classifier
@@ -810,15 +856,16 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   # action_set = {'x3': +1}
   # action_set = {'x1': +2, 'x3': +1, 'x5': 3}
   # action_set = {'x0': +2, 'x2': +1}
-  action_set = {'x1': +2, 'x3': +1}
+  # action_set = {'x1': +2, 'x3': +1}
+  action_set = {'x3': +100}
 
-  print(f'FC: \t\t{factual_instance}')
-  print(f'M0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
-  print(f'M1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
+  print(f'FC: \t\t{prettyPrintDict(factual_instance)}')
+  # print(f'M0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
+  # print(f'M1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
   # print(f'M1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
   # print(f'M2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
-  print(f'M1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
-  # print(f'M2_hvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_hvae", 10)}')
+  # print(f'M1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
+  print(f'M2_hvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_hvae", 10)}')
 
 
 def experiment2(dataset_obj, classifier_obj, causal_model_obj):
@@ -1002,7 +1049,7 @@ def experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   axs[2].set_title('cate fscore: true - hvae', fontsize=8)
 
   fig.suptitle('comparing f-score: cate true vs. cate hvae')
-  pyplot.savefig(f'{experiment_folder_name}/comparing_cate_true_cate_hvae.png')
+  pyplot.savefig(f'{experiment_folder_name}/comparing_m2_truee_cate_hvae.png')
 
 
 def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
@@ -1070,6 +1117,71 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
       print(f'{np.around(np.std([v[approach][field] for k,v in per_instance_results.items()]), 2):.2f}')
 
 
+def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
+  ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  factual_instance = X_test.iloc[0].T.to_dict()
+
+  # iterative over a number of action sets and compare the three counterfactuals
+  action_sets = [ \
+    {'x3': +8}, \
+    {'x3': +6}, \
+    {'x3': +4}, \
+    {'x3': +2}, \
+    {'x3': +0}, \
+    {'x3': -2}, \
+    {'x3': -4}, \
+    {'x3': -6}, \
+    {'x3': -8}, \
+  ]
+
+  fig, axes = pyplot.subplots(3, 3)
+  fig.suptitle(f'Comparing conditioning on pa(I) vs pa(I) and nd(I)')
+  # axes = [ax1, ax2, ax3, ax4]
+
+  print(f'X_train:\n{X_train}')
+  print(X_train.describe())
+  print(f'FC: \t\t{prettyPrintDict(factual_instance)}')
+
+  for idx, action_set in enumerate(action_sets):
+
+    print(f'\n\n[INFO] ACTION SET: {str(action_set)}' + ' =' * 40)
+
+    m0_true = computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm0_true')
+    print(f'm0_true:\t{m0_true}')
+
+    m2_true = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_true', 10)
+    print(f'm2_true:\n{m2_true.head()}')
+
+    m1_gaus = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm1_gaus', 10)
+    print(f'm1_gaus:\n{m1_gaus.head()}')
+
+    m2_hvae = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_hvae', 10)
+    print(f'm2_hvae:\n{m2_hvae.head()}')
+
+    m2_hvae_new = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_hvae_new', 10)
+    print(f'm2_hvae_new:\n{m2_hvae_new.head()}')
+
+    axes.ravel()[idx].plot(m0_true['x4'],            m0_true['x5'],            'ko', label = 'm0_true')
+    axes.ravel()[idx].plot(m2_true['x4'].to_numpy(), m2_true['x5'].to_numpy(), 'cs', label = 'm2_true')
+    axes.ravel()[idx].plot(m1_gaus['x4'].to_numpy(), m1_gaus['x5'].to_numpy(), 'mD', label = 'm1_gaus')
+    axes.ravel()[idx].plot(m2_hvae['x4'].to_numpy(), m2_hvae['x5'].to_numpy(), 'rx', label = 'm2_hvae')
+    axes.ravel()[idx].plot(m2_hvae_new['x4'].to_numpy(), m2_hvae_new['x5'].to_numpy(), 'b+', label = 'm2_hvae_new')
+    axes.ravel()[idx].set_ylabel('$X_5$', fontsize='x-small')
+    axes.ravel()[idx].set_xlabel('$X_4$', fontsize='x-small')
+    # axes.ravel()[idx].set_ylim(-10, 10)
+    # axes.ravel()[idx].set_xlim(-10, 10)
+    axes.ravel()[idx].tick_params(axis='both', which='major', labelsize=6)
+    axes.ravel()[idx].tick_params(axis='both', which='minor', labelsize=4)
+    axes.ravel()[idx].set_title(f'action_set: {str(action_set)}', fontsize='x-small')
+
+  for ax in axes.ravel():
+    ax.legend(fontsize='xx-small')
+  fig.tight_layout()
+  # pyplot.show()
+  pyplot.savefig(f'{experiment_folder_name}/comparing_cate_hvae_cate_hvae_new.png')
+
+
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):
 
   fig = pyplot.figure()
@@ -1132,11 +1244,12 @@ if __name__ == "__main__":
   causal_model_obj = loadCausalModel(dataset_class, experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
-  experiment1(dataset_obj, classifier_obj, causal_model_obj)
+  # experiment1(dataset_obj, classifier_obj, causal_model_obj)
   # experiment2(dataset_obj, classifier_obj, causal_model_obj)
   # experiment3(dataset_obj, classifier_obj, causal_model_obj)
   # experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
   # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)
