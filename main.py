@@ -274,7 +274,7 @@ def trainGP(dataset_obj, node, parents, X, Y):
   return kernel, model
 
 
-def sampleGP(dataset_obj, samples_df, node, parents, factual_instance):
+def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_type):
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   X_all = X_all[:50] # TODO: remove? use more samples?
@@ -308,21 +308,19 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance):
   # GP posterior for node at new (intervened & conditioned) input given parents
   pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
 
-  # counterfactual distribution for node
-  cf_means = pred_means + noise_post_means[-1] # -1 b/c factual instance was appended as last instance
-  cf_vars = pred_vars + noise_post_vars[-1] # -1 b/c factual instance was appended as last instance
+  if recourse_type == 'm1_gaus':
+    # counterfactual distribution for node
+    new_means = pred_means + noise_post_means[-1] # -1 b/c factual instance was appended as last instance
+    new_vars = pred_vars + noise_post_vars[-1] # -1 b/c factual instance was appended as last instance
+  elif recourse_type == 'm2_gaus':
+    new_means = pred_means + 0
+    new_vars = pred_vars + sigma_noise
 
-  # TODO
-  # # interventional distribution for node
-  # # cf_means = pred_means + 0
-  # cf_vars = pred_vars + sigma_noise
+  # sample from distribution via reparametrisation trick
+  new_noise = np.random.randn(samples_df.shape[0], 1)
+  new_samples = new_means + np.sqrt(new_vars) * new_noise
 
-  # sample from counterfactual distribution via reparametrisation trick
-  e = np.random.randn(samples_df.shape[0], 1)
-  # X_iv = iv_means + np.sqrt(iv_vars) * e
-  X_cf = cf_means + np.sqrt(cf_vars) * e
-
-  samples_df[node] = X_cf
+  samples_df[node] = new_samples
   return samples_df
 
 
@@ -655,7 +653,7 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
       )),
     )
 
-  elif recourse_type == 'm1_gaus':
+  elif recourse_type in {'m1_gaus', 'm2_gaus'}:
 
     # Simply traverse the graph in order, and populate nodes as we go!
     # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
@@ -665,7 +663,7 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         parents = causal_model_obj.getParentsForNode(node)
         # Confirm parents columns are present/have assigned values in samples_df
         assert not samples_df.loc[:,list(parents)].isnull().values.any()
-        samples_df = sampleGP(dataset_obj, samples_df, node, parents, factual_instance)
+        samples_df = sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_type)
 
   elif recourse_type == 'm2_cvae':
 
@@ -1255,6 +1253,9 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     m1_gaus = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm1_gaus', 10)
     print(f'm1_gaus:\n{m1_gaus.head()}')
 
+    m2_gaus = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_gaus', 10)
+    print(f'm2_gaus:\n{m2_gaus.head()}')
+
     m2_true = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_true', 10)
     print(f'm2_true:\n{m2_true.head()}')
 
@@ -1272,6 +1273,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     axes.ravel()[idx].plot(m2_true['x4'].to_numpy(), m2_true['x5'].to_numpy(), 'cs', label = 'm2_true')
     # axes.ravel()[idx].plot(m2_hvae['x4'].to_numpy(), m2_hvae['x5'].to_numpy(), 'rx', label = 'm2_hvae')
     # axes.ravel()[idx].plot(m2_hvae_new['x4'].to_numpy(), m2_hvae_new['x5'].to_numpy(), 'b+', label = 'm2_hvae_new')
+    axes.ravel()[idx].plot(m2_gaus['x4'].to_numpy(), m2_gaus['x5'].to_numpy(), 'b+', label = 'm2_gaus')
     axes.ravel()[idx].plot(m2_cvae['x4'].to_numpy(), m2_cvae['x5'].to_numpy(), 'rx', label = 'm2_cvae')
     axes.ravel()[idx].set_ylabel('$X_5$', fontsize='x-small')
     axes.ravel()[idx].set_xlabel('$X_4$', fontsize='x-small')
@@ -1350,12 +1352,12 @@ if __name__ == "__main__":
   causal_model_obj = loadCausalModel(dataset_class, experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
-  experiment1(dataset_obj, classifier_obj, causal_model_obj)
+  # experiment1(dataset_obj, classifier_obj, causal_model_obj)
   # experiment2(dataset_obj, classifier_obj, causal_model_obj)
   # experiment3(dataset_obj, classifier_obj, causal_model_obj)
   # experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
   # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)
