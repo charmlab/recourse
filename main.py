@@ -487,19 +487,20 @@ def trainCVAE(dataset_obj, node, parents):
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   return train_cvae(AttrDict({
-    'parents': normalizeDataFrame(dataset_obj, X_all[parents]),
+    # 'parents': normalizeDataFrame(dataset_obj, X_all[parents]),
+    'parents': X_all[parents],
     'node': normalizeDataFrame(dataset_obj, X_all[[node]]),
     'seed': 0,
     'epochs': 50,
     'batch_size': 64,
-    'learning_rate': 0.0005,
+    'learning_rate': 0.0001,
     'encoder_layer_sizes': [1, 10], # 1 b/c the X_all[[node]] is always 1 dimensional
     'decoder_layer_sizes': [10, 1], # 1 b/c the X_all[[node]] is always 1 dimensional
     'latent_size': 2,
     'conditional': True,
-    'print_every': 100,
+    'print_every': 1000,
     'fig_root': '_tmp_cvae',
-    'debug_flag': True,
+    'debug_flag': False,
   }))
 
 
@@ -957,14 +958,14 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   # action_set = {'x1': +2, 'x3': +1, 'x5': 3}
   # action_set = {'x0': +2, 'x2': +1}
   # action_set = {'x1': +2, 'x3': +1}
-  action_set = {'x2': +0.5, 'x6': 2}
+  action_set = {'x2': +1, 'x6': 2}
 
   print(f'FC: \t\t{prettyPrintDict(factual_instance)}')
   print(f'M0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
   # print(f'M1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
   # print(f'M1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
-  print(f'M2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
   # print(f'M1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
+  print(f'M2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
   # print(f'M2_hvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_hvae", 10)}')
   print(f'M2_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae", 10)}')
 
@@ -1251,23 +1252,27 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     m0_true = computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm0_true')
     print(f'm0_true:\t{m0_true}')
 
-    m2_true = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_true', 10)
-    print(f'm2_true:\n{m2_true.head()}')
-
     m1_gaus = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm1_gaus', 10)
     print(f'm1_gaus:\n{m1_gaus.head()}')
 
-    m2_hvae = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_hvae', 10)
-    print(f'm2_hvae:\n{m2_hvae.head()}')
+    m2_true = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_true', 10)
+    print(f'm2_true:\n{m2_true.head()}')
 
-    m2_hvae_new = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_hvae_new', 10)
-    print(f'm2_hvae_new:\n{m2_hvae_new.head()}')
+    m2_cvae = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_cvae', 10)
+    print(f'm2_cvae:\n{m2_cvae.head()}')
+
+    # m2_hvae = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_hvae', 10)
+    # print(f'm2_hvae:\n{m2_hvae.head()}')
+
+    # m2_hvae_new = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_hvae_new', 10)
+    # print(f'm2_hvae_new:\n{m2_hvae_new.head()}')
 
     axes.ravel()[idx].plot(m0_true['x4'],            m0_true['x5'],            'ko', label = 'm0_true')
-    axes.ravel()[idx].plot(m2_true['x4'].to_numpy(), m2_true['x5'].to_numpy(), 'cs', label = 'm2_true')
     axes.ravel()[idx].plot(m1_gaus['x4'].to_numpy(), m1_gaus['x5'].to_numpy(), 'mD', label = 'm1_gaus')
-    axes.ravel()[idx].plot(m2_hvae['x4'].to_numpy(), m2_hvae['x5'].to_numpy(), 'rx', label = 'm2_hvae')
-    axes.ravel()[idx].plot(m2_hvae_new['x4'].to_numpy(), m2_hvae_new['x5'].to_numpy(), 'b+', label = 'm2_hvae_new')
+    axes.ravel()[idx].plot(m2_true['x4'].to_numpy(), m2_true['x5'].to_numpy(), 'cs', label = 'm2_true')
+    # axes.ravel()[idx].plot(m2_hvae['x4'].to_numpy(), m2_hvae['x5'].to_numpy(), 'rx', label = 'm2_hvae')
+    # axes.ravel()[idx].plot(m2_hvae_new['x4'].to_numpy(), m2_hvae_new['x5'].to_numpy(), 'b+', label = 'm2_hvae_new')
+    axes.ravel()[idx].plot(m2_cvae['x4'].to_numpy(), m2_cvae['x5'].to_numpy(), 'rx', label = 'm2_cvae')
     axes.ravel()[idx].set_ylabel('$X_5$', fontsize='x-small')
     axes.ravel()[idx].set_xlabel('$X_4$', fontsize='x-small')
     # axes.ravel()[idx].set_ylim(-10, 10)
@@ -1280,7 +1285,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     ax.legend(fontsize='xx-small')
   fig.tight_layout()
   # pyplot.show()
-  pyplot.savefig(f'{experiment_folder_name}/comparing_cate_hvae_cate_hvae_new.png')
+  pyplot.savefig(f'{experiment_folder_name}/comparison.png')
 
 
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):
