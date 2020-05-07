@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
+import pandas as pd
 
-from utils import idx2onehot
+from debug import ipsh
 
 
 class VAE(nn.Module):
@@ -25,31 +26,45 @@ class VAE(nn.Module):
         self.decoder = Decoder(
             decoder_layer_sizes, latent_size, conditional, num_labels)
 
-    def forward(self, x, c=None):
-
-        if x.dim() > 2:
-            x = x.view(-1, 28*28)
+    def forward(self, x, pa=None):
 
         batch_size = x.size(0)
 
-        means, log_var = self.encoder(x, c)
+        means, log_var = self.encoder(x, pa)
 
         std = torch.exp(0.5 * log_var)
         eps = torch.randn([batch_size, self.latent_size])
         z = eps * std + means
 
-        recon_x = self.decoder(z, c)
+        recon_x = self.decoder(z, pa)
 
         return recon_x, means, log_var, z
 
-    def inference(self, n=1, c=None):
+    def reconstructUsingPrior(self, n=1, pa=None):
+
+        if isinstance(pa, pd.DataFrame):
+            pa = torch.tensor(pa.values).float()
 
         batch_size = n
         z = torch.randn([batch_size, self.latent_size])
 
-        recon_x = self.decoder(z, c)
+        recon_x = self.decoder(z, pa)
 
-        return recon_x
+        return pd.DataFrame(recon_x.detach().numpy())
+
+    # def reconstructUsingPosterior(self, x, pa=None):
+
+    #     batch_size = x.size(0)
+
+    #     means, log_var = self.encoder(x, pa)
+
+    #     std = torch.exp(0.5 * log_var)
+    #     eps = torch.randn([batch_size, self.latent_size])
+    #     z = eps * std + means
+
+    #     recon_x = self.decoder(z, pa)
+
+    #     return recon_x, means, log_var, z
 
 
 class Encoder(nn.Module):
@@ -72,11 +87,10 @@ class Encoder(nn.Module):
         self.linear_means = nn.Linear(layer_sizes[-1], latent_size)
         self.linear_log_var = nn.Linear(layer_sizes[-1], latent_size)
 
-    def forward(self, x, c=None):
+    def forward(self, x, pa=None):
 
         if self.conditional:
-            c = idx2onehot(c, n=10)
-            x = torch.cat((x, c), dim=-1)
+            x = torch.cat((x, pa), dim=-1)
 
         x = self.MLP(x)
 
@@ -108,11 +122,10 @@ class Decoder(nn.Module):
             else:
                 self.MLP.add_module(name="sigmoid", module=nn.Sigmoid())
 
-    def forward(self, z, c):
+    def forward(self, z, pa):
 
         if self.conditional:
-            c = idx2onehot(c, n=10)
-            z = torch.cat((z, c), dim=-1)
+            z = torch.cat((z, pa), dim=-1)
 
         x = self.MLP(z)
 

@@ -7,10 +7,12 @@ import itertools
 import subprocess
 import numpy as np
 import pandas as pd
+
 from tqdm import tqdm
 from pprint import pprint
 from matplotlib import pyplot
 from datetime import datetime
+from attrdict import AttrDict
 
 from scm import CausalModel
 import utils
@@ -21,6 +23,8 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Ridge
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.gaussian_process.kernels import WhiteKernel, ExpSineSquared
+
+from _cvae.train import *
 
 import GPy
 
@@ -41,6 +45,9 @@ NUMBER_OF_MONTE_CARLO_SAMPLES = 100
 LAMBDA_LCB = 1
 SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
 SAVED_MACE_RESULTS_PATH_M1 = '/Users/a6karimi/dev/recourse/_minimum_distances_m1'
+
+ACCEPTABLE_POINT_RECOURSE = {'m0_true', 'm1_alin', 'm1_akrr'}
+ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm2_true', 'm2_hvae'}
 
 
 @utils.Memoize
@@ -453,6 +460,37 @@ def sampleHIVAE(dataset_obj, samples_df, node, parents, debug_flag = True):
   # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
+# @utils.Memoize
+def trainCVAE(dataset_obj, node, parents):
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  X_all = X_train.append(X_test)
+  y_all = y_train.append(y_test)
+  return train_cvae(AttrDict({
+    'parents': X_all[parents],
+    'node': X_all[[node]],
+    'seed': 0,
+    'epochs': 50,
+    'batch_size': 64,
+    'learning_rate': 0.0005,
+    'encoder_layer_sizes': [1, 10], # 1 b/c the X_all[[node]] is always 1 dimensional
+    'decoder_layer_sizes': [10, 1], # 1 b/c the X_all[[node]] is always 1 dimensional
+    'latent_size': 2,
+    'conditional': True,
+    'print_every': 100,
+    'fig_root': '_tmp_cvae',
+    'debug_flag': False,
+  }))
+
+
+def sampleCVAE(dataset_obj, samples_df, node, parents):
+  print(f'[INFO] Training HI-VAE on complete data; this may be very expensive, memoizing aftewards.')
+  # TODO: pass in index of node and parents as well...
+  trained_cvae = trainCVAE(dataset_obj, node, parents)
+  samples_df[node] = trained_cvae.reconstructUsingPrior(n=samples_df.shape[0], pa=samples_df[parents])
+  return samples_df
+
+
+
 def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
 
   if not bool(action_set): # if action_set is empty, CFE = F
@@ -605,6 +643,22 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         # Confirm parents columns are present/have assigned values in samples_df
         assert not samples_df.loc[:,list(parents)].isnull().values.any()
         samples_df = sampleGP(dataset_obj, samples_df, node, parents, factual_instance)
+
+  elif recourse_type == 'm2_cvae':
+
+    # TODO: run once per dataset and cache/save in experiment folder? (read from cache if available)
+    # if not os.path.exists(f'_tmp_hivae/Saved_Networks/model_HIVAE_inputDropout_{dataset_obj.dataset_name}/checkpoint'):
+    # trainCVAE(dataset_obj)
+
+    # Simply traverse the graph in order, and populate nodes as we go!
+    # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
+    for node in causal_model_obj.getTopologicalOrdering():
+      # if variable value is not yet set through intervention or conditioning
+      if samples_df[node].isnull().values.any():
+        parents = causal_model_obj.getParentsForNode(node)
+        # Confirm parents columns are present/have assigned values in samples_df
+        assert not samples_df.loc[:,list(parents)].isnull().values.any()
+        samples_df = sampleCVAE(dataset_obj, samples_df, node, parents)
 
   elif recourse_type == 'm2_hvae':
 
@@ -769,9 +823,9 @@ def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factu
 
   # TODO: add option to select computation: brute-force, using MACE/MINT, or SGD
 
-  if recourse_type in {'m0_true', 'm1_alin', 'm1_akrr'}:
+  if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     constraint_handle = isPointConstraintSatisfied
-  elif recourse_type in {'m1_gaus', 'm2_true', 'm2_hvae'}:
+  elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
     constraint_handle = isDistrConstraintSatisfied
   else:
     raise Exception(f'{recourse_type} not recognized.')
@@ -840,14 +894,14 @@ def scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_insta
 
   assert len(factual_instance.keys()) == 3
 
-  if recourse_type in {'m0_true', 'm1_alin', 'm1_akrr'}:
+  if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     # point recourse
 
     point = computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type)
     color_string = 'green' if didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, point) else 'red'
     ax.scatter(point['x1'], point['x2'], point['x3'], marker = marker_type, color=color_string, s=70)
 
-  elif recourse_type in {'m1_gaus', 'm2_true', 'm2_hvae'}:
+  elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
     # distr recourse
 
     samples_df = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, 100)
@@ -881,15 +935,16 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   # action_set = {'x1': +2, 'x3': +1, 'x5': 3}
   # action_set = {'x0': +2, 'x2': +1}
   # action_set = {'x1': +2, 'x3': +1}
-  action_set = {'x3': +100}
+  action_set = {'x2': +100, 'x6': 2}
 
   print(f'FC: \t\t{prettyPrintDict(factual_instance)}')
-  # print(f'M0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
-  print(f'M1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
+  print(f'M0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
+  # print(f'M1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
   # print(f'M1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
-  # print(f'M2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
+  print(f'M2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
   # print(f'M1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
   # print(f'M2_hvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_hvae", 10)}')
+  print(f'M2_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae", 10)}')
 
 
 def experiment2(dataset_obj, classifier_obj, causal_model_obj):

@@ -10,10 +10,31 @@ from torchvision.datasets import MNIST
 from torch.utils.data import DataLoader
 from collections import defaultdict
 
-from models import VAE
+from .models import VAE
+
+from debug import ipsh
 
 
-def main(args):
+class Dataset(torch.utils.data.Dataset):
+  def __init__(self, data, target, transform=None):
+        self.data = torch.tensor(data.values).float()
+        self.target = torch.tensor(target.values).float() # this was long before... changed to float to replace all y.float()s in the trainig loop
+        self.transform = transform
+
+  def __getitem__(self, index):
+        x = self.data[index]
+        y = self.target[index]
+
+        if self.transform:
+            x = self.transform(x)
+
+        return x, y
+
+  def __len__(self):
+        return len(self.data)
+
+
+def train_cvae(args):
 
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
@@ -23,25 +44,23 @@ def main(args):
 
     ts = time.time()
 
-    dataset = MNIST(
-        root='data', train=True, transform=transforms.ToTensor(),
-        download=True)
+    dataset = Dataset(args.node, args.parents) # order is important: x=node, pa=parents (the class the cvae is conditioned on)
     data_loader = DataLoader(
         dataset=dataset, batch_size=args.batch_size, shuffle=True)
 
     def loss_fn(recon_x, x, mean, log_var):
-        BCE = torch.nn.functional.binary_cross_entropy(
-            recon_x.view(-1, 28*28), x.view(-1, 28*28), reduction='sum')
+        # BCE = torch.nn.functional.binary_cross_entropy(recon_x.view(-1, 28*28), x.view(-1, 28*28), reduction='sum')
+        BCE = torch.nn.functional.binary_cross_entropy(recon_x, x, reduction='sum')
         KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
 
         return (BCE + KLD) / x.size(0)
 
     vae = VAE(
-        encoder_layer_sizes=args.encoder_layer_sizes,
+        encoder_layer_sizes=list(args.encoder_layer_sizes), # bug in AttrDict package: https://github.com/bcj/AttrDict/issues/34#issuecomment-202920540
         latent_size=args.latent_size,
-        decoder_layer_sizes=args.decoder_layer_sizes,
+        decoder_layer_sizes=list(args.decoder_layer_sizes), # bug in AttrDict package: https://github.com/bcj/AttrDict/issues/34#issuecomment-202920540
         conditional=args.conditional,
-        num_labels=10 if args.conditional else 0).to(device)
+        num_labels=args.parents.shape[1] if args.conditional else 0).to(device)
 
     optimizer = torch.optim.Adam(vae.parameters(), lr=args.learning_rate)
 
@@ -49,22 +68,22 @@ def main(args):
 
     for epoch in range(args.epochs):
 
-        tracker_epoch = defaultdict(lambda: defaultdict(dict))
+        # tracker_epoch = defaultdict(lambda: defaultdict(dict))
 
-        for iteration, (x, y) in enumerate(data_loader):
+        for iteration, (x, pa) in enumerate(data_loader):
 
-            x, y = x.to(device), y.to(device)
+            x, pa = x.to(device), pa.to(device)
 
             if args.conditional:
-                recon_x, mean, log_var, z = vae(x, y)
+                recon_x, mean, log_var, z = vae(x, pa)
             else:
                 recon_x, mean, log_var, z = vae(x)
 
-            for i, yi in enumerate(y):
-                id = len(tracker_epoch)
-                tracker_epoch[id]['x'] = z[i, 0].item()
-                tracker_epoch[id]['y'] = z[i, 1].item()
-                tracker_epoch[id]['label'] = yi.item()
+            # for i, yi in enumerate(y):
+            #     id = len(tracker_epoch)
+            #     tracker_epoch[id]['x'] = z[i, 0].item()
+            #     tracker_epoch[id]['y'] = z[i, 1].item()
+            #     tracker_epoch[id]['label'] = yi.item()
 
             loss = loss_fn(recon_x, x, mean, log_var)
 
@@ -74,46 +93,49 @@ def main(args):
 
             logs['loss'].append(loss.item())
 
-            if iteration % args.print_every == 0 or iteration == len(data_loader)-1:
-                print("Epoch {:02d}/{:02d} Batch {:04d}/{:d}, Loss {:9.4f}".format(
-                    epoch, args.epochs, iteration, len(data_loader)-1, loss.item()))
+            if args.debug_flag:
+                if iteration % args.print_every == 0 or iteration == len(data_loader)-1:
+                    print("Epoch {:02d}/{:02d} Batch {:04d}/{:d}, Loss {:9.4f}".format(
+                        epoch, args.epochs, iteration, len(data_loader)-1, loss.item()))
 
-                if args.conditional:
-                    c = torch.arange(0, 10).long().unsqueeze(1)
-                    x = vae.inference(n=c.size(0), c=c)
-                else:
-                    x = vae.inference(n=10)
+    return vae
 
-                plt.figure()
-                plt.figure(figsize=(5, 10))
-                for p in range(10):
-                    plt.subplot(5, 2, p+1)
-                    if args.conditional:
-                        plt.text(
-                            0, 0, "c={:d}".format(c[p].item()), color='black',
-                            backgroundcolor='white', fontsize=8)
-                    plt.imshow(x[p].view(28, 28).data.numpy())
-                    plt.axis('off')
+        #         if args.conditional:
+        #             c = torch.arange(0, 10).long().unsqueeze(1)
+        #             x = vae.inference(n=c.size(0), c=c)
+        #         else:
+        #             x = vae.inference(n=10)
 
-                if not os.path.exists(os.path.join(args.fig_root, str(ts))):
-                    if not(os.path.exists(os.path.join(args.fig_root))):
-                        os.mkdir(os.path.join(args.fig_root))
-                    os.mkdir(os.path.join(args.fig_root, str(ts)))
+        #         plt.figure()
+        #         plt.figure(figsize=(5, 10))
+        #         for p in range(10):
+        #             plt.subplot(5, 2, p+1)
+        #             if args.conditional:
+        #                 plt.text(
+        #                     0, 0, "c={:d}".format(c[p].item()), color='black',
+        #                     backgroundcolor='white', fontsize=8)
+        #             plt.imshow(x[p].view(28, 28).data.numpy())
+        #             plt.axis('off')
 
-                plt.savefig(
-                    os.path.join(args.fig_root, str(ts),
-                                 "E{:d}I{:d}.png".format(epoch, iteration)),
-                    dpi=300)
-                plt.clf()
-                plt.close('all')
+        #         if not os.path.exists(os.path.join(args.fig_root, str(ts))):
+        #             if not(os.path.exists(os.path.join(args.fig_root))):
+        #                 os.mkdir(os.path.join(args.fig_root))
+        #             os.mkdir(os.path.join(args.fig_root, str(ts)))
 
-        df = pd.DataFrame.from_dict(tracker_epoch, orient='index')
-        g = sns.lmplot(
-            x='x', y='y', hue='label', data=df.groupby('label').head(100),
-            fit_reg=False, legend=True)
-        g.savefig(os.path.join(
-            args.fig_root, str(ts), "E{:d}-Dist.png".format(epoch)),
-            dpi=300)
+        #         plt.savefig(
+        #             os.path.join(args.fig_root, str(ts),
+        #                          "E{:d}I{:d}.png".format(epoch, iteration)),
+        #             dpi=300)
+        #         plt.clf()
+        #         plt.close('all')
+
+        # df = pd.DataFrame.from_dict(tracker_epoch, orient='index')
+        # g = sns.lmplot(
+        #     x='x', y='y', hue='label', data=df.groupby('label').head(100),
+        #     fit_reg=False, legend=True)
+        # g.savefig(os.path.join(
+        #     args.fig_root, str(ts), "E{:d}-Dist.png".format(epoch)),
+        #     dpi=300)
 
 
 if __name__ == '__main__':
