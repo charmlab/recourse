@@ -169,7 +169,7 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
     elif node == 'x5':
       return lambda x4, n5: x4 + n5
     elif node == 'x6':
-      return lambda x2, n5: x2 + n5
+      return lambda x2, n6: x2 + n6
 
   # elif recourse_type == 'approx_deprecated':
 
@@ -186,21 +186,45 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
     X_all = X_train.append(X_test)
     param_grid = {"alpha": np.linspace(0,10,11)}
 
-    if node == 'x1':
-
-      return lambda n1: n1
-
-    elif node == 'x2':
-
+    parents = causal_model_obj.getParentsForNode(node)
+    if len(parents) == 0:
+      return lambda noise: noise
+    else:
       model = GridSearchCV(Ridge(), param_grid=param_grid)
-      model.fit(X_all[['x1']], X_all[['x2']])
-      return lambda x1, n2: model.predict([[x1]])[0][0] + n2
+      model.fit(X_all[parents], X_all[[node]])
+      if len(parents) == 1:
+        return lambda pa_1, noise: model.predict([[pa_1]])[0][0] + noise
+      elif len(parents) == 2:
+        return lambda pa_1, pa_2, noise: model.predict([[pa_1, pa_2]])[0][0] + noise
+      elif len(parents) == 3:
+        return lambda pa_1, pa_2, pa_3, noise: model.predict([[pa_1, pa_2, pa_3]])[0][0] + noise
+      elif len(parents) >= 3:
+        raise Exception(f'This is horrible code, Amir. Shame!')
 
-    elif node == 'x3':
+    # else:
+    #   model = GridSearchCV(Ridge(), param_grid=param_grid)
+    #   model.fit(X_all[parents], X_all[[node]])
+    #   return lambda *parents, noise: model.predict([list(parents)])[0][0] + noise
+      # return lambda parents, noise: model.predict([[parents]])[0][0] + n2
 
-      model = GridSearchCV(Ridge(), param_grid=param_grid)
-      model.fit(X_all[['x1', 'x2']], X_all[['x3']])
-      return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
+      # model.fit(X_all[['x1']], X_all[['x2']])
+      # return lambda x1, n2: model.predict([[x1]])[0][0] + n2
+
+    # if node == 'x1':
+
+    #   return lambda n1: n1
+
+    # elif node == 'x2':
+
+    #   model = GridSearchCV(Ridge(), param_grid=param_grid)
+    #   model.fit(X_all[['x1']], X_all[['x2']])
+    #   return lambda x1, n2: model.predict([[x1]])[0][0] + n2
+
+    # elif node == 'x3':
+
+    #   model = GridSearchCV(Ridge(), param_grid=param_grid)
+    #   model.fit(X_all[['x1', 'x2']], X_all[['x3']])
+    #   return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
 
   elif recourse_type == 'm1_akrr':
 
@@ -861,11 +885,11 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
 
   print(f'FC: \t\t{prettyPrintDict(factual_instance)}')
   # print(f'M0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
-  # print(f'M1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
+  print(f'M1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
   # print(f'M1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
   # print(f'M2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
   # print(f'M1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
-  print(f'M2_hvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_hvae", 10)}')
+  # print(f'M2_hvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_hvae", 10)}')
 
 
 def experiment2(dataset_obj, classifier_obj, causal_model_obj):
@@ -1244,12 +1268,12 @@ if __name__ == "__main__":
   causal_model_obj = loadCausalModel(dataset_class, experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
-  # experiment1(dataset_obj, classifier_obj, causal_model_obj)
+  experiment1(dataset_obj, classifier_obj, causal_model_obj)
   # experiment2(dataset_obj, classifier_obj, causal_model_obj)
   # experiment3(dataset_obj, classifier_obj, causal_model_obj)
   # experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
   # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)
