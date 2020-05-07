@@ -460,14 +460,35 @@ def sampleHIVAE(dataset_obj, samples_df, node, parents, debug_flag = True):
   # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
-# @utils.Memoize
+def normalizeDataFrame(dataset_obj, df):
+  df = df.copy() # so as not to change the underlying object
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  X_all = X_train.append(X_test)
+  for col_idx in df.columns:
+    col_min = float(min(X_all[col_idx]))
+    col_max = float(max(X_all[col_idx]))
+    df[col_idx] = (df[col_idx] - col_min) / (col_max - col_min)
+  return df
+
+
+def denormalizeDataFrame(dataset_obj, df):
+  df = df.copy() # so as not to change the underlying object
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  X_all = X_train.append(X_test)
+  for col_idx in df.columns:
+    col_min = float(min(X_all[col_idx]))
+    col_max = float(max(X_all[col_idx]))
+    df[col_idx] = df[col_idx] * (col_max - col_min) + col_min
+  return df
+
+
+# TODO: @utils.Memoize
 def trainCVAE(dataset_obj, node, parents):
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
-  y_all = y_train.append(y_test)
   return train_cvae(AttrDict({
-    'parents': X_all[parents],
-    'node': X_all[[node]],
+    'parents': normalizeDataFrame(dataset_obj, X_all[parents]),
+    'node': normalizeDataFrame(dataset_obj, X_all[[node]]),
     'seed': 0,
     'epochs': 50,
     'batch_size': 64,
@@ -478,17 +499,18 @@ def trainCVAE(dataset_obj, node, parents):
     'conditional': True,
     'print_every': 100,
     'fig_root': '_tmp_cvae',
-    'debug_flag': False,
+    'debug_flag': True,
   }))
 
 
 def sampleCVAE(dataset_obj, samples_df, node, parents):
-  print(f'[INFO] Training HI-VAE on complete data; this may be very expensive, memoizing aftewards.')
+  print(f'[INFO] Training CVAE on complete data; this may be very expensive, memoizing aftewards.')
   # TODO: pass in index of node and parents as well...
   trained_cvae = trainCVAE(dataset_obj, node, parents)
-  samples_df[node] = trained_cvae.reconstructUsingPrior(n=samples_df.shape[0], pa=samples_df[parents])
+  tmp = trained_cvae.reconstructUsingPrior(n=samples_df.shape[0], pa=samples_df[parents])
+  tmp = tmp.rename(columns={0: node}) # bad code amir, this violates abstraction!
+  samples_df[node] = denormalizeDataFrame(dataset_obj, tmp)
   return samples_df
-
 
 
 def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
@@ -935,7 +957,7 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   # action_set = {'x1': +2, 'x3': +1, 'x5': 3}
   # action_set = {'x0': +2, 'x2': +1}
   # action_set = {'x1': +2, 'x3': +1}
-  action_set = {'x2': +100, 'x6': 2}
+  action_set = {'x2': +0.5, 'x6': 2}
 
   print(f'FC: \t\t{prettyPrintDict(factual_instance)}')
   print(f'M0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
