@@ -5,6 +5,7 @@ import argparse
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 from torchvision import transforms
 from torchvision.datasets import MNIST
 from torch.utils.data import DataLoader
@@ -49,11 +50,12 @@ def train_cvae(args):
         dataset=dataset, batch_size=args.batch_size, shuffle=True)
 
     def loss_fn(recon_x, x, mean, log_var):
-        # BCE = torch.nn.functional.binary_cross_entropy(recon_x.view(-1, 28*28), x.view(-1, 28*28), reduction='sum')
-        BCE = torch.nn.functional.binary_cross_entropy(recon_x, x, reduction='sum')
+        # TODO: add back for binary / categorical variables
+        # BCE = torch.nn.functional.binary_cross_entropy(recon_x, x, reduction='sum')
+        MSE = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
         KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
-
-        return (BCE + KLD) / x.size(0)
+        # return (BCE + KLD) / x.size(0)
+        return (MSE + KLD) / x.size(0)
 
     vae = VAE(
         encoder_layer_sizes=list(args.encoder_layer_sizes), # bug in AttrDict package: https://github.com/bcj/AttrDict/issues/34#issuecomment-202920540
@@ -66,7 +68,7 @@ def train_cvae(args):
 
     logs = defaultdict(list)
 
-    for epoch in range(args.epochs):
+    for epoch in tqdm(range(args.epochs)):
 
         # tracker_epoch = defaultdict(lambda: defaultdict(dict))
 

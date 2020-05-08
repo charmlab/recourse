@@ -368,13 +368,10 @@ def trainHIVAE(dataset_obj):
   return True # this along with Memoize means that this function will only ever be executed once
 
 
-def sampleHIVAE(dataset_obj, samples_df, node, parents, debug_flag = True):
+def sampleHIVAE(dataset_obj, samples_df, node, parents):
   # counterfactual_instance keys are the conditioning + intervention set, therefore
   # we should create something like Missing1050_1.csv where rows are like this:
   # 10,1   \n   10,2   \n   10,3   \n   11,5   \n   11,13   \n   12,13
-
-  if debug_flag:
-    print(f'Sampling HI-VAE from p({node} | {", ".join(parents)})')
 
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
@@ -458,25 +455,35 @@ def sampleHIVAE(dataset_obj, samples_df, node, parents, debug_flag = True):
   # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
-def normalizeDataFrame(dataset_obj, df):
+def processDataFrame(dataset_obj, df, processing_type):
   df = df.copy() # so as not to change the underlying object
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   for col_idx in df.columns:
     col_min = float(min(X_all[col_idx]))
     col_max = float(max(X_all[col_idx]))
-    df[col_idx] = (df[col_idx] - col_min) / (col_max - col_min)
+    col_mean = float(np.mean(X_all[col_idx]))
+    col_std = float(np.std(X_all[col_idx]))
+    if processing_type == 'normalize':
+      df[col_idx] = (df[col_idx] - col_min) / (col_max - col_min)
+    elif processing_type == 'standardize':
+      df[col_idx] = (df[col_idx] - col_mean) / col_std
   return df
 
 
-def denormalizeDataFrame(dataset_obj, df):
+def deprocessDataFrame(dataset_obj, df, processing_type):
   df = df.copy() # so as not to change the underlying object
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   for col_idx in df.columns:
     col_min = float(min(X_all[col_idx]))
     col_max = float(max(X_all[col_idx]))
-    df[col_idx] = df[col_idx] * (col_max - col_min) + col_min
+    col_mean = float(np.mean(X_all[col_idx]))
+    col_std = float(np.std(X_all[col_idx]))
+    if processing_type == 'normalize':
+      df[col_idx] = df[col_idx] * (col_max - col_min) + col_min
+    elif processing_type == 'standardize':
+      df[col_idx] = df[col_idx] * col_std + col_mean
   return df
 
 
@@ -485,9 +492,8 @@ def trainCVAE(dataset_obj, node, parents):
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   return train_cvae(AttrDict({
-    # 'parents': normalizeDataFrame(dataset_obj, X_all[parents]),
-    'parents': X_all[parents],
-    'node': normalizeDataFrame(dataset_obj, X_all[[node]]),
+    'parents': processDataFrame(dataset_obj, X_all[parents], 'standardize'),
+    'node': processDataFrame(dataset_obj, X_all[[node]], 'standardize'),
     'seed': 0,
     'epochs': 50,
     'batch_size': 64,
@@ -506,9 +512,13 @@ def sampleCVAE(dataset_obj, samples_df, node, parents):
   print(f'[INFO] Training CVAE on complete data; this may be very expensive, memoizing aftewards.')
   # TODO: pass in index of node and parents as well...
   trained_cvae = trainCVAE(dataset_obj, node, parents)
-  tmp = trained_cvae.reconstructUsingPrior(n=samples_df.shape[0], pa=samples_df[parents])
+  tmp = trained_cvae.reconstructUsingPrior(
+    n=samples_df.shape[0],
+    # pa=samples_df[parents],
+    pa=processDataFrame(dataset_obj, samples_df[parents], 'standardize')
+  )
   tmp = tmp.rename(columns={0: node}) # bad code amir, this violates abstraction!
-  samples_df[node] = denormalizeDataFrame(dataset_obj, tmp)
+  samples_df[node] = deprocessDataFrame(dataset_obj, tmp, 'standardize')
   return samples_df
 
 
@@ -600,7 +610,7 @@ def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj,
   # # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
-def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples):
+def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples, debug_flag = True):
 
   if not bool(action_set): # if action_set is empty, CFE = F
     return pd.DataFrame(dict(zip(
@@ -652,6 +662,10 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         samples_df[preassigned_nodes].T.to_numpy()
       )),
     )
+
+  # TODO: add to each method...
+  # if debug_flag:
+  #   print(f'Sampling HI-VAE from p({node} | {", ".join(parents)})')
 
   elif recourse_type in {'m1_gaus', 'm2_gaus'}:
 
@@ -956,16 +970,20 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   # action_set = {'x1': +2, 'x3': +1, 'x5': 3}
   # action_set = {'x0': +2, 'x2': +1}
   # action_set = {'x1': +2, 'x3': +1}
-  action_set = {'x2': +1, 'x6': 2}
+  # action_set = {'x2': +1, 'x6': 2}
+  action_set = {'x3': +4}
 
-  print(f'FC: \t\t{prettyPrintDict(factual_instance)}')
-  print(f'M0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
-  # print(f'M1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
-  # print(f'M1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
-  # print(f'M1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
-  print(f'M2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
-  # print(f'M2_hvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_hvae", 10)}')
-  print(f'M2_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae", 10)}')
+  print(f'fc: \t\t{prettyPrintDict(factual_instance)}')
+  print(f'm0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
+
+  # print(f'm1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
+  # print(f'm1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
+  # print(f'm1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
+
+  print(f'm2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
+  # print(f'm2_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_gaus", 10)}')
+  # print(f'm2_hvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_hvae", 10)}')
+  print(f'm2_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae", 10)}')
 
 
 def experiment2(dataset_obj, classifier_obj, causal_model_obj):
@@ -1223,19 +1241,25 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   factual_instance = X_test.iloc[0].T.to_dict()
 
   # iterative over a number of action sets and compare the three counterfactuals
+  # action_sets = [ \
+  #   {'x3': +8}, \
+  #   {'x3': +6}, \
+  #   {'x3': +4}, \
+  #   {'x3': +2}, \
+  #   {'x3': +0}, \
+  #   {'x3': -2}, \
+  #   {'x3': -4}, \
+  #   {'x3': -6}, \
+  #   {'x3': -8}, \
+  # ]
   action_sets = [ \
-    {'x3': +8}, \
     {'x3': +6}, \
-    {'x3': +4}, \
-    {'x3': +2}, \
+    {'x3': +3}, \
     {'x3': +0}, \
-    {'x3': -2}, \
-    {'x3': -4}, \
-    {'x3': -6}, \
-    {'x3': -8}, \
+    {'x3': -3}, \
   ]
 
-  fig, axes = pyplot.subplots(3, 3)
+  fig, axes = pyplot.subplots(2, 2)
   fig.suptitle(f'Comparing conditioning on pa(I) vs pa(I) and nd(I)')
   # axes = [ax1, ax2, ax3, ax4]
 
