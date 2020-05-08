@@ -26,7 +26,7 @@ class VAE(nn.Module):
         self.decoder = Decoder(
             decoder_layer_sizes, latent_size, conditional, num_labels)
 
-    def forward(self, x, pa=None):
+    def forward(self, x, pa):
 
         batch_size = x.size(0)
 
@@ -40,31 +40,33 @@ class VAE(nn.Module):
 
         return recon_x, means, log_var, z
 
-    def reconstructUsingPrior(self, n=1, pa=None):
+    def reconstruct(self, x_factual, pa_factual, pa_counter, sample_from):
 
-        if isinstance(pa, pd.DataFrame):
-            pa = torch.tensor(pa.values).float()
 
-        batch_size = n
-        z = torch.randn([batch_size, self.latent_size])
+        if isinstance(x_factual, pd.DataFrame):
+            x_factual = torch.tensor(x_factual.values).float()
+        if isinstance(pa_factual, pd.DataFrame):
+            pa_factual = torch.tensor(pa_factual.values).float()
+        if isinstance(pa_counter, pd.DataFrame):
+            pa_counter = torch.tensor(pa_counter.values).float()
 
-        recon_x = self.decoder(z, pa)
+        batch_size = x_factual.size(0)
+
+        if sample_from == 'prior':
+            z = torch.randn([batch_size, self.latent_size])
+        elif sample_from == 'reweighted_prior':
+            raise NotImplementedError
+        elif sample_from == 'posterior':
+            means, log_var = self.encoder(x_factual, pa_factual) # noise is computed in factual world
+            std = torch.exp(0.5 * log_var)
+            eps = torch.randn([batch_size, self.latent_size])
+            z = eps * std + means
+        else:
+            raise Exception(f'{sample_from} not recognized.')
+
+        recon_x = self.decoder(z, pa_counter)
 
         return pd.DataFrame(recon_x.detach().numpy())
-
-    # def reconstructUsingPosterior(self, x, pa=None):
-
-    #     batch_size = x.size(0)
-
-    #     means, log_var = self.encoder(x, pa)
-
-    #     std = torch.exp(0.5 * log_var)
-    #     eps = torch.randn([batch_size, self.latent_size])
-    #     z = eps * std + means
-
-    #     recon_x = self.decoder(z, pa)
-
-    #     return recon_x, means, log_var, z
 
 
 class Encoder(nn.Module):
@@ -87,7 +89,7 @@ class Encoder(nn.Module):
         self.linear_means = nn.Linear(layer_sizes[-1], latent_size)
         self.linear_log_var = nn.Linear(layer_sizes[-1], latent_size)
 
-    def forward(self, x, pa=None):
+    def forward(self, x, pa):
 
         if self.conditional:
             x = torch.cat((x, pa), dim=-1)

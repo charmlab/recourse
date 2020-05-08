@@ -262,8 +262,7 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
       return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
 
 
-# TODO:
-# @utils.Memoize
+# TODO: @utils.Memoize
 def trainGP(dataset_obj, node, parents, X, Y):
 
   print(f'[INFO] Fitting GP (parents: {parents}; child: {node}) may be very expensive, memoizing aftewards.')
@@ -492,30 +491,43 @@ def trainCVAE(dataset_obj, node, parents):
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   return train_cvae(AttrDict({
-    'parents': processDataFrame(dataset_obj, X_all[parents], 'standardize'),
     'node': processDataFrame(dataset_obj, X_all[[node]], 'standardize'),
+    'parents': processDataFrame(dataset_obj, X_all[parents], 'standardize'),
     'seed': 0,
-    'epochs': 50,
+    'epochs': 10,
     'batch_size': 64,
-    'learning_rate': 0.0001,
-    'encoder_layer_sizes': [1, 10], # 1 b/c the X_all[[node]] is always 1 dimensional
-    'decoder_layer_sizes': [10, 1], # 1 b/c the X_all[[node]] is always 1 dimensional
-    'latent_size': 2,
+    'learning_rate': 0.001,
+    'encoder_layer_sizes': [1, 10], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
+    'decoder_layer_sizes': [10, 1], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
+    'latent_size': 2, # TODO: should this be 1 to be interpreted as noise?
     'conditional': True,
     'print_every': 1000,
-    'fig_root': '_tmp_cvae',
     'debug_flag': False,
   }))
 
 
-def sampleCVAE(dataset_obj, samples_df, node, parents):
+def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recourse_type):
   print(f'[INFO] Training CVAE on complete data; this may be very expensive, memoizing aftewards.')
   # TODO: pass in index of node and parents as well...
   trained_cvae = trainCVAE(dataset_obj, node, parents)
-  tmp = trained_cvae.reconstructUsingPrior(
-    n=samples_df.shape[0],
-    # pa=samples_df[parents],
-    pa=processDataFrame(dataset_obj, samples_df[parents], 'standardize')
+  num_samples = samples_df.shape[0]
+  x_factual = pd.DataFrame(dict(zip(
+    [node],
+    [num_samples * [factual_instance[node]] for node in [node]],
+  )))
+  pa_factual = pd.DataFrame(dict(zip(
+    parents,
+    [num_samples * [factual_instance[node]] for node in parents],
+  )))
+  pa_counter = samples_df[parents]
+  tmp = trained_cvae.reconstruct(
+    x_factual=processDataFrame(dataset_obj, x_factual, 'standardize'),
+    pa_factual=processDataFrame(dataset_obj, pa_factual, 'standardize'),
+    pa_counter=processDataFrame(dataset_obj, pa_counter, 'standardize'),
+    # sample_from='prior',
+    # sample_from='reweighted_prior',
+    # sample_from='posterior'
+    sample_from='posterior' if recourse_type == 'm1_cvae' else 'prior',
   )
   tmp = tmp.rename(columns={0: node}) # bad code amir, this violates abstraction!
   samples_df[node] = deprocessDataFrame(dataset_obj, tmp, 'standardize')
@@ -679,7 +691,7 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         assert not samples_df.loc[:,list(parents)].isnull().values.any()
         samples_df = sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_type)
 
-  elif recourse_type == 'm2_cvae':
+  elif recourse_type in {'m1_cvae', 'm2_cvae'}:
 
     # TODO: run once per dataset and cache/save in experiment folder? (read from cache if available)
     # if not os.path.exists(f'_tmp_hivae/Saved_Networks/model_HIVAE_inputDropout_{dataset_obj.dataset_name}/checkpoint'):
@@ -693,7 +705,7 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         parents = causal_model_obj.getParentsForNode(node)
         # Confirm parents columns are present/have assigned values in samples_df
         assert not samples_df.loc[:,list(parents)].isnull().values.any()
-        samples_df = sampleCVAE(dataset_obj, samples_df, node, parents)
+        samples_df = sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recourse_type)
 
   elif recourse_type == 'm2_hvae':
 
@@ -979,6 +991,7 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   # print(f'm1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
   # print(f'm1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
   # print(f'm1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
+  # print(f'm1_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_cvae", 10)}')
 
   print(f'm2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
   # print(f'm2_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_gaus", 10)}')
@@ -1241,27 +1254,27 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   factual_instance = X_test.iloc[0].T.to_dict()
 
   # iterative over a number of action sets and compare the three counterfactuals
-  # action_sets = [ \
-  #   {'x3': +8}, \
-  #   {'x3': +6}, \
-  #   {'x3': +4}, \
-  #   {'x3': +2}, \
-  #   {'x3': +0}, \
-  #   {'x3': -2}, \
-  #   {'x3': -4}, \
-  #   {'x3': -6}, \
-  #   {'x3': -8}, \
-  # ]
   action_sets = [ \
     {'x3': +6}, \
     {'x3': +3}, \
     {'x3': +0}, \
     {'x3': -3}, \
   ]
+  recourse_types = [
+    'm0_true', \
+    'm1_gaus', \
+    'm1_cvae', \
+    'm2_true', \
+    'm2_gaus', \
+    # 'm2_cvae', \
+    # 'm2_hvae', \
+    # 'm2_hvae_new', \
+  ]
+  markers = ['k*', 'cD', 'mP', 'ko', 'bs', 'r+']
+  num_samples = 10
 
-  fig, axes = pyplot.subplots(2, 2)
-  fig.suptitle(f'Comparing conditioning on pa(I) vs pa(I) and nd(I)')
-  # axes = [ax1, ax2, ax3, ax4]
+  fig, axes = pyplot.subplots(int(np.sqrt(len(action_sets))), int(np.sqrt(len(action_sets))))
+  # fig.suptitle(f'Comparing conditioning on pa(I) vs pa(I) and nd(I)')
 
   print(f'X_train:\n{X_train}')
   print(X_train.describe())
@@ -1271,34 +1284,16 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
     print(f'\n\n[INFO] ACTION SET: {str(action_set)}' + ' =' * 40)
 
-    m0_true = computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm0_true')
-    print(f'm0_true:\t{m0_true}')
+    for (recourse_type, marker) in zip(recourse_types, markers):
 
-    m1_gaus = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm1_gaus', 10)
-    print(f'm1_gaus:\n{m1_gaus.head()}')
+      if recourse_type == 'm0_true':
+        samples = computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type)
+      else:
+        samples = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples)
 
-    m2_gaus = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_gaus', 10)
-    print(f'm2_gaus:\n{m2_gaus.head()}')
+      print(f'{recourse_type}:\t{samples}')
+      axes.ravel()[idx].plot(samples['x4'], samples['x5'], marker, label=recourse_type)
 
-    m2_true = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_true', 10)
-    print(f'm2_true:\n{m2_true.head()}')
-
-    m2_cvae = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_cvae', 10)
-    print(f'm2_cvae:\n{m2_cvae.head()}')
-
-    # m2_hvae = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_hvae', 10)
-    # print(f'm2_hvae:\n{m2_hvae.head()}')
-
-    # m2_hvae_new = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm2_hvae_new', 10)
-    # print(f'm2_hvae_new:\n{m2_hvae_new.head()}')
-
-    axes.ravel()[idx].plot(m0_true['x4'],            m0_true['x5'],            'ko', label = 'm0_true')
-    axes.ravel()[idx].plot(m1_gaus['x4'].to_numpy(), m1_gaus['x5'].to_numpy(), 'mD', label = 'm1_gaus')
-    axes.ravel()[idx].plot(m2_true['x4'].to_numpy(), m2_true['x5'].to_numpy(), 'cs', label = 'm2_true')
-    # axes.ravel()[idx].plot(m2_hvae['x4'].to_numpy(), m2_hvae['x5'].to_numpy(), 'rx', label = 'm2_hvae')
-    # axes.ravel()[idx].plot(m2_hvae_new['x4'].to_numpy(), m2_hvae_new['x5'].to_numpy(), 'b+', label = 'm2_hvae_new')
-    axes.ravel()[idx].plot(m2_gaus['x4'].to_numpy(), m2_gaus['x5'].to_numpy(), 'b+', label = 'm2_gaus')
-    axes.ravel()[idx].plot(m2_cvae['x4'].to_numpy(), m2_cvae['x5'].to_numpy(), 'rx', label = 'm2_cvae')
     axes.ravel()[idx].set_ylabel('$X_5$', fontsize='x-small')
     axes.ravel()[idx].set_xlabel('$X_4$', fontsize='x-small')
     # axes.ravel()[idx].set_ylim(-10, 10)
@@ -1310,8 +1305,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   for ax in axes.ravel():
     ax.legend(fontsize='xx-small')
   fig.tight_layout()
-  # pyplot.show()
-  pyplot.savefig(f'{experiment_folder_name}/comparison.png')
+  pyplot.savefig(f'{experiment_folder_name}/comparison.eps', format='eps')
 
 
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):
