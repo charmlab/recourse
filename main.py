@@ -524,9 +524,7 @@ def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recours
     x_factual=processDataFrame(dataset_obj, x_factual, 'standardize'),
     pa_factual=processDataFrame(dataset_obj, pa_factual, 'standardize'),
     pa_counter=processDataFrame(dataset_obj, pa_counter, 'standardize'),
-    # sample_from='prior',
     # sample_from='reweighted_prior',
-    # sample_from='posterior'
     sample_from='posterior' if recourse_type == 'm1_cvae' else 'prior',
   )
   tmp = tmp.rename(columns={0: node}) # bad code amir, this violates abstraction!

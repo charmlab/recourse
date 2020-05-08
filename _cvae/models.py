@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import pandas as pd
+from torch.distributions.normal import Normal
+from scipy.stats import multivariate_normal
 
 from debug import ipsh
 
@@ -32,9 +34,9 @@ class VAE(nn.Module):
 
         means, log_var = self.encoder(x, pa)
 
-        std = torch.exp(0.5 * log_var)
+        stds = torch.exp(0.5 * log_var)
         eps = torch.randn([batch_size, self.latent_size])
-        z = eps * std + means
+        z = eps * stds + means
 
         recon_x = self.decoder(z, pa)
 
@@ -42,31 +44,76 @@ class VAE(nn.Module):
 
     def reconstruct(self, x_factual, pa_factual, pa_counter, sample_from):
 
+        with torch.no_grad():
 
-        if isinstance(x_factual, pd.DataFrame):
-            x_factual = torch.tensor(x_factual.values).float()
-        if isinstance(pa_factual, pd.DataFrame):
-            pa_factual = torch.tensor(pa_factual.values).float()
-        if isinstance(pa_counter, pd.DataFrame):
-            pa_counter = torch.tensor(pa_counter.values).float()
+            if isinstance(x_factual, pd.DataFrame):
+                x_factual = torch.tensor(x_factual.values).float()
+            if isinstance(pa_factual, pd.DataFrame):
+                pa_factual = torch.tensor(pa_factual.values).float()
+            if isinstance(pa_counter, pd.DataFrame):
+                pa_counter = torch.tensor(pa_counter.values).float()
 
-        batch_size = x_factual.size(0)
+            batch_size = x_factual.size(0)
 
-        if sample_from == 'prior':
-            z = torch.randn([batch_size, self.latent_size])
-        elif sample_from == 'reweighted_prior':
-            raise NotImplementedError
-        elif sample_from == 'posterior':
-            means, log_var = self.encoder(x_factual, pa_factual) # noise is computed in factual world
-            std = torch.exp(0.5 * log_var)
-            eps = torch.randn([batch_size, self.latent_size])
-            z = eps * std + means
-        else:
-            raise Exception(f'{sample_from} not recognized.')
+            if sample_from == 'prior':
+                pz = torch.randn([batch_size, self.latent_size])
+                recon_x = self.decoder(pz, pa_counter)
+            elif sample_from == 'reweighted_prior':
 
-        recon_x = self.decoder(z, pa_counter)
+                means, log_var = self.encoder(x_factual, pa_factual) # noise is computed in factual world
+                stds = torch.exp(0.5 * log_var)
+                eps = torch.randn([batch_size, self.latent_size])
 
-        return pd.DataFrame(recon_x.detach().numpy())
+                samples_qz = eps * stds + means
+                samples_pz = torch.randn([batch_size, self.latent_size])
+
+                means_pz, stds_pz = torch.zeros([batch_size, self.latent_size]), torch.ones([batch_size, self.latent_size])
+                means_qz, stds_qz = means.detach(), stds.detach()
+
+                assert means_pz.shape == stds_pz.shape == means_qz.shape == stds_qz.shape
+
+                pdf_pz = []
+                for mean_pz, std_pz, sample_pz in zip(means_pz, stds_pz, samples_pz):
+                    pdf_pz.append(
+                        multivariate_normal(
+                            mean_pz,
+                            torch.diag(std_pz)
+                        ).pdf(sample_pz)
+                    )
+
+                pdf_qz = []
+                for mean_qz, std_qz, sample_qz in zip(means_qz, stds_qz, samples_qz):
+                    pdf_qz.append(
+                        multivariate_normal(
+                            mean_qz,
+                            torch.diag(std_qz)
+                        ).pdf(sample_qz)
+                    )
+
+                    # pdf_pz.append(
+                    #     torch.exp(
+                    #         Normal(
+                    #             torch.tensor(mean_pz),
+                    #             torch.tensor(torch.diag(std_pz))
+                    #         ).log_prob(
+                    #             sample_pz
+                    #         )
+                    #     )
+                    # )
+
+                pz_over_qz = torch.div(torch.tensor(pdf_pz), torch.tensor(pdf_qz)).reshape(-1, 1)
+                recon_x = self.decoder(samples_qz, pa_counter) * pz_over_qz
+                recon_x = torch.mul(recon_x, pz_over_qz)
+            elif sample_from == 'posterior':
+                means, log_var = self.encoder(x_factual, pa_factual) # noise is computed in factual world
+                stds = torch.exp(0.5 * log_var)
+                eps = torch.randn([batch_size, self.latent_size])
+                qz = eps * stds + means
+                recon_x = self.decoder(qz, pa_counter)
+            else:
+                raise Exception(f'{sample_from} not recognized.')
+
+            return pd.DataFrame(recon_x.detach().numpy())
 
 
 class Encoder(nn.Module):
