@@ -32,15 +32,15 @@ class VAE(nn.Module):
 
         batch_size = x.size(0)
 
-        means, log_var = self.encoder(x, pa)
+        means, log_vars = self.encoder(x, pa)
 
-        stds = torch.exp(0.5 * log_var)
+        stds = torch.exp(0.5 * log_vars)
         eps = torch.randn([batch_size, self.latent_size])
         z = eps * stds + means
 
         recon_x = self.decoder(z, pa)
 
-        return recon_x, means, log_var, z
+        return recon_x, means, log_vars, z
 
     def reconstruct(self, x_factual, pa_factual, pa_counter, sample_from):
 
@@ -55,61 +55,43 @@ class VAE(nn.Module):
 
             batch_size = x_factual.size(0)
 
+
+            samples_pz = torch.randn([batch_size, self.latent_size])
+            means, log_vars = self.encoder(x_factual, pa_factual) # noise is computed in factual world
+            stds = torch.exp(0.5 * log_vars)
+            eps = torch.randn([batch_size, self.latent_size])
+            samples_qz = eps * stds + means
+
+            print(f'KL between posterior and prior: {-0.5 * torch.sum(1 + log_vars - means.pow(2) - log_vars.exp())}')
+
             if sample_from == 'prior':
-                pz = torch.randn([batch_size, self.latent_size])
-                recon_x = self.decoder(pz, pa_counter)
+
+                recon_x = self.decoder(samples_pz, pa_counter)
+
             elif sample_from == 'reweighted_prior':
-
-                means, log_var = self.encoder(x_factual, pa_factual) # noise is computed in factual world
-                stds = torch.exp(0.5 * log_var)
-                eps = torch.randn([batch_size, self.latent_size])
-
-                samples_qz = eps * stds + means
-                samples_pz = torch.randn([batch_size, self.latent_size])
 
                 means_pz, stds_pz = torch.zeros([batch_size, self.latent_size]), torch.ones([batch_size, self.latent_size])
                 means_qz, stds_qz = means.detach(), stds.detach()
 
                 assert means_pz.shape == stds_pz.shape == means_qz.shape == stds_qz.shape
 
-                pdf_pz = []
-                for mean_pz, std_pz, sample_pz in zip(means_pz, stds_pz, samples_pz):
-                    pdf_pz.append(
-                        multivariate_normal(
-                            mean_pz,
-                            torch.diag(std_pz)
-                        ).pdf(sample_pz)
-                    )
-
-                pdf_qz = []
-                for mean_qz, std_qz, sample_qz in zip(means_qz, stds_qz, samples_qz):
-                    pdf_qz.append(
-                        multivariate_normal(
-                            mean_qz,
-                            torch.diag(std_qz)
-                        ).pdf(sample_qz)
-                    )
-
-                    # pdf_pz.append(
-                    #     torch.exp(
-                    #         Normal(
-                    #             torch.tensor(mean_pz),
-                    #             torch.tensor(torch.diag(std_pz))
-                    #         ).log_prob(
-                    #             sample_pz
-                    #         )
-                    #     )
-                    # )
+                pdf_pz = [
+                    multivariate_normal(mean_pz, torch.diag(std_pz)).pdf(sample_qz)
+                    for mean_pz, std_pz, sample_qz in zip(means_pz, stds_pz, samples_qz) # IMP: note this is sample qz not pz
+                ]
+                pdf_qz = [
+                    multivariate_normal(mean_qz, torch.diag(std_qz)).pdf(sample_qz)
+                    for mean_qz, std_qz, sample_qz in zip(means_qz, stds_qz, samples_qz)
+                ]
 
                 pz_over_qz = torch.div(torch.tensor(pdf_pz), torch.tensor(pdf_qz)).reshape(-1, 1)
                 recon_x = self.decoder(samples_qz, pa_counter) * pz_over_qz
                 recon_x = torch.mul(recon_x, pz_over_qz)
+
             elif sample_from == 'posterior':
-                means, log_var = self.encoder(x_factual, pa_factual) # noise is computed in factual world
-                stds = torch.exp(0.5 * log_var)
-                eps = torch.randn([batch_size, self.latent_size])
-                qz = eps * stds + means
-                recon_x = self.decoder(qz, pa_counter)
+
+                recon_x = self.decoder(samples_qz, pa_counter)
+
             else:
                 raise Exception(f'{sample_from} not recognized.')
 
@@ -134,7 +116,7 @@ class Encoder(nn.Module):
             self.MLP.add_module(name="A{:d}".format(i), module=nn.ReLU())
 
         self.linear_means = nn.Linear(layer_sizes[-1], latent_size)
-        self.linear_log_var = nn.Linear(layer_sizes[-1], latent_size)
+        self.linear_log_vars = nn.Linear(layer_sizes[-1], latent_size)
 
     def forward(self, x, pa):
 
@@ -144,7 +126,7 @@ class Encoder(nn.Module):
         x = self.MLP(x)
 
         means = self.linear_means(x)
-        log_vars = self.linear_log_var(x)
+        log_vars = self.linear_log_vars(x)
 
         return means, log_vars
 

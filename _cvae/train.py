@@ -37,9 +37,9 @@ class Dataset(torch.utils.data.Dataset):
 
 def train_cvae(args):
 
-    torch.manual_seed(args.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(args.seed)
+    # torch.manual_seed(args.seed)
+    # if torch.cuda.is_available():
+    #     torch.cuda.manual_seed(args.seed)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -52,10 +52,10 @@ def train_cvae(args):
     def loss_fn(recon_x, x, mean, log_var):
         # TODO: add back for binary / categorical variables
         # BCE = torch.nn.functional.binary_cross_entropy(recon_x, x, reduction='sum')
-        MSE = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
+        MSE = torch.nn.functional.mse_loss(recon_x, x, reduction='sum')
         KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
         # return (BCE + KLD) / x.size(0)
-        return (MSE + KLD) / x.size(0)
+        return (10 * MSE + KLD) / x.size(0)
 
     vae = VAE(
         encoder_layer_sizes=list(args.encoder_layer_sizes), # bug in AttrDict package: https://github.com/bcj/AttrDict/issues/34#issuecomment-202920540

@@ -47,7 +47,7 @@ SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0
 SAVED_MACE_RESULTS_PATH_M1 = '/Users/a6karimi/dev/recourse/_minimum_distances_m1'
 
 ACCEPTABLE_POINT_RECOURSE = {'m0_true', 'm1_alin', 'm1_akrr'}
-ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm2_true', 'm2_hvae'}
+ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cvae', 'm2_cvae_ps'}
 
 
 @utils.Memoize
@@ -494,7 +494,7 @@ def trainCVAE(dataset_obj, node, parents):
     'node': processDataFrame(dataset_obj, X_all[[node]], 'standardize'),
     'parents': processDataFrame(dataset_obj, X_all[parents], 'standardize'),
     'seed': 0,
-    'epochs': 10,
+    'epochs': 20,
     'batch_size': 64,
     'learning_rate': 0.001,
     'encoder_layer_sizes': [1, 10], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
@@ -520,12 +520,19 @@ def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recours
     [num_samples * [factual_instance[node]] for node in parents],
   )))
   pa_counter = samples_df[parents]
+  if recourse_type == 'm1_cvae':
+    sample_from = 'prior'
+  elif recourse_type == 'm2_cvae':
+    sample_from = 'posterior'
+  elif recourse_type == 'm2_cvae_ps':
+    sample_from = 'reweighted_prior'
   tmp = trained_cvae.reconstruct(
     x_factual=processDataFrame(dataset_obj, x_factual, 'standardize'),
     pa_factual=processDataFrame(dataset_obj, pa_factual, 'standardize'),
     pa_counter=processDataFrame(dataset_obj, pa_counter, 'standardize'),
     # sample_from='reweighted_prior',
-    sample_from='posterior' if recourse_type == 'm1_cvae' else 'prior',
+    # sample_from='posterior' if recourse_type == 'm1_cvae' else 'prior',
+    sample_from=sample_from,
   )
   tmp = tmp.rename(columns={0: node}) # bad code amir, this violates abstraction!
   samples_df[node] = deprocessDataFrame(dataset_obj, tmp, 'standardize')
@@ -689,7 +696,7 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         assert not samples_df.loc[:,list(parents)].isnull().values.any()
         samples_df = sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_type)
 
-  elif recourse_type in {'m1_cvae', 'm2_cvae'}:
+  elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
 
     # TODO: run once per dataset and cache/save in experiment folder? (read from cache if available)
     # if not os.path.exists(f'_tmp_hivae/Saved_Networks/model_HIVAE_inputDropout_{dataset_obj.dataset_name}/checkpoint'):
@@ -989,12 +996,13 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   # print(f'm1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
   # print(f'm1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
   # print(f'm1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
-  # print(f'm1_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_cvae", 10)}')
+  print(f'm1_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_cvae", 10)}')
 
   print(f'm2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
   # print(f'm2_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_gaus", 10)}')
   # print(f'm2_hvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_hvae", 10)}')
   print(f'm2_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae", 10)}')
+  print(f'm2_cvae_ps: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae_ps", 10)}')
 
 
 def experiment2(dataset_obj, classifier_obj, causal_model_obj):
@@ -1264,11 +1272,12 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     'm1_cvae', \
     'm2_true', \
     'm2_gaus', \
-    # 'm2_cvae', \
+    'm2_cvae', \
+    'm2_cvae_ps', \
     # 'm2_hvae', \
     # 'm2_hvae_new', \
   ]
-  markers = ['k*', 'cD', 'mP', 'ko', 'bs', 'r+']
+  markers = ['k*', 'cD', 'mP', 'ko', 'bs', 'r+', 'gx']
   num_samples = 10
 
   fig, axes = pyplot.subplots(int(np.sqrt(len(action_sets))), int(np.sqrt(len(action_sets))))
@@ -1284,10 +1293,12 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
     for (recourse_type, marker) in zip(recourse_types, markers):
 
-      if recourse_type == 'm0_true':
+      if recourse_type in ACCEPTABLE_POINT_RECOURSE:
         samples = computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type)
-      else:
+      elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
         samples = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples)
+      else:
+        raise Exception(f'{recourse_type} not supported.')
 
       print(f'{recourse_type}:\t{samples}')
       axes.ravel()[idx].plot(samples['x4'], samples['x5'], marker, label=recourse_type)
