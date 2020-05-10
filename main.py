@@ -377,7 +377,6 @@ def trainCVAE(dataset_obj, node, parents):
 
 def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recourse_type):
   print(f'[INFO] Training CVAE on complete data; this may be very expensive, memoizing aftewards.')
-  # TODO: pass in index of node and parents as well...
   trained_cvae = trainCVAE(dataset_obj, node, parents)
   num_samples = samples_df.shape[0]
   x_factual = pd.DataFrame(dict(zip(
@@ -549,11 +548,7 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
       )),
     )
 
-  # TODO: add to each method...
-  # if debug_flag:
-  #   print(f'Sampling `{recourse_type}` from p({node} | {", ".join(parents)})')
-
-  elif recourse_type in {'m1_gaus', 'm2_gaus'}:
+  else:
 
     # Simply traverse the graph in order, and populate nodes as we go!
     # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
@@ -563,19 +558,12 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         parents = causal_model_obj.getParentsForNode(node)
         # Confirm parents columns are present/have assigned values in samples_df
         assert not samples_df.loc[:,list(parents)].isnull().values.any()
-        samples_df = sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_type)
-
-  elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
-
-    # Simply traverse the graph in order, and populate nodes as we go!
-    # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
-    for node in causal_model_obj.getTopologicalOrdering():
-      # if variable value is not yet set through intervention or conditioning
-      if samples_df[node].isnull().values.any():
-        parents = causal_model_obj.getParentsForNode(node)
-        # Confirm parents columns are present/have assigned values in samples_df
-        assert not samples_df.loc[:,list(parents)].isnull().values.any()
-        samples_df = sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recourse_type)
+        if debug_flag:
+          print(f'Sampling `{recourse_type}` from p({node} | {", ".join(parents)})')
+        if recourse_type in {'m1_gaus', 'm2_gaus'}:
+          samples_df = sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_type)
+        elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
+          samples_df = sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recourse_type)
 
   # IMPORTANT: if for whatever reason, the columns change order (e.g., as seen in
   # scm_do.sample), reorder them as they are to be used as inputs to the fixed classifier
@@ -645,25 +633,6 @@ def isDistrConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, fa
 
 
 def getValidDiscretizedActionSets(dataset_obj):
-  # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-  # # TODO: should only discretize real-values variables
-  # x1_possible_actions = list(np.around(np.linspace(dataset_obj.attributes_kurz['x1'].lower_bound, dataset_obj.attributes_kurz['x1'].upper_bound, GRID_SEARCH_BINS + 1), 2))
-  # x2_possible_actions = list(np.around(np.linspace(dataset_obj.attributes_kurz['x2'].lower_bound, dataset_obj.attributes_kurz['x2'].upper_bound, GRID_SEARCH_BINS + 1), 2))
-  # x3_possible_actions = list(np.around(np.linspace(dataset_obj.attributes_kurz['x3'].lower_bound, dataset_obj.attributes_kurz['x3'].upper_bound, GRID_SEARCH_BINS + 1), 2))
-  # x1_possible_actions.append('n/a')
-  # x2_possible_actions.append('n/a')
-  # x3_possible_actions.append('n/a')
-
-  # all_action_sets = []
-  # for x1_action in x1_possible_actions:
-  #   for x2_action in x2_possible_actions:
-  #     for x3_action in x3_possible_actions:
-  #       all_action_sets.append({
-  #         'x1': x1_action,
-  #         'x2': x2_action,
-  #         'x3': x3_action,
-  #       })
-  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
   possible_actions_per_node = []
   for node in dataset_obj.getInputAttributeNames():
