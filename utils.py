@@ -1,4 +1,5 @@
 import inspect
+import collections
 
 # See https://www.python-course.eu/python3_memoization.php
 class Memoize:
@@ -18,6 +19,12 @@ class Memoize:
         ba.arguments[param.name] = param.default
     args = ba.args
 
-    if args not in self.memo:
-      self.memo[args] = self.fn(*args)
-    return self.memo[args]
+    # convert lists and numpy array into tuples so that they can be used as keys
+    hashable_args = tuple([
+      arg if isinstance(arg, collections.Hashable) else str(arg)
+      for arg in args
+    ])
+
+    if hashable_args not in self.memo:
+      self.memo[hashable_args] = self.fn(*args)
+    return self.memo[hashable_args]

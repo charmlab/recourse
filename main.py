@@ -262,7 +262,7 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
       return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
 
 
-# TODO: @utils.Memoize
+@utils.Memoize
 def trainGP(dataset_obj, node, parents, X, Y):
 
   print(f'[INFO] Fitting GP (parents: {parents}; child: {node}) may be very expensive, memoizing aftewards.')
@@ -355,7 +355,7 @@ def deprocessDataFrame(dataset_obj, df, processing_type):
   return df
 
 
-# TODO: @utils.Memoize
+@utils.Memoize
 def trainCVAE(dataset_obj, node, parents):
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
