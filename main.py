@@ -323,137 +323,6 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
   return samples_df
 
 
-@utils.Memoize
-def trainHIVAE(dataset_obj):
-  print(f'[INFO] Training HI-VAE on complete data; this may be very expensive, memoizing aftewards.')
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = X_train.append(X_test)
-  # X_all = X_train
-
-  data_train_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/data_train.csv'
-  data_types_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/data_types.csv'
-  miss_train_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/miss_train.csv'
-
-  # generate _tmp_hivae/data_train.csv
-  X_all.to_csv(data_train_path, index = False, header = False)
-
-  # generate _tmp_hivae/data_types.csv
-  # TODO: use dataset_obj to determine data types for hivae (tf, and perhaps pytorch)
-  with open(data_types_path, 'a') as tmp_file:
-    tmp_file.write('type,dim,nclass\n')
-    for _ in range(X_all.shape[1]):
-      tmp_file.write('real,1,\n')
-
-  hivae_model = 'model_HIVAE_inputDropout'
-  save_path = '_tmp_hivae/'
-  training_setup = f'{hivae_model}_{dataset_obj.dataset_name}'
-  subprocess.run([
-    '/Users/a6karimi/dev/HI-VAE/_venv/bin/python',
-    '/Users/a6karimi/dev/HI-VAE/main_scripts.py',
-    '--model_name', f'{hivae_model}',
-    '--batch_size', '100',
-    '--epochs', '1000',
-    '--data_file', f'{data_train_path}',
-    '--types_file', f'{data_types_path}',
-    '--dim_latent_z', '2',
-    '--dim_latent_y', '5',
-    '--dim_latent_s', '1',
-    '--save_path', save_path,
-    '--save_file', training_setup,
-    # '--miss_file', f'{miss_train_path}',
-    '--debug_flag', '0',
-  ])
-
-  return True # this along with Memoize means that this function will only ever be executed once
-
-
-def sampleHIVAE(dataset_obj, samples_df, node, parents):
-  # counterfactual_instance keys are the conditioning + intervention set, therefore
-  # we should create something like Missing1050_1.csv where rows are like this:
-  # 10,1   \n   10,2   \n   10,3   \n   11,5   \n   11,13   \n   12,13
-
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = X_train.append(X_test)
-  # X_all = X_all[:10]
-  # X_all = X_test
-
-  data_test_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/data_test.csv'
-  data_types_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/data_types.csv'
-  miss_test_path = str(pathlib.Path().absolute()) + '/_tmp_hivae/miss_test.csv'
-
-  # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-  # Testing correctness of hi-vae against mean-imputation
-  # X_all.to_csv(data_test_path, index = False, header=False)
-
-  # with open(miss_test_path, 'w') as out_file:
-  #   for sample_idx in np.random.randint(0, X_all.shape[0], 50):
-  #     for feature_idx in np.random.randint(0, 3, 1):
-  #       out_file.write(f'{sample_idx+1},{feature_idx+1}\n')
-  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-  # generate _tmp_hivae/data_test.csv:
-  samples_df \
-    .fillna(1e-10) \
-    .to_csv(data_test_path, index = False, header=False)
-  # Add some data after adding missing values (needed for hi-vae test time to work)
-  X_all.to_csv(data_test_path, index = False, header=False, mode='a')
-
-  # To sample from p(x_i | pa_i), all columns other than pa_i should be missing
-  col_indices = [samples_df.columns.get_loc(col) for col in set.difference(set(samples_df.columns), parents)]
-  row_indices = range(samples_df.shape[0])
-  nan_indices = list(itertools.product(row_indices, col_indices))
-  nan_indices = [(coord[0]+1, coord[1]+1) for coord in nan_indices]
-  np.savetxt(miss_test_path, nan_indices, fmt="%d", delimiter=",")
-
-  hivae_model = 'model_HIVAE_inputDropout'
-  save_path = '_tmp_hivae/'
-  training_setup = f'{hivae_model}_{dataset_obj.dataset_name}'
-  subprocess.run([
-    '/Users/a6karimi/dev/HI-VAE/_venv/bin/python',
-    '/Users/a6karimi/dev/HI-VAE/main_scripts.py',
-    '--model_name', f'{hivae_model}',
-    '--batch_size', '1000000',
-    '--epochs', '1',
-    '--data_file', f'{data_test_path}',
-    '--types_file', f'{data_types_path}',
-    '--dim_latent_z', '2',
-    '--dim_latent_y', '5',
-    '--dim_latent_s', '1',
-    '--save_path', save_path,
-    '--save_file', training_setup,
-    '--miss_file', f'{miss_test_path}',
-    '--train', '0',
-    '--restore', '1',
-    '--debug_flag', '0',
-  ])
-
-  # Read from wherever est_data is saved
-  reconstructed_data = pd.read_csv(
-    f'_tmp_hivae/Results/{training_setup}/{training_setup}_data_reconstruction_samples.csv',
-    names = X_all.columns,
-  )
-  reconstructed_data = reconstructed_data[:samples_df.shape[0]] # remove the fixed (unimputed) samples
-  samples_df[node] = reconstructed_data[node]
-  return samples_df
-
-  # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-  # # Testing correctness of hi-vae against mean-imputation
-  # all_reconstruct_error = []
-  # all_mean_impute_error = []
-  # for line in open(miss_test_path).readlines():
-  #   sample_idx, feature_idx = line.strip().split(',')
-  #   sample_idx = int(sample_idx) - 1
-  #   feature_idx = int(feature_idx) - 1
-  #   reconstruct_error = np.linalg.norm(X_test.iloc[sample_idx, feature_idx] - reconstructed_data.iloc[sample_idx, feature_idx])
-  #   mean_impute_error = np.linalg.norm(X_test.iloc[sample_idx, feature_idx] - np.mean(X_train.iloc[:,feature_idx]))
-  #   all_reconstruct_error.append(reconstruct_error)
-  #   all_mean_impute_error.append(mean_impute_error)
-  #   print(f'\tReconstruction Error: {reconstruct_error} vs. Mean Impute Error: {mean_impute_error}')
-
-  # print('\n' + '-'*40 + f'\nAverage Reconstruction Error: {np.mean(all_reconstruct_error)} vs. Average Mean Impute Error: {np.mean(all_mean_impute_error)}')
-  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-
 def processDataFrame(dataset_obj, df, processing_type):
   df = df.copy() # so as not to change the underlying object
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
@@ -682,7 +551,7 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
 
   # TODO: add to each method...
   # if debug_flag:
-  #   print(f'Sampling HI-VAE from p({node} | {", ".join(parents)})')
+  #   print(f'Sampling `{recourse_type}` from p({node} | {", ".join(parents)})')
 
   elif recourse_type in {'m1_gaus', 'm2_gaus'}:
 
@@ -698,10 +567,6 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
 
   elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
 
-    # TODO: run once per dataset and cache/save in experiment folder? (read from cache if available)
-    # if not os.path.exists(f'_tmp_hivae/Saved_Networks/model_HIVAE_inputDropout_{dataset_obj.dataset_name}/checkpoint'):
-    # trainCVAE(dataset_obj)
-
     # Simply traverse the graph in order, and populate nodes as we go!
     # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
     for node in causal_model_obj.getTopologicalOrdering():
@@ -711,44 +576,6 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         # Confirm parents columns are present/have assigned values in samples_df
         assert not samples_df.loc[:,list(parents)].isnull().values.any()
         samples_df = sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recourse_type)
-
-  elif recourse_type == 'm2_hvae':
-
-    # TODO: run once per dataset and cache/save in experiment folder? (read from cache if available)
-    if not os.path.exists(f'_tmp_hivae/Saved_Networks/model_HIVAE_inputDropout_{dataset_obj.dataset_name}/checkpoint'):
-      trainHIVAE(dataset_obj)
-
-    # Simply traverse the graph in order, and populate nodes as we go!
-    # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
-    for node in causal_model_obj.getTopologicalOrdering():
-      # if variable value is not yet set through intervention or conditioning
-      if samples_df[node].isnull().values.any():
-        parents = causal_model_obj.getParentsForNode(node)
-        # Confirm parents columns are present/have assigned values in samples_df
-        assert not samples_df.loc[:,list(parents)].isnull().values.any()
-        samples_df = sampleHIVAE(dataset_obj, samples_df, node, parents)
-
-  elif recourse_type == 'm2_hvae_new':
-
-    # TODO: run once per dataset and cache/save in experiment folder? (read from cache if available)
-    if not os.path.exists(f'_tmp_hivae/Saved_Networks/model_HIVAE_inputDropout_{dataset_obj.dataset_name}/checkpoint'):
-      trainHIVAE(dataset_obj)
-
-    # Simply traverse the graph in order, and populate nodes as we go!
-    # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
-    for node in causal_model_obj.getTopologicalOrdering():
-      # if variable value is not yet set through intervention or conditioning
-      if samples_df[node].isnull().values.any():
-        parents = causal_model_obj.getParentsForNode(node)
-
-        intervened_node = list(action_set.keys())[0] # VERY HACKY ONLY WORKS FOR THIS EXAMPLE
-        non_descendents = causal_model_obj.getNonDescendentsForNode(node)
-        parents = list(set(parents).union(non_descendents))
-
-        # Confirm parents columns are present/have assigned values in samples_df
-        assert not samples_df.loc[:,list(parents)].isnull().values.any()
-        samples_df = sampleHIVAE(dataset_obj, samples_df, node, parents)
-
 
   # IMPORTANT: if for whatever reason, the columns change order (e.g., as seen in
   # scm_do.sample), reorder them as they are to be used as inputs to the fixed classifier
@@ -1000,7 +827,6 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
 
   print(f'm2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
   # print(f'm2_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_gaus", 10)}')
-  # print(f'm2_hvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_hvae", 10)}')
   print(f'm2_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae", 10)}')
   print(f'm2_cvae_ps: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae_ps", 10)}')
 
@@ -1080,14 +906,12 @@ def experiment3(dataset_obj, classifier_obj, causal_model_obj):
     # m12_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm1_akrr')
     m21_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm2_true')
     # m13_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm1_gaus')
-    m22_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm2_hvae')
 
     scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m0_optimal_action_set, 'm0_true', '*', ax)
     scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m11_optimal_action_set, 'm0_true', 's', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
     # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m12_optimal_action_set, 'm0_true', 'D', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
     scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m21_optimal_action_set, 'm2_true', '^', ax)
     # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m13_optimal_action_set, 'm1_gaus', 'p', ax)
-    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m22_optimal_action_set, 'm2_hvae', 'v', ax)
 
     scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
     ax.set_xlabel('x1')
@@ -1100,7 +924,6 @@ def experiment3(dataset_obj, classifier_obj, causal_model_obj):
       # f'\n m1_akrr action set: do({prettyPrintDict(m12_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m12_optimal_action_set, NORM_TYPE):.2f}'
       f'\n m2_true action set: do({prettyPrintDict(m21_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m21_optimal_action_set, NORM_TYPE):.2f}'
       # f'\n m1_gaus action set: do({prettyPrintDict(m13_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m13_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m2_hvae action set: do({prettyPrintDict(m22_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m22_optimal_action_set, NORM_TYPE):.2f}'
     , fontsize=8, horizontalalignment='left')
     ax.view_init(elev=20, azim=-30)
     print('[INFO] done.')
@@ -1114,82 +937,8 @@ def experiment3(dataset_obj, classifier_obj, causal_model_obj):
   pyplot.show()
 
 
-def experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
-  ''' asserting fscores ~= for m2_true and m2_hvae '''
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-
-  # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
-  factual_instances_dict = X_test.loc[y_test.index[y_test == 0]].iloc[:NUM_TEST_SAMPLES].T.to_dict()
-
-  per_instance_results = {}
-
-  for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
-    factual_instance_idx = f'sample_{key}'
-    factual_instance = value
-
-    print(f'\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
-
-    per_instance_results[factual_instance_idx] = {}
-    per_instance_results[factual_instance_idx]['action_sets'] = []
-    per_instance_results[factual_instance_idx]['m2_true_pred_mean'] = []
-    per_instance_results[factual_instance_idx]['m2_true_pred_var'] = []
-    per_instance_results[factual_instance_idx]['m2_true_pred_fscore'] = []
-    per_instance_results[factual_instance_idx]['m2_hvae_pred_mean'] = []
-    per_instance_results[factual_instance_idx]['m2_hvae_pred_var'] = []
-    per_instance_results[factual_instance_idx]['m2_hvae_pred_fscore'] = []
-
-    valid_action_sets = getValidDiscretizedActionSets(dataset_obj)
-    for action_set_idx, action_set in enumerate(valid_action_sets):
-
-      print(f'\t[INFO] Processing action set `{str(action_set)}` (#{action_set_idx + 1} / {len(valid_action_sets)})...')
-
-      per_instance_results[factual_instance_idx]['action_sets'].append(str(action_set))
-
-      for recourse_type in {'m2_true', 'm2_hvae'}:
-
-        print(f'\t\t[INFO] Computing f-score for `{recourse_type}`...')
-
-        monte_carlo_samples_df = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, NUMBER_OF_MONTE_CARLO_SAMPLES)
-        # print(monte_carlo_samples_df.head())
-        monte_carlo_predictions = getPredictionBatch(dataset_obj, classifier_obj, causal_model_obj, monte_carlo_samples_df.to_numpy())
-
-        expectation = np.mean(monte_carlo_predictions)
-        variance = np.sum(np.power(monte_carlo_predictions - expectation, 2)) / (len(monte_carlo_predictions) - 1)
-
-        per_instance_results[factual_instance_idx][f'{recourse_type}_pred_mean'].append(np.around(expectation, 2))
-        per_instance_results[factual_instance_idx][f'{recourse_type}_pred_var'].append(np.around(variance, 2))
-        # IMPORTANT: assume h(x^f) always 0
-        per_instance_results[factual_instance_idx][f'{recourse_type}_pred_fscore'].append(expectation - LAMBDA_LCB * np.sqrt(variance))
-
-  merged_results = {}
-  merged_results['m2_true_pred_mean'] = []
-  merged_results['m2_true_pred_var'] = []
-  merged_results['m2_true_pred_fscore'] = []
-  merged_results['m2_hvae_pred_mean'] = []
-  merged_results['m2_hvae_pred_var'] = []
-  merged_results['m2_hvae_pred_fscore'] = []
-  for factual_instance_idx, results in per_instance_results.items():
-    merged_results['m2_true_pred_mean'].extend(results['m2_true_pred_mean'])
-    merged_results['m2_true_pred_var'].extend(results['m2_true_pred_var'])
-    merged_results['m2_true_pred_fscore'].extend(results['m2_true_pred_fscore'])
-    merged_results['m2_hvae_pred_mean'].extend(results['m2_hvae_pred_mean'])
-    merged_results['m2_hvae_pred_var'].extend(results['m2_hvae_pred_var'])
-    merged_results['m2_hvae_pred_fscore'].extend(results['m2_hvae_pred_fscore'])
-
-  fig, axs = pyplot.subplots(1, 3, sharey = True)
-  bins = np.linspace(-1.5, 1.5, 40)
-  axs[0].hist(np.subtract(merged_results['m2_true_pred_mean'], merged_results['m2_hvae_pred_mean']), bins, alpha=0.5)
-  axs[0].set_title('cate mean: true - hvae', fontsize=8)
-  axs[1].hist(np.subtract(merged_results['m2_true_pred_var'], merged_results['m2_hvae_pred_var']), bins, alpha=0.5)
-  axs[1].set_title('cate var: true - hvae', fontsize=8)
-  axs[2].hist(np.subtract(merged_results['m2_true_pred_fscore'], merged_results['m2_hvae_pred_fscore']), bins, alpha=0.5)
-  axs[2].set_title('cate fscore: true - hvae', fontsize=8)
-
-  fig.suptitle('comparing f-score: cate true vs. cate hvae')
-  pyplot.savefig(f'{experiment_folder_name}/comparing_m2_truee_cate_hvae.png')
-
-
 def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
+  ''' table '''
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
 
   # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
@@ -1197,7 +946,17 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   per_instance_results = {}
 
-  # TODO: hot train hi-vae (TODO: save trained model in experiment_folder_name) and krr, so it doesn't affect runtime evaluations below
+  # TODO: hot train krr and other methods, so it doesn't affect runtime evaluations below
+
+  recourse_types = [
+    'm0_true', \
+    'm1_gaus', \
+    'm1_cvae', \
+    'm2_true', \
+    'm2_gaus', \
+    'm2_cvae', \
+    'm2_cvae_ps', \
+  ]
 
   for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
     factual_instance_idx = f'sample_{key}'
@@ -1207,8 +966,7 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
     per_instance_results[factual_instance_idx] = {}
 
-    # for approach in ['m0_true', 'm1_alin', 'm1_akrr', 'm1_gaus', 'm2_true', 'm2_hvae']:
-    for approach in ['m0_true', 'm1_alin', 'm1_akrr', 'm2_true', 'm2_hvae']:
+    for recourse_type in recourse_types:
 
       tmp = {}
 
@@ -1218,7 +976,7 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
         classifier_obj,
         causal_model_obj,
         factual_instance,
-        approach,
+        recourse_type,
       )
       end_time = time.time()
 
@@ -1228,34 +986,31 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
       tmp['scf_validity']  = isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm0_true')
 
-      # IMPORTANT: assume h(x^f) always 0
-      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_true')
-      tmp['int_conf_true'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
+      # TODO: add cost, only over those with valid action sets
 
       # IMPORTANT: assume h(x^f) always 0
-      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_hvae')
-      tmp['int_conf_hvae'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
+      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_true')
+      tmp['int_confidence'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
 
       print(f'\t done.')
 
-      per_instance_results[factual_instance_idx][approach] = tmp
+      per_instance_results[factual_instance_idx][recourse_type] = tmp
 
     print(f'[INFO] Saving (overwriting) results...')
     pickle.dump(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results', 'wb'))
     pprint(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results.txt', 'w'))
     print(f'done.')
 
-  # for approach in ['m0_true', 'm1_alin', 'm1_akrr', 'm1_gaus', 'm2_true', 'm2_hvae']:
-  for approach in ['m0_true', 'm1_alin', 'm1_akrr', 'm2_true', 'm2_hvae']:
+  for recourse_type in recourse_types:
     print()
-    for field in ['scf_validity', 'int_conf_true', 'int_conf_hvae', 'time']:
-      print(f'`{approach}-{field}`:', end='\t')
-      print(f'{np.around(np.mean([v[approach][field] for k,v in per_instance_results.items()]), 2):.2f}', end='+/-')
-      print(f'{np.around(np.std([v[approach][field] for k,v in per_instance_results.items()]), 2):.2f}')
+    for field in ['scf_validity', 'int_confidence', 'time']:
+      print(f'`{recourse_type}-{field}`:', end='\t')
+      print(f'{np.around(np.mean([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}', end='+/-')
+      print(f'{np.around(np.std([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}')
 
 
 def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
-  ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
+  ''' assert {m1, m2} x {gaus, cvae} working '''
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   factual_instance = X_test.iloc[0].T.to_dict()
 
@@ -1274,8 +1029,6 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     'm2_gaus', \
     'm2_cvae', \
     'm2_cvae_ps', \
-    # 'm2_hvae', \
-    # 'm2_hvae_new', \
   ]
   markers = ['k*', 'cD', 'mP', 'ko', 'bs', 'r+', 'gx']
   num_samples = 10
@@ -1382,7 +1135,6 @@ if __name__ == "__main__":
   # experiment1(dataset_obj, classifier_obj, causal_model_obj)
   # experiment2(dataset_obj, classifier_obj, causal_model_obj)
   # experiment3(dataset_obj, classifier_obj, causal_model_obj)
-  # experiment4(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
   # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
   experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
