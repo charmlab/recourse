@@ -95,6 +95,24 @@ def loadClassifier(dataset_class, model_class, experiment_folder_name):
 
 @utils.Memoize
 def loadCausalModel(dataset_class, experiment_folder_name):
+
+  # structural_equations = {
+  #   'x1': lambda n1,       :                 n1,
+  #   'x2': lambda n2,     x1:        x1 + 1 + n2,
+  #   'x3': lambda n3, x1, x2: 5 * (x1 + x2) + n3,
+  # }
+  # noise_distributions = {
+  #   'x1': lambda n_samples: 1.00 * np.random.normal(size=n_samples),
+  #   'x2': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
+  #   'x3': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
+  # }
+  # new_dict = dict(zip(
+  #   structural_equations.keys(),
+  #   [lambda parents, n_samples: structural_equations[node](0, *parents) + np.random.normal(size=n_samples) for node in structural_equations.keys()]
+  # ))
+  # scm = CausalModel(new_dict)
+
+
   scm = CausalModel({
     'x1': lambda         n_samples:                                  np.random.normal(size=n_samples),
     'x2': lambda     x1, n_samples:                         x1 + 1 + np.random.normal(size=n_samples),
@@ -106,31 +124,6 @@ def loadCausalModel(dataset_class, experiment_folder_name):
   #   'x2': lambda     x1, n_samples:                      x1 + 1 + np.random.normal(size=n_samples),
   #   'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
   # })
-
-  # structural_equations = {
-  #   'x1': lambda         n1:                 n1,
-  #   'x2': lambda     x1, n2:        x1 + 1 + n2,
-  #   'x3': lambda x1, x2, n3: 5 * (x1 + x2) + n3,
-  #   'x4': lambda     x3, n4:            x3 + n4,
-  #   'x5': lambda     x4, n5:            x4 + n5,
-  #   'x6': lambda     x2, n6:            x2 + n6,
-  # }
-  # noise_distributions = {
-  #   'x1': lambda n_samples: 1.00 * np.random.normal(size=n_samples),
-  #   'x2': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
-  #   'x3': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
-  #   'x4': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
-  #   'x5': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
-  #   'x6': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
-  # }
-
-  # causal_model_dict = {}
-  # for key, value in structural_equations.items():
-  #   sig = inspect.signature(value)
-  #   endogenous_parents = [node for node in sig.parameters.keys() if 'n' not in node]
-  #   print(endogenous_parents)
-  #   # causal_model_dict[key] =
-  # ipsh()
 
   # scm = CausalModel({
   #   'x1': lambda         n_samples:                 1.00 * np.random.normal(size=n_samples),
@@ -191,35 +184,35 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
     if node == 'x1':
       return lambda n1: n1
     elif node == 'x2':
-      return lambda x1, n2: x1 + 1 + n2
+      return lambda n2, x1: x1 + 1 + n2
     elif node == 'x3':
-      return lambda x1, x2, n3: x1 / 4 + np.sqrt(3) * x2 - 1/4 + n3
+      return lambda n3, x1, x2: x1 / 4 + np.sqrt(3) * x2 - 1/4 + n3
 
     # if node == 'x1':
     #   return lambda n1: n1
     # elif node == 'x2':
-    #   return lambda x1, n2: x1 + 1 + n2
+    #   return lambda n2, x1: x1 + 1 + n2
     # elif node == 'x3':
-    #   return lambda x1, x2, n3: np.sqrt(3) * x1 * (x2 ** 2) + n3
+    #   return lambda n3, x1, x2: np.sqrt(3) * x1 * (x2 ** 2) + n3
 
     # if node == 'x1':
     #   return lambda n1: n1
     # elif node == 'x2':
-    #   return lambda x1, n2: x1 + 1 + n2
+    #   return lambda n2, x1: x1 + 1 + n2
     # elif node == 'x3':
-    #   return lambda x1, x2, n3: 5 * (x1 + x2) + n3
+    #   return lambda n3, x1, x2: 5 * (x1 + x2) + n3
     # elif node == 'x4':
-    #   return lambda x3, n4: x3 + n4
+    #   return lambda n4, x3: x3 + n4
     # elif node == 'x5':
-    #   return lambda x4, n5: x4 + n5
+    #   return lambda n5, x4: x4 + n5
     # elif node == 'x6':
-    #   return lambda x2, n6: x2 + n6
+    #   return lambda n6, x2: x2 + n6
 
   elif recourse_type in {'m1_alin', 'm1_akrr'}:
 
     X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
     X_all = X_train.append(X_test)
-    X_all = X_all[:1000]
+    X_all = X_all[:500]
 
     parents = causal_model_obj.getParentsForNode(node)
     if DEBUG_FLAG:
@@ -246,14 +239,8 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
         model = GridSearchCV(KernelRidge(), param_grid=param_grid)
 
       model.fit(X_all[parents], X_all[[node]])
-      if len(parents) == 1:
-        return lambda pa_1, noise: model.predict([[pa_1]])[0][0] + noise
-      elif len(parents) == 2:
-        return lambda pa_1, pa_2, noise: model.predict([[pa_1, pa_2]])[0][0] + noise
-      elif len(parents) == 3:
-        return lambda pa_1, pa_2, pa_3, noise: model.predict([[pa_1, pa_2, pa_3]])[0][0] + noise
-      elif len(parents) >= 3:
-        raise Exception(f'TODO: This is horrible code, Amir. Shame!')
+
+      return lambda noise, *parents: model.predict([[*parents]])[0][0] + noise
 
 
 @utils.Memoize
@@ -418,8 +405,8 @@ def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj,
   # tip: pass in n* = 0 to structural_equations (lambda functions)
   noise_variables_new = dict(zip(factual_instance.keys(), [
     factual_instance[node] - structural_equations_new[node](
-      *[factual_instance[node] for node in causal_model_obj.getParentsForNode(node)],
       0,
+      *[factual_instance[node] for node in causal_model_obj.getParentsForNode(node)],
     )
     for node in factual_instance.keys()
   ]))
@@ -447,8 +434,8 @@ def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj,
   counterfactual_instance_new = {}
   for node in factual_instance.keys():
     counterfactual_instance_new[node] = structural_equations_new[node](
-      *[counterfactual_instance_new[node] for node in causal_model_obj.getParentsForNode(node)],
       noise_variables_new[node],
+      *[counterfactual_instance_new[node] for node in causal_model_obj.getParentsForNode(node)],
     )
 
   return counterfactual_instance_new
@@ -646,8 +633,6 @@ def getValidDiscretizedActionSets(dataset_obj):
 
 
 def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, recourse_type, optimization_approach):
-
-  # TODO: add option to select computation: brute_force, using MACE/MINT, or SGD
 
   if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     constraint_handle = isPointConstraintSatisfied
@@ -874,12 +859,12 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     'm0_true', \
     'm1_alin', \
     'm1_akrr', \
-    'm1_gaus', \
-    'm1_cvae', \
-    'm2_true', \
-    'm2_gaus', \
-    'm2_cvae', \
-    'm2_cvae_ps', \
+    # 'm1_gaus', \
+    # 'm1_cvae', \
+    # 'm2_true', \
+    # 'm2_gaus', \
+    # 'm2_cvae', \
+    # 'm2_cvae_ps', \
   ]
   # markers = ['k*', 'cD', 'mP', 'ko', 'bs', 'r+', 'gx']
   markers = ['*', 'D', 'P', 'o', 's', '+', 'x']
@@ -921,8 +906,6 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
         tmp['cost_valid'] = tmp['cost_all']
       else:
         tmp['cost_valid'] = np.NaN
-
-      # TODO: add cost, only over those with valid action sets
 
       # print(f'\t done.')
 
