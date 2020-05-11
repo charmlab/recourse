@@ -210,17 +210,34 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
   #   elif node == 'x3':
   #     return lambda x1, x2, n3: 5.5 * x1 + 3.5 * x2 - 0.1 + n3
 
-  elif recourse_type == 'm1_alin':
+  elif recourse_type in {'m1_alin', 'm1_akrr'}:
 
     X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
     X_all = X_train.append(X_test)
-    param_grid = {"alpha": np.linspace(0,10,11)}
 
     parents = causal_model_obj.getParentsForNode(node)
-    if len(parents) == 0:
+    print(f'[INFO] Fitting `{recourse_type}` (parents: {parents}; child: {node}) may be very expensive, memoizing aftewards.')
+
+    if len(parents) == 0: # if root node
+
       return lambda noise: noise
+
     else:
-      model = GridSearchCV(Ridge(), param_grid=param_grid)
+
+      if recourse_type == 'm1_alin':
+        param_grid = {"alpha": np.linspace(0,10,11)}
+        model = GridSearchCV(Ridge(), param_grid=param_grid)
+      elif recourse_type == 'm1_akrr':
+        param_grid = {
+          "alpha": [1e0, 1e-1, 1e-2, 1e-3],
+          "kernel": [
+            ExpSineSquared(l, p)
+            for l in np.logspace(-2, 2, 5)
+            for p in np.logspace(0, 2, 5)
+          ]
+        }
+        model = GridSearchCV(KernelRidge(), param_grid=param_grid)
+
       model.fit(X_all[parents], X_all[[node]])
       if len(parents) == 1:
         return lambda pa_1, noise: model.predict([[pa_1]])[0][0] + noise
@@ -256,33 +273,33 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
     #   model.fit(X_all[['x1', 'x2']], X_all[['x3']])
     #   return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
 
-  elif recourse_type == 'm1_akrr':
+  # elif recourse_type == 'm1_akrr':
 
-    X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-    X_all = X_train.append(X_test)
-    param_grid = {"alpha": [1e0, 1e-1, 1e-2, 1e-3],
-                  "kernel": [ExpSineSquared(l, p)
-                             for l in np.logspace(-2, 2, 5)
-                             for p in np.logspace(0, 2, 5)]}
+  #   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  #   X_all = X_train.append(X_test)
+  #   param_grid = {"alpha": [1e0, 1e-1, 1e-2, 1e-3],
+  #                 "kernel": [ExpSineSquared(l, p)
+  #                            for l in np.logspace(-2, 2, 5)
+  #                            for p in np.logspace(0, 2, 5)]}
 
-    if node == 'x1':
-      print(f'[INFO] Fitting KRR (parent: n/a; child: x1) may be very expensive, memoizing aftewards.')
+  #   if node == 'x1':
+  #     print(f'[INFO] Fitting KRR (parent: n/a; child: x1) may be very expensive, memoizing aftewards.')
 
-      return lambda n1: n1
+  #     return lambda n1: n1
 
-    elif node == 'x2':
-      print(f'[INFO] Fitting KRR (parent: x1; child: x2) may be very expensive, memoizing aftewards.')
+  #   elif node == 'x2':
+  #     print(f'[INFO] Fitting KRR (parent: x1; child: x2) may be very expensive, memoizing aftewards.')
 
-      model = GridSearchCV(KernelRidge(), param_grid=param_grid)
-      model.fit(X_all[['x1']], X_all[['x2']])
-      return lambda x1, n2: model.predict([[x1]])[0][0] + n2
+  #     model = GridSearchCV(KernelRidge(), param_grid=param_grid)
+  #     model.fit(X_all[['x1']], X_all[['x2']])
+  #     return lambda x1, n2: model.predict([[x1]])[0][0] + n2
 
-    elif node == 'x3':
-      print(f'[INFO] Fitting KRR (parent: x1, x2; child: x3) may be very expensive, memoizing aftewards.')
+  #   elif node == 'x3':
+  #     print(f'[INFO] Fitting KRR (parent: x1, x2; child: x3) may be very expensive, memoizing aftewards.')
 
-      model = GridSearchCV(KernelRidge(), param_grid=param_grid)
-      model.fit(X_all[['x1', 'x2']], X_all[['x3']])
-      return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
+  #     model = GridSearchCV(KernelRidge(), param_grid=param_grid)
+  #     model.fit(X_all[['x1', 'x2']], X_all[['x3']])
+  #     return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
 
 
 @utils.Memoize
@@ -774,12 +791,12 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   print(f'fc: \t\t{prettyPrintDict(factual_instance)}')
   print(f'm0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
 
-  # print(f'm1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
-  # print(f'm1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
+  print(f'm1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
+  print(f'm1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
   # print(f'm1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
   # print(f'm1_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_cvae", 10)}')
 
-  print(f'm2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
+  # print(f'm2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
   # print(f'm2_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_gaus", 10)}')
   # print(f'm2_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae", 10)}')
   # print(f'm2_cvae_ps: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae_ps", 10)}')
