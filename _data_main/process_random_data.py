@@ -12,7 +12,7 @@ from debug import ipsh
 mu_x, sigma_x = 0, 1 # mean and standard deviation for data
 mu_w, sigma_w = 0, 1 # mean and standard deviation for weights
 n = 5000
-d = 6
+d = 3
 
 w = np.random.normal(mu_w, sigma_w, (d, 1))
 # b = 0 # see below.
@@ -64,14 +64,20 @@ def processDataAccordingToGraph(data, scm_class = 'nonlinear'):
     data[:,1] += data[:,0] + np.ones((n))
     data[:,2] += (data[:,0] - 1)/4 + np.sqrt(3) * data[:,1]
   elif scm_class == 'nonlinear':
-    # We assume the model below
-    data = copy.deepcopy(data)
-    data[:,0] = data[:,0]
-    data[:,1] += data[:,0] + np.ones((n))
-    data[:,2] += 5 * (data[:,0] + data[:,1])
-    data[:,3] += data[:,2]
-    data[:,4] += data[:,3]
-    data[:,5] += data[:,1]
+    if d == 3:
+      data = copy.deepcopy(data)
+      data[:,0] = data[:,0]
+      data[:,1] += data[:,0] + np.ones((n))
+      data[:,2] += np.sqrt(3) * data[:,0] * np.power(data[:,1], 2)
+    elif d == 6:
+      # We assume the model below
+      data = copy.deepcopy(data)
+      data[:,0] = data[:,0]
+      data[:,1] += data[:,0] + np.ones((n))
+      data[:,2] += 5 * (data[:,0] + data[:,1])
+      data[:,3] += data[:,2]
+      data[:,4] += data[:,3]
+      data[:,5] += data[:,1]
   return data
 
 

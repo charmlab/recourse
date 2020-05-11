@@ -35,11 +35,12 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
+DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
-NUM_TEST_SAMPLES = 4
-GRID_SEARCH_BINS = 5
-NUMBER_OF_MONTE_CARLO_SAMPLES = 10
+NUM_TEST_SAMPLES = 1
+GRID_SEARCH_BINS = 2
+NUMBER_OF_MONTE_CARLO_SAMPLES = 100
 SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
 SAVED_MACE_RESULTS_PATH_M1 = '/Users/a6karimi/dev/recourse/_minimum_distances_m1'
 
@@ -94,11 +95,11 @@ def loadClassifier(dataset_class, model_class, experiment_folder_name):
 
 @utils.Memoize
 def loadCausalModel(dataset_class, experiment_folder_name):
-  # scm = CausalModel({
-  #   'x1': lambda         n_samples: np.random.normal(size=n_samples),
-  #   'x2': lambda     x1, n_samples: x1 + 1 + np.random.normal(size=n_samples),
-  #   'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
-  # })
+  scm = CausalModel({
+    'x1': lambda         n_samples:                               np.random.normal(size=n_samples),
+    'x2': lambda     x1, n_samples:                      x1 + 1 + np.random.normal(size=n_samples),
+    'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
+  })
 
   # structural_equations = {
   #   'x1': lambda         n1:                 n1,
@@ -125,14 +126,14 @@ def loadCausalModel(dataset_class, experiment_folder_name):
   #   # causal_model_dict[key] =
   # ipsh()
 
-  scm = CausalModel({
-    'x1': lambda         n_samples:                 1.00 * np.random.normal(size=n_samples),
-    'x2': lambda     x1, n_samples: x1 + 1        + 0.25 * np.random.normal(size=n_samples),
-    'x3': lambda x1, x2, n_samples: 5 * (x1 + x2) + 0.25 * np.random.normal(size=n_samples),
-    'x4': lambda     x3, n_samples: x3            + 0.25 * np.random.normal(size=n_samples),
-    'x5': lambda     x4, n_samples: x4            + 0.25 * np.random.normal(size=n_samples),
-    'x6': lambda     x2, n_samples: x2            + 0.25 * np.random.normal(size=n_samples),
-  })
+  # scm = CausalModel({
+  #   'x1': lambda         n_samples:                 1.00 * np.random.normal(size=n_samples),
+  #   'x2': lambda     x1, n_samples:        x1 + 1 + 0.25 * np.random.normal(size=n_samples),
+  #   'x3': lambda x1, x2, n_samples: 5 * (x1 + x2) + 0.25 * np.random.normal(size=n_samples),
+  #   'x4': lambda     x3, n_samples:            x3 + 0.25 * np.random.normal(size=n_samples),
+  #   'x5': lambda     x4, n_samples:            x4 + 0.25 * np.random.normal(size=n_samples),
+  #   'x6': lambda     x2, n_samples:            x2 + 0.25 * np.random.normal(size=n_samples),
+  # })
   scm.visualizeGraph(experiment_folder_name)
   return scm
 
@@ -181,25 +182,25 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
   if recourse_type == 'm0_true':
 
     # TODO: use causal_model_obj to get this?
-    # if node == 'x1':
-    #   return lambda n1: n1
-    # elif node == 'x2':
-    #   return lambda x1, n2: x1 + 1 + n2
-    # elif node == 'x3':
-    #   return lambda x1, x2, n3: np.sqrt(3) * x1 * (x2 ** 2) + n3
-
     if node == 'x1':
       return lambda n1: n1
     elif node == 'x2':
       return lambda x1, n2: x1 + 1 + n2
     elif node == 'x3':
-      return lambda x1, x2, n3: 5 * (x1 + x2) + n3
-    elif node == 'x4':
-      return lambda x3, n4: x3 + n4
-    elif node == 'x5':
-      return lambda x4, n5: x4 + n5
-    elif node == 'x6':
-      return lambda x2, n6: x2 + n6
+      return lambda x1, x2, n3: np.sqrt(3) * x1 * (x2 ** 2) + n3
+
+    # if node == 'x1':
+    #   return lambda n1: n1
+    # elif node == 'x2':
+    #   return lambda x1, n2: x1 + 1 + n2
+    # elif node == 'x3':
+    #   return lambda x1, x2, n3: 5 * (x1 + x2) + n3
+    # elif node == 'x4':
+    #   return lambda x3, n4: x3 + n4
+    # elif node == 'x5':
+    #   return lambda x4, n5: x4 + n5
+    # elif node == 'x6':
+    #   return lambda x2, n6: x2 + n6
 
   # elif recourse_type == 'approx_deprecated':
 
@@ -304,12 +305,10 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
 
 @utils.Memoize
 def trainGP(dataset_obj, node, parents, X, Y):
-
   print(f'[INFO] Fitting GP (parents: {parents}; child: {node}) may be very expensive, memoizing aftewards.')
   kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
   model = GPy.models.GPRegression(X, Y, kernel)
   model.optimize_restarts(parallel=True, num_restarts = 5)
-
   return kernel, model
 
 
@@ -397,6 +396,7 @@ def deprocessDataFrame(dataset_obj, df, processing_type):
 
 @utils.Memoize
 def trainCVAE(dataset_obj, node, parents):
+  print(f'[INFO] Training CVAE on complete data; this may be very expensive, memoizing aftewards.')
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   return train_cvae(AttrDict({
@@ -416,9 +416,9 @@ def trainCVAE(dataset_obj, node, parents):
 
 
 def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recourse_type):
-  print(f'[INFO] Training CVAE on complete data; this may be very expensive, memoizing aftewards.')
   trained_cvae = trainCVAE(dataset_obj, node, parents)
   num_samples = samples_df.shape[0]
+
   x_factual = pd.DataFrame(dict(zip(
     [node],
     [num_samples * [factual_instance[node]] for node in [node]],
@@ -428,12 +428,14 @@ def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recours
     [num_samples * [factual_instance[node]] for node in parents],
   )))
   pa_counter = samples_df[parents]
+
   if recourse_type == 'm1_cvae':
     sample_from = 'prior'
   elif recourse_type == 'm2_cvae':
     sample_from = 'posterior'
   elif recourse_type == 'm2_cvae_ps':
     sample_from = 'reweighted_prior'
+
   tmp = trained_cvae.reconstruct(
     x_factual=processDataFrame(dataset_obj, x_factual, 'standardize'),
     pa_factual=processDataFrame(dataset_obj, pa_factual, 'standardize'),
@@ -497,7 +499,7 @@ def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj,
   return counterfactual_instance_new
 
 
-def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples, debug_flag = True):
+def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples, debug_flag = DEBUG_FLAG):
 
   if not bool(action_set): # if action_set is empty, CFE = F
     return pd.DataFrame(dict(zip(
@@ -717,7 +719,7 @@ def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factu
 
 
 def scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax):
-  assert len(factual_instance.keys()) == 3
+  assert len(dataset_obj.getInputAttributeNames()) == 3
   sklearn_model = classifier_obj
   fixed_model_w = sklearn_model.coef_
   fixed_model_b = sklearn_model.intercept_
@@ -733,7 +735,7 @@ def scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax):
 
 
 def scatterDataset(dataset_obj, ax):
-  assert len(factual_instance.keys()) == 3
+  assert len(dataset_obj.getInputAttributeNames()) == 3
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_train_numpy = X_train.to_numpy()
   X_test_numpy = X_test.to_numpy()
@@ -747,8 +749,8 @@ def scatterDataset(dataset_obj, ax):
     ax.scatter(X_test_numpy[idx, 0], X_test_numpy[idx, 1], X_test_numpy[idx, 2], marker='o', color=color_test, alpha=0.2, s=15)
 
 
-def scatterFactual(factual_instance, ax):
-  assert len(factual_instance.keys()) == 3
+def scatterFactual(dataset_obj, factual_instance, ax):
+  assert len(dataset_obj.getInputAttributeNames()) == 3
   ax.scatter(
     factual_instance['x1'],
     factual_instance['x2'],
@@ -761,7 +763,7 @@ def scatterFactual(factual_instance, ax):
 
 def scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, marker_type, ax):
 
-  assert len(factual_instance.keys()) == 3
+  assert len(dataset_obj.getInputAttributeNames()) == 3
 
   if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     # point recourse
@@ -793,7 +795,7 @@ def scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_insta
 
 
 def experiment1(dataset_obj, classifier_obj, causal_model_obj):
-  ''' compare M0, M1, M2 on one factual samples and one **fixed** action sets '''
+  ''' debugging: sanity check to make sure code runs '''
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   factual_instance = X_test.iloc[0].T.to_dict()
 
@@ -821,189 +823,17 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   # print(f'm2_cvae_ps: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae_ps", 10)}')
 
 
-def experiment2(dataset_obj, classifier_obj, causal_model_obj):
-  ''' compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets '''
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  factual_instances_dict = X_test.iloc[:3].T.to_dict()
-  action_sets = [ \
-    {'x1': 1}, \
-    {'x2': 1}, \
-    {'x3': 1}, \
-  ]
-
-  fig = pyplot.figure()
-
-  for index, (key, value) in enumerate(factual_instances_dict.items()):
-    idx_sample = index
-    factual_instance_idx = key
-    factual_instance = value
-    for idx_action, action_set in enumerate(action_sets):
-      ax = pyplot.subplot(
-        len(factual_instances_dict),
-        len(action_sets),
-        idx_sample * len(action_sets) + idx_action + 1,
-        projection = '3d')
-      scatterFactual(factual_instance, ax)
-      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm0_true', '*', ax)
-      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'm1_alin', 's', ax)
-      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, 'n/a', '^', ax)
-      scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
-      ax.set_xlabel('x1')
-      ax.set_ylabel('x2')
-      ax.set_zlabel('x3')
-      ax.set_title(f'sample_{factual_instance_idx} \n do({prettyPrintDict(action_set)})', fontsize=8, horizontalalignment='left')
-      ax.view_init(elev=15, azim=10)
-
-      # for angle in range(0, 360):
-      #   ax.view_init(30, angle)
-      #   pyplot.draw()
-      #   pyplot.pause(.001)
-
-  pyplot.suptitle('Compare M0, M1, M2 on <n> factual samples and <n> **fixed** action sets.', fontsize=14)
-  pyplot.show()
+# DEPRECATED def experiment2
 
 
-def experiment3(dataset_obj, classifier_obj, causal_model_obj):
-  ''' compare M0, M1, M2 on <n> factual samples and <n> **computed** action sets '''
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-
-  num_plot_rows = np.floor(np.sqrt(NUM_TEST_SAMPLES))
-  num_plot_cols = np.ceil(NUM_TEST_SAMPLES / num_plot_rows)
-
-  # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
-  factual_instances_dict = X_test.loc[y_test.index[y_test == 0]].iloc[:NUM_TEST_SAMPLES].T.to_dict()
-
-  fig = pyplot.figure()
-
-  for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
-    factual_instance_idx = key
-    factual_instance = value
-
-    print(f'\n\n[INFO] Computing counterfactuals (M0, M1, M2) for factual instance #{enumeration_idx+1} / {NUM_TEST_SAMPLES} (id #{factual_instance_idx})...')
-
-    ax = pyplot.subplot(
-      num_plot_cols,
-      num_plot_rows,
-      enumeration_idx + 1,
-      projection = '3d')
-
-    # scatterDataset(dataset_obj, ax)
-
-    scatterFactual(factual_instance, ax)
-
-    m0_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm0_true')
-    m11_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm1_alin')
-    # m12_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm1_akrr')
-    m21_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm2_true')
-    # m13_optimal_action_set = computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, 'm1_gaus')
-
-    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m0_optimal_action_set, 'm0_true', '*', ax)
-    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m11_optimal_action_set, 'm0_true', 's', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
-    # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m12_optimal_action_set, 'm0_true', 'D', ax) # show where the counterfactual will lie, when action set is computed using m1 but carried out in m0
-    scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m21_optimal_action_set, 'm2_true', '^', ax)
-    # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, m13_optimal_action_set, 'm1_gaus', 'p', ax)
-
-    scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
-    ax.set_xlabel('x1')
-    ax.set_ylabel('x2')
-    ax.set_zlabel('x3')
-    ax.set_title(
-      f'sample_{factual_instance_idx} - {prettyPrintDict(factual_instance)}'
-      f'\n m0_true action set: do({prettyPrintDict(m0_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m0_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m1_alin action set: do({prettyPrintDict(m11_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m11_optimal_action_set, NORM_TYPE):.2f}'
-      # f'\n m1_akrr action set: do({prettyPrintDict(m12_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m12_optimal_action_set, NORM_TYPE):.2f}'
-      f'\n m2_true action set: do({prettyPrintDict(m21_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m21_optimal_action_set, NORM_TYPE):.2f}'
-      # f'\n m1_gaus action set: do({prettyPrintDict(m13_optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, m13_optimal_action_set, NORM_TYPE):.2f}'
-    , fontsize=8, horizontalalignment='left')
-    ax.view_init(elev=20, azim=-30)
-    print('[INFO] done.')
-
-    # for angle in range(0, 360):
-    #   ax.view_init(30, angle)
-    #   pyplot.draw()
-    #   pyplot.pause(.001)
-
-  pyplot.suptitle(f'Compare M0, M1, M2 on {NUM_TEST_SAMPLES} factual samples and **optimal** action sets.', fontsize=14)
-  pyplot.show()
+# DEPRECATED def experiment3
 
 
 # DEPRECATED def experiment4
 
 
 def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
-  ''' table '''
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-
-  # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
-  factual_instances_dict = X_test.loc[y_test.index[y_test == 0]].iloc[:NUM_TEST_SAMPLES].T.to_dict()
-
-  per_instance_results = {}
-
-  # TODO: hot train krr and other methods, so it doesn't affect runtime evaluations below
-
-  recourse_types = [
-    'm0_true', \
-    'm1_gaus', \
-    'm1_cvae', \
-    'm2_true', \
-    'm2_gaus', \
-    'm2_cvae', \
-    'm2_cvae_ps', \
-  ]
-
-  for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
-    factual_instance_idx = f'sample_{key}'
-    factual_instance = value
-
-    print(f'\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
-
-    per_instance_results[factual_instance_idx] = {}
-
-    for recourse_type in recourse_types:
-
-      tmp = {}
-
-      start_time = time.time()
-      tmp['optimal_action_set'] = computeOptimalActionSet(
-        dataset_obj,
-        classifier_obj,
-        causal_model_obj,
-        factual_instance,
-        recourse_type,
-      )
-      end_time = time.time()
-
-      tmp['time'] = np.around(end_time - start_time, 4)
-
-      print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
-
-      tmp['scf_validity']  = isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm0_true')
-
-      # TODO: add cost, only over those with valid action sets
-
-      # IMPORTANT: assume h(x^f) always 0
-      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_true')
-      tmp['int_confidence'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
-
-      print(f'\t done.')
-
-      per_instance_results[factual_instance_idx][recourse_type] = tmp
-
-    print(f'[INFO] Saving (overwriting) results...')
-    pickle.dump(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results', 'wb'))
-    pprint(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results.txt', 'w'))
-    print(f'done.')
-
-  for recourse_type in recourse_types:
-    print()
-    for field in ['scf_validity', 'int_confidence', 'time']:
-      print(f'`{recourse_type}-{field}`:', end='\t')
-      print(f'{np.around(np.mean([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}', end='+/-')
-      print(f'{np.around(np.std([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}')
-
-
-def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
-  ''' assert {m1, m2} x {gaus, cvae} working '''
+  ''' fixed action set: assert {m1, m2} x {gaus, cvae} working '''
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   factual_instance = X_test.iloc[0].T.to_dict()
 
@@ -1061,6 +891,122 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     ax.legend(fontsize='xx-small')
   fig.tight_layout()
   pyplot.savefig(f'{experiment_folder_name}/comparison.eps', format='eps')
+
+
+def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
+  ''' optimal action set: figure + table '''
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+
+  # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
+  factual_instances_dict = X_test.loc[y_test.index[y_test == 0]].iloc[:NUM_TEST_SAMPLES].T.to_dict()
+
+  per_instance_results = {}
+
+  # TODO: hot train krr and other methods, so it doesn't affect runtime evaluations below
+
+  recourse_types = [
+    'm0_true', \
+    'm1_gaus', \
+    'm1_cvae', \
+    'm2_true', \
+    'm2_gaus', \
+    'm2_cvae', \
+    'm2_cvae_ps', \
+  ]
+  # markers = ['k*', 'cD', 'mP', 'ko', 'bs', 'r+', 'gx']
+  markers = ['*', 'D', 'P', 'o', 's', '+', 'x']
+
+  for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
+    factual_instance_idx = f'sample_{key}'
+    factual_instance = value
+
+    print(f'\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
+
+    per_instance_results[factual_instance_idx] = {}
+
+    for recourse_type in recourse_types:
+
+      tmp = {}
+
+      start_time = time.time()
+      tmp['optimal_action_set'] = computeOptimalActionSet(
+        dataset_obj,
+        classifier_obj,
+        causal_model_obj,
+        factual_instance,
+        recourse_type,
+      )
+      end_time = time.time()
+
+      tmp['time'] = np.around(end_time - start_time, 4)
+
+      print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
+
+      tmp['scf_validity']  = isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm0_true')
+      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_true') # IMPORTANT: assume h(x^f) always 0
+      tmp['int_confidence'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
+
+      # TODO: add cost, only over those with valid action sets
+
+      print(f'\t done.')
+
+      per_instance_results[factual_instance_idx][recourse_type] = tmp
+
+    print(f'[INFO] Saving (overwriting) results...')
+    pickle.dump(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results', 'wb'))
+    pprint(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results.txt', 'w'))
+    print(f'done.')
+
+  # Table
+  for recourse_type in recourse_types:
+    print()
+    for field in ['scf_validity', 'int_confidence', 'time']:
+      print(f'`{recourse_type}-{field}`:', end='\t')
+      print(f'{np.around(np.mean([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}', end='+/-')
+      print(f'{np.around(np.std([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}')
+
+  # Figure # TODO: make much cleaner, and use fig, axes = pyplot.subplots like above + add legend
+  if len(dataset_obj.getInputAttributeNames()) != 3:
+    return
+
+  num_plot_rows = np.floor(np.sqrt(NUM_TEST_SAMPLES))
+  num_plot_cols = np.ceil(NUM_TEST_SAMPLES / num_plot_rows)
+
+  axes = []
+  for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
+
+    factual_instance_idx = f'sample_{key}'
+    factual_instance = value
+
+    ax = pyplot.subplot(
+      num_plot_cols,
+      num_plot_rows,
+      enumeration_idx + 1,
+      projection = '3d')
+    axes.append(ax)
+
+    scatterFactual(dataset_obj, factual_instance, ax)
+    title = f'sample_{factual_instance_idx} - {prettyPrintDict(factual_instance)}'
+
+    for (recourse_type, marker) in zip(recourse_types, markers):
+
+      optimal_action_set = per_instance_results[factual_instance_idx][recourse_type]['optimal_action_set']
+      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, recourse_type, marker, ax)
+      title += f'\n {recourse_type} action set: do({prettyPrintDict(optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, optimal_action_set, NORM_TYPE):.2f}'
+
+    scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
+    ax.set_xlabel('x1', fontsize=4)
+    ax.set_ylabel('x2', fontsize=4)
+    ax.set_zlabel('x3', fontsize=4)
+    ax.set_title(title, fontsize=4, horizontalalignment='left')
+    ax.view_init(elev=20, azim=-30)
+
+  # for ax in axes.ravel():
+  for ax in axes:
+    ax.legend(fontsize='xx-small')
+  # fig.tight_layout()
+  pyplot.savefig(f'{experiment_folder_name}/comparison.eps', format='eps')
+
 
 
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):
@@ -1126,10 +1072,8 @@ if __name__ == "__main__":
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
   # experiment1(dataset_obj, classifier_obj, causal_model_obj)
-  # experiment2(dataset_obj, classifier_obj, causal_model_obj)
-  # experiment3(dataset_obj, classifier_obj, causal_model_obj)
-  experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)

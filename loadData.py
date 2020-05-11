@@ -902,8 +902,8 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
 
   elif dataset_name == 'random':
 
-    # variable_type = 'real'
-    variable_type = 'integer'
+    variable_type = 'real'
+    # variable_type = 'integer'
 
     data_frame_non_hot = load_random_data(variable_type)
     data_frame_non_hot = data_frame_non_hot.reset_index(drop=True)

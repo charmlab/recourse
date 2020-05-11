@@ -62,7 +62,7 @@ class VAE(nn.Module):
             eps = torch.randn([batch_size, self.latent_size])
             samples_qz = eps * stds + means
 
-            print(f'KL between posterior and prior: {-0.5 * torch.sum(1 + log_vars - means.pow(2) - log_vars.exp())}')
+            # print(f'KL between posterior and prior: {-0.5 * torch.sum(1 + log_vars - means.pow(2) - log_vars.exp())}')
 
             if sample_from == 'prior':
 
