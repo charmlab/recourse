@@ -1,6 +1,7 @@
 import os
 import time
 import pickle
+import inspect
 import pathlib
 import argparse
 import itertools
@@ -14,6 +15,7 @@ from matplotlib import pyplot
 from datetime import datetime
 from attrdict import AttrDict
 
+import GPy
 from scm import CausalModel
 import utils
 import loadData
@@ -26,8 +28,6 @@ from sklearn.gaussian_process.kernels import WhiteKernel, ExpSineSquared
 
 from _cvae.train import *
 
-import GPy
-
 from debug import ipsh
 
 from random import seed
@@ -35,14 +35,11 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
-CODE_MODE = 'dev'
-# CODE_MODE = 'eval'
-
-NUM_TEST_SAMPLES = 4 if CODE_MODE == 'eval' else 30
 NORM_TYPE = 2
-GRID_SEARCH_BINS = 5 if CODE_MODE == 'eval' else 4
-NUMBER_OF_MONTE_CARLO_SAMPLES = 100
 LAMBDA_LCB = 1
+NUM_TEST_SAMPLES = 4
+GRID_SEARCH_BINS = 5
+NUMBER_OF_MONTE_CARLO_SAMPLES = 10
 SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
 SAVED_MACE_RESULTS_PATH_M1 = '/Users/a6karimi/dev/recourse/_minimum_distances_m1'
 
@@ -102,6 +99,32 @@ def loadCausalModel(dataset_class, experiment_folder_name):
   #   'x2': lambda     x1, n_samples: x1 + 1 + np.random.normal(size=n_samples),
   #   'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
   # })
+
+  # structural_equations = {
+  #   'x1': lambda         n1:                 n1,
+  #   'x2': lambda     x1, n2:        x1 + 1 + n2,
+  #   'x3': lambda x1, x2, n3: 5 * (x1 + x2) + n3,
+  #   'x4': lambda     x3, n4:            x3 + n4,
+  #   'x5': lambda     x4, n5:            x4 + n5,
+  #   'x6': lambda     x2, n6:            x2 + n6,
+  # }
+  # noise_distributions = {
+  #   'x1': lambda n_samples: 1.00 * np.random.normal(size=n_samples),
+  #   'x2': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
+  #   'x3': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
+  #   'x4': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
+  #   'x5': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
+  #   'x6': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
+  # }
+
+  # causal_model_dict = {}
+  # for key, value in structural_equations.items():
+  #   sig = inspect.signature(value)
+  #   endogenous_parents = [node for node in sig.parameters.keys() if 'n' not in node]
+  #   print(endogenous_parents)
+  #   # causal_model_dict[key] =
+  # ipsh()
+
   scm = CausalModel({
     'x1': lambda         n_samples:                 1.00 * np.random.normal(size=n_samples),
     'x2': lambda     x1, n_samples: x1 + 1        + 0.25 * np.random.normal(size=n_samples),
@@ -412,7 +435,6 @@ def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj,
   if not bool(action_set): # if action_set is empty, CFE = F
     return factual_instance
 
-
   structural_equations_new = dict(zip(factual_instance.keys(), [
     getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, recourse_type)
     for node in factual_instance.keys()
@@ -456,43 +478,6 @@ def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj,
     )
 
   return counterfactual_instance_new
-
-  # # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
-  # structural_equations = {}
-  # structural_equations['x1'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x1', recourse_type)
-  # structural_equations['x2'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x2', recourse_type)
-  # structural_equations['x3'] = getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, 'x3', recourse_type)
-
-  # # Step 1. abduction: get value of noise variables
-  # # tip: pass in n* = 0 to structural_equations (lambda functions)
-  # noise_variables = {}
-  # noise_variables['x1'] = factual_instance['x1'] - structural_equations['x1'](0)
-  # noise_variables['x2'] = factual_instance['x2'] - structural_equations['x2'](factual_instance['x1'], 0)
-  # noise_variables['x3'] = factual_instance['x3'] - structural_equations['x3'](factual_instance['x1'], factual_instance['x2'], 0)
-
-  # # Step 2. action: update structural equations
-  # for key, value in action_set.items():
-  #   node = key
-  #   intervention_value = value
-  #   structural_equations[node] = lambdaWrapper(intervention_value)
-  #   # *args is used to allow for ignoring arguments that may be passed into this
-  #   # function (consider, for example, an intervention on x2 which then requires
-  #   # no inputs to call the second structural equation function, but we still pass
-  #   # in the arugments a few lines down)
-
-  # # Step 3. prediction: compute counterfactual values starting from root node
-  # counterfactual_instance = {}
-  # counterfactual_instance['x1'] = structural_equations['x1'](noise_variables['x1'])
-  # counterfactual_instance['x2'] = structural_equations['x2'](counterfactual_instance['x1'], noise_variables['x2'])
-  # counterfactual_instance['x3'] = structural_equations['x3'](counterfactual_instance['x1'], counterfactual_instance['x2'], noise_variables['x3'])
-
-  # print(counterfactual_instance)
-  # print(counterfactual_instance_new)
-
-  # return counterfactual_instance
-
-  # # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
 def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples, debug_flag = True):
@@ -792,12 +777,12 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   # print(f'm1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
   # print(f'm1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
   # print(f'm1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
-  print(f'm1_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_cvae", 10)}')
+  # print(f'm1_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_cvae", 10)}')
 
   print(f'm2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
   # print(f'm2_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_gaus", 10)}')
-  print(f'm2_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae", 10)}')
-  print(f'm2_cvae_ps: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae_ps", 10)}')
+  # print(f'm2_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae", 10)}')
+  # print(f'm2_cvae_ps: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae_ps", 10)}')
 
 
 def experiment2(dataset_obj, classifier_obj, causal_model_obj):
@@ -904,6 +889,9 @@ def experiment3(dataset_obj, classifier_obj, causal_model_obj):
 
   pyplot.suptitle(f'Compare M0, M1, M2 on {NUM_TEST_SAMPLES} factual samples and **optimal** action sets.', fontsize=14)
   pyplot.show()
+
+
+# DEPRECATED def experiment4
 
 
 def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
@@ -1101,11 +1089,11 @@ if __name__ == "__main__":
   causal_model_obj = loadCausalModel(dataset_class, experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
-  # experiment1(dataset_obj, classifier_obj, causal_model_obj)
+  experiment1(dataset_obj, classifier_obj, causal_model_obj)
   # experiment2(dataset_obj, classifier_obj, causal_model_obj)
   # experiment3(dataset_obj, classifier_obj, causal_model_obj)
   # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)
