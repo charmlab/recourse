@@ -17,16 +17,16 @@ d = 3
 w = np.random.normal(mu_w, sigma_w, (d, 1))
 # b = 0 # see below.
 
-def load_random_data(variable_type = 'real', scm_class = 'nonlinear'):
+def load_random_data(variable_type = 'real', scm_class = 'linear'):
 
-  X = np.concatenate(
-    (
-      1.0 * np.random.normal(mu_x, sigma_x, (n, 1)),
-      0.5 * np.random.normal(mu_x, sigma_x, (n, d-1))
-    ),
-    axis=1,
-  )
-  # X = 0.1 * np.random.normal(mu_x, sigma_x, (n, d))
+  # X = np.concatenate(
+  #   (
+  #     1.0 * np.random.normal(mu_x, sigma_x, (n, 1)),
+  #     0.5 * np.random.normal(mu_x, sigma_x, (n, d-1))
+  #   ),
+  #   axis=1,
+  # )
+  X = np.random.normal(mu_x, sigma_x, (n, d))
   X = processDataAccordingToGraph(X, scm_class)
   if variable_type == 'integer':
     X = np.round(4 * X)

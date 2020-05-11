@@ -38,8 +38,8 @@ np.random.seed(RANDOM_SEED)
 DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
-NUM_TEST_SAMPLES = 1
-GRID_SEARCH_BINS = 2
+NUM_TEST_SAMPLES = 30
+GRID_SEARCH_BINS = 5
 NUMBER_OF_MONTE_CARLO_SAMPLES = 100
 SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
 SAVED_MACE_RESULTS_PATH_M1 = '/Users/a6karimi/dev/recourse/_minimum_distances_m1'
@@ -96,10 +96,16 @@ def loadClassifier(dataset_class, model_class, experiment_folder_name):
 @utils.Memoize
 def loadCausalModel(dataset_class, experiment_folder_name):
   scm = CausalModel({
-    'x1': lambda         n_samples:                               np.random.normal(size=n_samples),
-    'x2': lambda     x1, n_samples:                      x1 + 1 + np.random.normal(size=n_samples),
-    'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
+    'x1': lambda         n_samples:                                  np.random.normal(size=n_samples),
+    'x2': lambda     x1, n_samples:                         x1 + 1 + np.random.normal(size=n_samples),
+    'x3': lambda x1, x2, n_samples: x1 / 4 + np.sqrt(3) * x2 - 1/4 + np.random.normal(size=n_samples),
   })
+
+  # scm = CausalModel({
+  #   'x1': lambda         n_samples:                               np.random.normal(size=n_samples),
+  #   'x2': lambda     x1, n_samples:                      x1 + 1 + np.random.normal(size=n_samples),
+  #   'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
+  # })
 
   # structural_equations = {
   #   'x1': lambda         n1:                 n1,
@@ -181,13 +187,20 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
 
   if recourse_type == 'm0_true':
 
-    # TODO: use causal_model_obj to get this?
+    # # TODO: use causal_model_obj to get this?
     if node == 'x1':
       return lambda n1: n1
     elif node == 'x2':
       return lambda x1, n2: x1 + 1 + n2
     elif node == 'x3':
-      return lambda x1, x2, n3: np.sqrt(3) * x1 * (x2 ** 2) + n3
+      return lambda x1, x2, n3: x1 / 4 + np.sqrt(3) * x2 - 1/4 + n3
+
+    # if node == 'x1':
+    #   return lambda n1: n1
+    # elif node == 'x2':
+    #   return lambda x1, n2: x1 + 1 + n2
+    # elif node == 'x3':
+    #   return lambda x1, x2, n3: np.sqrt(3) * x1 * (x2 ** 2) + n3
 
     # if node == 'x1':
     #   return lambda n1: n1
@@ -202,22 +215,15 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
     # elif node == 'x6':
     #   return lambda x2, n6: x2 + n6
 
-  # elif recourse_type == 'approx_deprecated':
-
-  #   if node == 'x1':
-  #     return lambda n1: n1
-  #   elif node == 'x2':
-  #     return lambda x1, n2: 1 * x1 + 1 + n2
-  #   elif node == 'x3':
-  #     return lambda x1, x2, n3: 5.5 * x1 + 3.5 * x2 - 0.1 + n3
-
   elif recourse_type in {'m1_alin', 'm1_akrr'}:
 
     X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
     X_all = X_train.append(X_test)
+    X_all = X_all[:1000]
 
     parents = causal_model_obj.getParentsForNode(node)
-    print(f'[INFO] Fitting `{recourse_type}` (parents: {parents}; child: {node}) may be very expensive, memoizing aftewards.')
+    if DEBUG_FLAG:
+      print(f'[INFO] Fitting `{recourse_type}` (parents: {parents}; child: {node}) may be very expensive, memoizing aftewards.')
 
     if len(parents) == 0: # if root node
 
@@ -249,73 +255,21 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
       elif len(parents) >= 3:
         raise Exception(f'TODO: This is horrible code, Amir. Shame!')
 
-    # else:
-    #   model = GridSearchCV(Ridge(), param_grid=param_grid)
-    #   model.fit(X_all[parents], X_all[[node]])
-    #   return lambda *parents, noise: model.predict([list(parents)])[0][0] + noise
-      # return lambda parents, noise: model.predict([[parents]])[0][0] + n2
-
-      # model.fit(X_all[['x1']], X_all[['x2']])
-      # return lambda x1, n2: model.predict([[x1]])[0][0] + n2
-
-    # if node == 'x1':
-
-    #   return lambda n1: n1
-
-    # elif node == 'x2':
-
-    #   model = GridSearchCV(Ridge(), param_grid=param_grid)
-    #   model.fit(X_all[['x1']], X_all[['x2']])
-    #   return lambda x1, n2: model.predict([[x1]])[0][0] + n2
-
-    # elif node == 'x3':
-
-    #   model = GridSearchCV(Ridge(), param_grid=param_grid)
-    #   model.fit(X_all[['x1', 'x2']], X_all[['x3']])
-    #   return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
-
-  # elif recourse_type == 'm1_akrr':
-
-  #   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  #   X_all = X_train.append(X_test)
-  #   param_grid = {"alpha": [1e0, 1e-1, 1e-2, 1e-3],
-  #                 "kernel": [ExpSineSquared(l, p)
-  #                            for l in np.logspace(-2, 2, 5)
-  #                            for p in np.logspace(0, 2, 5)]}
-
-  #   if node == 'x1':
-  #     print(f'[INFO] Fitting KRR (parent: n/a; child: x1) may be very expensive, memoizing aftewards.')
-
-  #     return lambda n1: n1
-
-  #   elif node == 'x2':
-  #     print(f'[INFO] Fitting KRR (parent: x1; child: x2) may be very expensive, memoizing aftewards.')
-
-  #     model = GridSearchCV(KernelRidge(), param_grid=param_grid)
-  #     model.fit(X_all[['x1']], X_all[['x2']])
-  #     return lambda x1, n2: model.predict([[x1]])[0][0] + n2
-
-  #   elif node == 'x3':
-  #     print(f'[INFO] Fitting KRR (parent: x1, x2; child: x3) may be very expensive, memoizing aftewards.')
-
-  #     model = GridSearchCV(KernelRidge(), param_grid=param_grid)
-  #     model.fit(X_all[['x1', 'x2']], X_all[['x3']])
-  #     return lambda x1, x2, n3: model.predict([[x1, x2]])[0][0] + n3
-
 
 @utils.Memoize
 def trainGP(dataset_obj, node, parents, X, Y):
-  print(f'[INFO] Fitting GP (parents: {parents}; child: {node}) may be very expensive, memoizing aftewards.')
+  if DEBUG_FLAG:
+    print(f'[INFO] Fitting GP (parents: {parents}; child: {node}) may be very expensive, memoizing aftewards.')
   kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
   model = GPy.models.GPRegression(X, Y, kernel)
-  model.optimize_restarts(parallel=True, num_restarts = 5)
+  model.optimize_restarts(parallel=True, num_restarts = 5, verbose=False)
   return kernel, model
 
 
 def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_type):
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
-  X_all = X_all[:50] # TODO: remove? use more samples?
+  X_all = X_all[:500]
   # make sure factual instance is in training set (you lose indexing, but no need)
   X_all = X_all.append(factual_instance, ignore_index=True)
   X = X_all[parents].to_numpy()
@@ -396,7 +350,8 @@ def deprocessDataFrame(dataset_obj, df, processing_type):
 
 @utils.Memoize
 def trainCVAE(dataset_obj, node, parents):
-  print(f'[INFO] Training CVAE on complete data; this may be very expensive, memoizing aftewards.')
+  if DEBUG_FLAG:
+    print(f'[INFO] Training CVAE on complete data; this may be very expensive, memoizing aftewards.')
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   return train_cvae(AttrDict({
@@ -690,9 +645,9 @@ def getValidDiscretizedActionSets(dataset_obj):
   return valid_action_sets
 
 
-def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, recourse_type):
+def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factual_instance, recourse_type, optimization_approach):
 
-  # TODO: add option to select computation: brute-force, using MACE/MINT, or SGD
+  # TODO: add option to select computation: brute_force, using MACE/MINT, or SGD
 
   if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     constraint_handle = isPointConstraintSatisfied
@@ -701,19 +656,28 @@ def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factu
   else:
     raise Exception(f'{recourse_type} not recognized.')
 
-  valid_action_sets = getValidDiscretizedActionSets(dataset_obj)
-  print(f'\n\t[INFO] Computing optimal `{recourse_type}`: grid searching over {len(valid_action_sets)} action sets...')
+  if optimization_approach == 'brute_force':
 
-  min_cost = 1e10
-  min_cost_action_set = {}
-  for action_set in tqdm(valid_action_sets):
-    if constraint_handle(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
-      cost_of_action_set = measureActionSetCost(dataset_obj, factual_instance, action_set, NORM_TYPE)
-      if cost_of_action_set < min_cost:
-        min_cost = cost_of_action_set
-        min_cost_action_set = action_set
+    valid_action_sets = getValidDiscretizedActionSets(dataset_obj)
+    print(f'\n\t[INFO] Computing optimal `{recourse_type}`: grid searching over {len(valid_action_sets)} action sets...')
 
-  print(f'\t done.')
+    min_cost = 1e10
+    min_cost_action_set = {}
+    for action_set in tqdm(valid_action_sets):
+      if constraint_handle(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
+        cost_of_action_set = measureActionSetCost(dataset_obj, factual_instance, action_set, NORM_TYPE)
+        if cost_of_action_set < min_cost:
+          min_cost = cost_of_action_set
+          min_cost_action_set = action_set
+
+    print(f'\t done.')
+
+  elif optimization_approach == 'grad_descent':
+
+    raise NotImplementedError
+
+  else:
+    raise Exception(f'{optimization_approach} not recognized.')
 
   return min_cost_action_set
 
@@ -846,6 +810,8 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   ]
   recourse_types = [
     'm0_true', \
+    # 'm1_alin', \
+    # 'm1_akrr', \
     'm1_gaus', \
     'm1_cvae', \
     'm2_true', \
@@ -879,8 +845,8 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
       print(f'{recourse_type}:\t{samples}')
       axes.ravel()[idx].plot(samples['x4'], samples['x5'], marker, label=recourse_type)
 
-    axes.ravel()[idx].set_ylabel('$X_5$', fontsize='x-small')
-    axes.ravel()[idx].set_xlabel('$X_4$', fontsize='x-small')
+    axes.ravel()[idx].set_ylabel('$x5$', fontsize='x-small')
+    axes.ravel()[idx].set_xlabel('$x4$', fontsize='x-small')
     # axes.ravel()[idx].set_ylim(-10, 10)
     # axes.ravel()[idx].set_xlim(-10, 10)
     axes.ravel()[idx].tick_params(axis='both', which='major', labelsize=6)
@@ -906,6 +872,8 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   recourse_types = [
     'm0_true', \
+    'm1_alin', \
+    'm1_akrr', \
     'm1_gaus', \
     'm1_cvae', \
     'm2_true', \
@@ -935,20 +903,28 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
         causal_model_obj,
         factual_instance,
         recourse_type,
+        'brute_force',
       )
       end_time = time.time()
 
       tmp['time'] = np.around(end_time - start_time, 4)
 
-      print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
+      # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
       tmp['scf_validity']  = isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm0_true')
       exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_true') # IMPORTANT: assume h(x^f) always 0
-      tmp['int_confidence'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
+      tmp['int_confidence_true'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
+      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_cvae') # IMPORTANT: assume h(x^f) always 0
+      tmp['int_confidence_cvae'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
+      tmp['cost_all'] = measureActionSetCost(dataset_obj, factual_instance, tmp['optimal_action_set'], NORM_TYPE)
+      if tmp['scf_validity']:
+        tmp['cost_valid'] = tmp['cost_all']
+      else:
+        tmp['cost_valid'] = np.NaN
 
       # TODO: add cost, only over those with valid action sets
 
-      print(f'\t done.')
+      # print(f'\t done.')
 
       per_instance_results[factual_instance_idx][recourse_type] = tmp
 
@@ -960,53 +936,52 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   # Table
   for recourse_type in recourse_types:
     print()
-    for field in ['scf_validity', 'int_confidence', 'time']:
+    for field in ['scf_validity', 'int_confidence_true', 'int_confidence_cvae', 'time', 'cost_all', 'cost_valid']:
       print(f'`{recourse_type}-{field}`:', end='\t')
-      print(f'{np.around(np.mean([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}', end='+/-')
-      print(f'{np.around(np.std([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}')
+      print(f'{np.around(np.nanmean([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}', end='+/-')
+      print(f'{np.around(np.nanstd([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}')
 
-  # Figure # TODO: make much cleaner, and use fig, axes = pyplot.subplots like above + add legend
-  if len(dataset_obj.getInputAttributeNames()) != 3:
-    return
+  # # Figure # TODO: make much cleaner, and use fig, axes = pyplot.subplots like above + add legend
+  # if len(dataset_obj.getInputAttributeNames()) != 3:
+  #   return
 
-  num_plot_rows = np.floor(np.sqrt(NUM_TEST_SAMPLES))
-  num_plot_cols = np.ceil(NUM_TEST_SAMPLES / num_plot_rows)
+  # num_plot_rows = np.floor(np.sqrt(NUM_TEST_SAMPLES))
+  # num_plot_cols = np.ceil(NUM_TEST_SAMPLES / num_plot_rows)
 
-  axes = []
-  for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
+  # axes = []
+  # for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
 
-    factual_instance_idx = f'sample_{key}'
-    factual_instance = value
+  #   factual_instance_idx = f'sample_{key}'
+  #   factual_instance = value
 
-    ax = pyplot.subplot(
-      num_plot_cols,
-      num_plot_rows,
-      enumeration_idx + 1,
-      projection = '3d')
-    axes.append(ax)
+  #   ax = pyplot.subplot(
+  #     num_plot_cols,
+  #     num_plot_rows,
+  #     enumeration_idx + 1,
+  #     projection = '3d')
+  #   axes.append(ax)
 
-    scatterFactual(dataset_obj, factual_instance, ax)
-    title = f'sample_{factual_instance_idx} - {prettyPrintDict(factual_instance)}'
+  #   scatterFactual(dataset_obj, factual_instance, ax)
+  #   title = f'sample_{factual_instance_idx} - {prettyPrintDict(factual_instance)}'
 
-    for (recourse_type, marker) in zip(recourse_types, markers):
+  #   for (recourse_type, marker) in zip(recourse_types, markers):
 
-      optimal_action_set = per_instance_results[factual_instance_idx][recourse_type]['optimal_action_set']
-      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, recourse_type, marker, ax)
-      title += f'\n {recourse_type} action set: do({prettyPrintDict(optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, optimal_action_set, NORM_TYPE):.2f}'
+  #     optimal_action_set = per_instance_results[factual_instance_idx][recourse_type]['optimal_action_set']
+  #     scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, recourse_type, marker, ax)
+  #     title += f'\n {recourse_type} action set: do({prettyPrintDict(optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, optimal_action_set, NORM_TYPE):.2f}'
 
-    scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
-    ax.set_xlabel('x1', fontsize=4)
-    ax.set_ylabel('x2', fontsize=4)
-    ax.set_zlabel('x3', fontsize=4)
-    ax.set_title(title, fontsize=4, horizontalalignment='left')
-    ax.view_init(elev=20, azim=-30)
+  #   scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
+  #   ax.set_xlabel('x1', fontsize=4)
+  #   ax.set_ylabel('x2', fontsize=4)
+  #   ax.set_zlabel('x3', fontsize=4)
+  #   ax.set_title(title, fontsize=4, horizontalalignment='left')
+  #   ax.view_init(elev=20, azim=-30)
 
-  # for ax in axes.ravel():
-  for ax in axes:
-    ax.legend(fontsize='xx-small')
-  # fig.tight_layout()
-  pyplot.savefig(f'{experiment_folder_name}/comparison.eps', format='eps')
-
+  # # for ax in axes.ravel():
+  # for ax in axes:
+  #   ax.legend(fontsize='xx-small')
+  # # fig.tight_layout()
+  # pyplot.savefig(f'{experiment_folder_name}/comparison.eps', format='eps')
 
 
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):
@@ -1060,7 +1035,7 @@ if __name__ == "__main__":
   if not (model_class in {'lr', 'mlp'}):
     raise Exception(f'{model_class} not supported.')
 
-
+  # create experiment folder
   setup_name = f'{dataset_class}__{model_class}'
   experiment_folder_name = f"_experiments/{datetime.now().strftime('%Y.%m.%d_%H.%M.%S')}__{setup_name}"
   os.mkdir(f'{experiment_folder_name}')
