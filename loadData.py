@@ -392,7 +392,7 @@ class Dataset(object):
     b = self.getOneHotAttributesNames(long_or_kurz)
     return np.setdiff1d(a,b)
 
-  def getVariableBounds(self):
+  def getVariableRanges(self):
     bounds = []
     for attr_name_kurz in self.getInputAttributeNames('kurz'):
       attr_obj = self.attributes_kurz[attr_name_kurz]
@@ -902,7 +902,10 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
 
   elif dataset_name == 'random':
 
-    data_frame_non_hot = load_random_data()
+    # variable_type = 'real'
+    variable_type = 'integer'
+
+    data_frame_non_hot = load_random_data(variable_type)
     data_frame_non_hot = data_frame_non_hot.reset_index(drop=True)
     attributes_non_hot = {}
 
@@ -924,15 +927,27 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
     for col_idx, col_name in enumerate(input_cols):
 
       if col_name == 'x0':
-        attr_type = 'numeric-real'
+        attr_type = 'numeric-real' if variable_type == 'real' else 'numeric-int'
         actionability = 'any'
         mutability = True
       elif col_name == 'x1':
-        attr_type = 'numeric-real'
+        attr_type = 'numeric-real' if variable_type == 'real' else 'numeric-int'
         actionability = 'any'
         mutability = True
       elif col_name == 'x2':
-        attr_type = 'numeric-real'
+        attr_type = 'numeric-real' if variable_type == 'real' else 'numeric-int'
+        actionability = 'any'
+        mutability = True
+      elif col_name == 'x3':
+        attr_type = 'numeric-real' if variable_type == 'real' else 'numeric-int'
+        actionability = 'any'
+        mutability = True
+      elif col_name == 'x4':
+        attr_type = 'numeric-real' if variable_type == 'real' else 'numeric-int'
+        actionability = 'any'
+        mutability = True
+      elif col_name == 'x5':
+        attr_type = 'numeric-real' if variable_type == 'real' else 'numeric-int'
         actionability = 'any'
         mutability = True
 

@@ -17,7 +17,7 @@ d = 6
 w = np.random.normal(mu_w, sigma_w, (d, 1))
 # b = 0 # see below.
 
-def load_random_data(scm_class = 'nonlinear'):
+def load_random_data(variable_type = 'real', scm_class = 'nonlinear'):
 
   X = np.concatenate(
     (
@@ -28,6 +28,8 @@ def load_random_data(scm_class = 'nonlinear'):
   )
   # X = 0.1 * np.random.normal(mu_x, sigma_x, (n, d))
   X = processDataAccordingToGraph(X, scm_class)
+  if variable_type == 'integer':
+    X = np.round(4 * X)
   np.random.shuffle(X)
   # to create a more balanced dataset, do not set b to 0.
   b = - np.mean(np.dot(X, w))

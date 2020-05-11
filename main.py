@@ -246,7 +246,7 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
       elif len(parents) == 3:
         return lambda pa_1, pa_2, pa_3, noise: model.predict([[pa_1, pa_2, pa_3]])[0][0] + noise
       elif len(parents) >= 3:
-        raise Exception(f'This is horrible code, Amir. Shame!')
+        raise Exception(f'TODO: This is horrible code, Amir. Shame!')
 
     # else:
     #   model = GridSearchCV(Ridge(), param_grid=param_grid)
@@ -637,19 +637,38 @@ def isDistrConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, fa
 def getValidDiscretizedActionSets(dataset_obj):
 
   possible_actions_per_node = []
-  for node in dataset_obj.getInputAttributeNames():
-    # TODO: should only discretize real-values variables
-    tmp = list(
-      np.around(
-        np.linspace(
-          dataset_obj.attributes_kurz[node].lower_bound,
-          dataset_obj.attributes_kurz[node].upper_bound,
-          GRID_SEARCH_BINS + 1
-        ),
-      2)
-    )
-    tmp.append('n/a')
-    possible_actions_per_node.append(tmp)
+
+  for attr_name_kurz in dataset_obj.getInputAttributeNames('kurz'):
+
+    attr_obj = dataset_obj.attributes_kurz[attr_name_kurz]
+
+    if attr_obj.attr_type in {'numeric-real', 'numeric-int', 'binary'}:
+
+      if attr_obj.attr_type == 'numeric-real':
+        number_decimals = 4
+      elif attr_obj.attr_type in {'numeric-int', 'binary'}:
+        number_decimals = 0
+
+      tmp = list(
+        np.around(
+          np.linspace(
+            attr_obj.lower_bound,
+            attr_obj.upper_bound,
+            GRID_SEARCH_BINS + 1
+          ),
+          number_decimals,
+        )
+      )
+      tmp.append('n/a')
+      tmp = list(dict.fromkeys(tmp))
+      # remove repeats from list; this may happen, say for numeric-int, where we
+      # can have upper-lower < GRID_SEARCH_BINS, then rounding to 0 will result
+      # in some repeated values
+      possible_actions_per_node.append(tmp)
+
+    else: # TODO
+
+      raise NotImplementedError
 
   all_action_tuples = list(itertools.product(
     *possible_actions_per_node
@@ -1106,10 +1125,10 @@ if __name__ == "__main__":
   causal_model_obj = loadCausalModel(dataset_class, experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
-  experiment1(dataset_obj, classifier_obj, causal_model_obj)
+  # experiment1(dataset_obj, classifier_obj, causal_model_obj)
   # experiment2(dataset_obj, classifier_obj, causal_model_obj)
   # experiment3(dataset_obj, classifier_obj, causal_model_obj)
-  # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
   # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
