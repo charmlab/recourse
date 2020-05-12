@@ -10,6 +10,7 @@ from torchvision import transforms
 from torchvision.datasets import MNIST
 from torch.utils.data import DataLoader
 from collections import defaultdict
+from torch.utils.tensorboard import SummaryWriter
 
 from .models import VAE
 
@@ -42,6 +43,7 @@ def train_cvae(args):
     #     torch.cuda.manual_seed(args.seed)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    writer = SummaryWriter(log_dir = args.debug_folder)
 
     ts = time.time()
 
@@ -54,8 +56,11 @@ def train_cvae(args):
         # BCE = torch.nn.functional.binary_cross_entropy(recon_x, x, reduction='sum')
         MSE = torch.nn.functional.mse_loss(recon_x, x, reduction='sum')
         KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
+        # print(f'MSE: {MSE} \t KLD: {KLD}')
         # return (BCE + KLD) / x.size(0)
-        return (10 * MSE + KLD) / x.size(0)
+        # return (10 * MSE + KLD) / x.size(0)
+        # return (MSE + KLD) / x.size(0)
+        return MSE + KLD
 
     vae = VAE(
         encoder_layer_sizes=list(args.encoder_layer_sizes), # bug in AttrDict package: https://github.com/bcj/AttrDict/issues/34#issuecomment-202920540
@@ -99,6 +104,25 @@ def train_cvae(args):
                 if iteration % args.print_every == 0 or iteration == len(data_loader)-1:
                     print("Epoch {:02d}/{:02d} Batch {:04d}/{:d}, Loss {:9.4f}".format(
                         epoch, args.epochs, iteration, len(data_loader)-1, loss.item()))
+
+        if args.debug_flag:
+            x = torch.tensor(args.node.to_numpy()).float()
+            pa = torch.tensor(args.parents.to_numpy()).float()
+            recon_x, mean, log_var, z = vae(x, pa)
+            recon_x = recon_x.detach()
+            mean = mean.detach()
+            log_var = log_var.detach()
+            MSE = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
+            KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
+            # writer.add_scalar('MSE', MSE, epoch)
+            # writer.add_scalar('KLD', KLD, epoch)
+            writer.add_scalars(f'loss', {
+                'MSE': MSE,
+                'KLD': KLD,
+                'sum': MSE + KLD,
+            }, epoch)
+
+
 
     return vae
 

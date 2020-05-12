@@ -38,6 +38,7 @@ np.random.seed(RANDOM_SEED)
 DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
+NUM_TRAIN_SAMPLES = 500
 NUM_TEST_SAMPLES = 30
 GRID_SEARCH_BINS = 5
 NUMBER_OF_MONTE_CARLO_SAMPLES = 100
@@ -137,44 +138,6 @@ def loadCausalModel(dataset_class, experiment_folder_name):
   return scm
 
 
-def measureActionSetCost(dataset_obj, factual_instance, action_set, norm_type):
-  # TODO: the cost should be measured in normalized space over all features
-  #       pass in dataset_obj to get..
-  deltas = []
-  ranges = dataset_obj.getVariableRanges()
-  for key in action_set.keys():
-    deltas.append((action_set[key] - factual_instance[key]) / ranges[key])
-  return np.linalg.norm(deltas, norm_type)
-
-
-def prettyPrintDict(my_dict):
-  for key, value in my_dict.items():
-    my_dict[key] = np.around(value, 2)
-  return my_dict
-
-
-def getPredictionBatch(dataset_obj, classifier_obj, causal_model_obj, instances_df):
-  sklearn_model = classifier_obj
-  return sklearn_model.predict(instances_df)
-
-
-def getPrediction(dataset_obj, classifier_obj, causal_model_obj, instance):
-  sklearn_model = classifier_obj
-  prediction = sklearn_model.predict(np.array(list(instance.values())).reshape(1,-1))[0]
-  assert prediction in {0, 1}, f'Expected prediction in {0,1}; got {prediction}'
-  return prediction
-
-
-def didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, counterfactual_instance):
-  return \
-    getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) != \
-    getPrediction(dataset_obj, classifier_obj, causal_model_obj, counterfactual_instance)
-
-
-# See https://stackoverflow.com/a/25670697
-def lambdaWrapper(new_value):
-  return lambda *args: new_value
-
 
 @utils.Memoize
 def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, recourse_type):
@@ -213,7 +176,7 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
 
     X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
     X_all = X_train.append(X_test)
-    X_all = X_all[:500]
+    X_all = X_all[:NUM_TRAIN_SAMPLES]
 
     parents = causal_model_obj.getParentsForNode(node)
     if DEBUG_FLAG:
@@ -243,6 +206,80 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
 
       return lambda noise, *parents: model.predict([[*parents]])[0][0] + noise
 
+def measureActionSetCost(dataset_obj, factual_instance, action_set, norm_type):
+  # TODO: the cost should be measured in normalized space over all features
+  #       pass in dataset_obj to get..
+  deltas = []
+  ranges = dataset_obj.getVariableRanges()
+  for key in action_set.keys():
+    deltas.append((action_set[key] - factual_instance[key]) / ranges[key])
+  return np.linalg.norm(deltas, norm_type)
+
+
+def processDataFrame(dataset_obj, df, processing_type):
+  df = df.copy() # so as not to change the underlying object
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  X_all = X_train.append(X_test)
+  for col_idx in df.columns:
+    col_min = float(min(X_all[col_idx]))
+    col_max = float(max(X_all[col_idx]))
+    col_mean = float(np.mean(X_all[col_idx]))
+    col_std = float(np.std(X_all[col_idx]))
+    if processing_type == 'normalize':
+      df[col_idx] = (df[col_idx] - col_min) / (col_max - col_min)
+    elif processing_type == 'standardize':
+      df[col_idx] = (df[col_idx] - col_mean) / col_std
+    elif processing_type == 'mean_subtract':
+      df[col_idx] = (df[col_idx] - col_mean)
+  return df
+
+
+def deprocessDataFrame(dataset_obj, df, processing_type):
+  df = df.copy() # so as not to change the underlying object
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  X_all = X_train.append(X_test)
+  for col_idx in df.columns:
+    col_min = float(min(X_all[col_idx]))
+    col_max = float(max(X_all[col_idx]))
+    col_mean = float(np.mean(X_all[col_idx]))
+    col_std = float(np.std(X_all[col_idx]))
+    if processing_type == 'normalize':
+      df[col_idx] = df[col_idx] * (col_max - col_min) + col_min
+    elif processing_type == 'standardize':
+      df[col_idx] = df[col_idx] * col_std + col_mean
+    elif processing_type == 'mean_subtract':
+      df[col_idx] = df[col_idx] + col_mean
+  return df
+
+
+def prettyPrintDict(my_dict):
+  for key, value in my_dict.items():
+    my_dict[key] = np.around(value, 2)
+  return my_dict
+
+
+def getPredictionBatch(dataset_obj, classifier_obj, causal_model_obj, instances_df):
+  sklearn_model = classifier_obj
+  return sklearn_model.predict(instances_df)
+
+
+def getPrediction(dataset_obj, classifier_obj, causal_model_obj, instance):
+  sklearn_model = classifier_obj
+  prediction = sklearn_model.predict(np.array(list(instance.values())).reshape(1,-1))[0]
+  assert prediction in {0, 1}, f'Expected prediction in {0,1}; got {prediction}'
+  return prediction
+
+
+def didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, counterfactual_instance):
+  return \
+    getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) != \
+    getPrediction(dataset_obj, classifier_obj, causal_model_obj, counterfactual_instance)
+
+
+# See https://stackoverflow.com/a/25670697
+def lambdaWrapper(new_value):
+  return lambda *args: new_value
+
 
 @utils.Memoize
 def trainGP(dataset_obj, node, parents, X, Y):
@@ -257,10 +294,10 @@ def trainGP(dataset_obj, node, parents, X, Y):
 def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_type):
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
-  X_all = X_all[:500]
+  X_all = X_all[:NUM_TRAIN_SAMPLES]
   # make sure factual instance is in training set (you lose indexing, but no need)
   X_all = X_all.append(factual_instance, ignore_index=True)
-  X_all = processDataFrame(dataset_obj, X_all, 'standardize')
+  X_all = processDataFrame(dataset_obj, X_all, 'mean_subtract')
   X = X_all[parents].to_numpy()
   Y = X_all[[node]].to_numpy()
 
@@ -302,40 +339,8 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
   new_samples = new_means + np.sqrt(new_vars) * new_noise
 
   samples_df[node] = new_samples
-  samples_df = deprocessDataFrame(dataset_obj, samples_df, 'standardize')
+  samples_df = deprocessDataFrame(dataset_obj, samples_df, 'mean_subtract')
   return samples_df
-
-
-def processDataFrame(dataset_obj, df, processing_type):
-  df = df.copy() # so as not to change the underlying object
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = X_train.append(X_test)
-  for col_idx in df.columns:
-    col_min = float(min(X_all[col_idx]))
-    col_max = float(max(X_all[col_idx]))
-    col_mean = float(np.mean(X_all[col_idx]))
-    col_std = float(np.std(X_all[col_idx]))
-    if processing_type == 'normalize':
-      df[col_idx] = (df[col_idx] - col_min) / (col_max - col_min)
-    elif processing_type == 'standardize':
-      df[col_idx] = (df[col_idx] - col_mean) / col_std
-  return df
-
-
-def deprocessDataFrame(dataset_obj, df, processing_type):
-  df = df.copy() # so as not to change the underlying object
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = X_train.append(X_test)
-  for col_idx in df.columns:
-    col_min = float(min(X_all[col_idx]))
-    col_max = float(max(X_all[col_idx]))
-    col_mean = float(np.mean(X_all[col_idx]))
-    col_std = float(np.std(X_all[col_idx]))
-    if processing_type == 'normalize':
-      df[col_idx] = df[col_idx] * (col_max - col_min) + col_min
-    elif processing_type == 'standardize':
-      df[col_idx] = df[col_idx] * col_std + col_mean
-  return df
 
 
 @utils.Memoize
@@ -344,20 +349,21 @@ def trainCVAE(dataset_obj, node, parents):
     print(f'[INFO] Training CVAE on complete data; this may be very expensive, memoizing aftewards.')
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
-  X_all = X_all[:500]
+  X_all = X_all[:NUM_TRAIN_SAMPLES]
   return train_cvae(AttrDict({
     'node': processDataFrame(dataset_obj, X_all[[node]], 'standardize'),
     'parents': processDataFrame(dataset_obj, X_all[parents], 'standardize'),
     'seed': 0,
-    'epochs': 20,
+    'epochs': 100,
     'batch_size': 64,
     'learning_rate': 0.001,
-    'encoder_layer_sizes': [1, 10], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
-    'decoder_layer_sizes': [10, 1], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
+    'encoder_layer_sizes': [1, 5, 5, 5], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
+    'decoder_layer_sizes': [5, 5, 5, 1], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
     'latent_size': 2, # TODO: should this be 1 to be interpreted as noise?
     'conditional': True,
     'print_every': 1000,
     'debug_flag': False,
+    'debug_folder': experiment_folder_name,
   }))
 
 
@@ -708,7 +714,7 @@ def scatterDataset(dataset_obj, ax):
   X_test_numpy = X_test.to_numpy()
   y_train = y_train.to_numpy()
   y_test = y_test.to_numpy()
-  number_of_samples_to_plot = 200
+  number_of_samples_to_plot = 100
   for idx in range(number_of_samples_to_plot):
     color_train = 'black' if y_train[idx] == 1 else 'magenta'
     color_test = 'black' if y_test[idx] == 1 else 'magenta'
@@ -768,21 +774,21 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
 
   # iterative over a number of action sets and compare the three counterfactuals
   # action_set = {'x1': -3}
-  # action_set = {'x2': +1}
+  action_set = {'x2': +1}
   # action_set = {'x3': +1}
   # action_set = {'x1': +2, 'x3': +1, 'x5': 3}
   # action_set = {'x0': +2, 'x2': +1}
   # action_set = {'x1': +2, 'x3': +1}
   # action_set = {'x2': +1, 'x6': 2}
-  action_set = {'x3': +4}
+  # action_set = {'x3': +4}
 
   print(f'fc: \t\t{prettyPrintDict(factual_instance)}')
-  print(f'm0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
+  # print(f'm0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
 
-  print(f'm1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
-  print(f'm1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
+  # print(f'm1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
+  # print(f'm1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
   # print(f'm1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
-  # print(f'm1_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_cvae", 10)}')
+  print(f'm1_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_cvae", 10)}')
 
   # print(f'm2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
   # print(f'm2_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_gaus", 10)}')
@@ -875,13 +881,13 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   recourse_types = [
     'm0_true', \
-    # 'm1_alin', \
-    # 'm1_akrr', \
+    'm1_alin', \
+    'm1_akrr', \
     'm1_gaus', \
-    # 'm1_cvae', \
-    # 'm2_true', \
+    'm1_cvae', \
+    'm2_true', \
     'm2_gaus', \
-    # 'm2_cvae', \
+    'm2_cvae', \
     # 'm2_cvae_ps', \
   ]
   # markers = ['k*', 'cD', 'mP', 'ko', 'bs', 'r+', 'gx']

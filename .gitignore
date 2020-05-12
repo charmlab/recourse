@@ -3,7 +3,7 @@ venv/
 _venv/
 __pycache__/
 _tmp/
-_tmp_hivae/
+_tmp_cvae/
 
 ### LaTeX ###
 ## Core latex/pdflatex auxiliary files:
