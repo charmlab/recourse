@@ -38,7 +38,7 @@ np.random.seed(RANDOM_SEED)
 DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
-NUM_TRAIN_SAMPLES = 250
+NUM_TRAIN_SAMPLES = 100
 NUM_TEST_SAMPLES = 10
 GRID_SEARCH_BINS = 3
 NUMBER_OF_MONTE_CARLO_SAMPLES = 100
@@ -304,6 +304,31 @@ def trainKernelRidge(dataset_obj, node, parents):
 
 
 @utils.Memoize
+def trainCVAE(dataset_obj, node, parents):
+  assert len(parents) > 0, 'parents set cannot be empty'
+  print(f'[INFO] Fitting p({node} | {", ".join(parents)}) using CVAE on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  X_all = X_train.append(X_test)
+  X_all = X_all[:NUM_TRAIN_SAMPLES]
+  return train_cvae(AttrDict({
+    'name': f'p({node} | {", ".join(parents)})',
+    'node': processDataFrame(dataset_obj, X_all[[node]], 'standardize'),
+    'parents': processDataFrame(dataset_obj, X_all[parents], 'standardize'),
+    'seed': 0,
+    'epochs': 100,
+    'batch_size': 64,
+    'learning_rate': 0.001,
+    'encoder_layer_sizes': [1, 5, 5, 5], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
+    'decoder_layer_sizes': [5, 5, 5, 1], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
+    'latent_size': 2, # TODO: should this be 1 to be interpreted as noise?
+    'conditional': True,
+    'print_every': 1000,
+    'debug_flag': DEBUG_FLAG,
+    'debug_folder': experiment_folder_name,
+  }))
+
+
+@utils.Memoize
 def trainGP(dataset_obj, node, parents, X, Y):
   assert len(parents) > 0, 'parents set cannot be empty'
   print(f'[INFO] Fitting p({node} | {", ".join(parents)}) using GP on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
@@ -311,6 +336,40 @@ def trainGP(dataset_obj, node, parents, X, Y):
   model = GPy.models.GPRegression(X, Y, kernel)
   model.optimize_restarts(parallel=True, num_restarts = 5, verbose=False)
   return kernel, model
+
+
+def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recourse_type):
+  trained_cvae = trainCVAE(dataset_obj, node, parents)
+  num_samples = samples_df.shape[0]
+
+  x_factual = pd.DataFrame(dict(zip(
+    [node],
+    [num_samples * [factual_instance[node]] for node in [node]],
+  )))
+  pa_factual = pd.DataFrame(dict(zip(
+    parents,
+    [num_samples * [factual_instance[node]] for node in parents],
+  )))
+  pa_counter = samples_df[parents]
+
+  if recourse_type == 'm1_cvae':
+    sample_from = 'prior'
+  elif recourse_type == 'm2_cvae':
+    sample_from = 'posterior'
+  elif recourse_type == 'm2_cvae_ps':
+    sample_from = 'reweighted_prior'
+
+  tmp = trained_cvae.reconstruct(
+    x_factual=processDataFrame(dataset_obj, x_factual, 'standardize'),
+    pa_factual=processDataFrame(dataset_obj, pa_factual, 'standardize'),
+    pa_counter=processDataFrame(dataset_obj, pa_counter, 'standardize'),
+    # sample_from='reweighted_prior',
+    # sample_from='posterior' if recourse_type == 'm1_cvae' else 'prior',
+    sample_from=sample_from,
+  )
+  tmp = tmp.rename(columns={0: node}) # bad code amir, this violates abstraction!
+  samples_df[node] = deprocessDataFrame(dataset_obj, tmp, 'standardize')
+  return samples_df
 
 
 def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_type):
@@ -364,64 +423,6 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
   samples_df = deprocessDataFrame(dataset_obj, samples_df, 'mean_subtract')
   return samples_df
 
-
-@utils.Memoize
-def trainCVAE(dataset_obj, node, parents):
-  assert len(parents) > 0, 'parents set cannot be empty'
-  print(f'[INFO] Fitting p({node} | {", ".join(parents)}) using CVAE on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = X_train.append(X_test)
-  X_all = X_all[:NUM_TRAIN_SAMPLES]
-  return train_cvae(AttrDict({
-    'name': f'p({node} | {", ".join(parents)})',
-    'node': processDataFrame(dataset_obj, X_all[[node]], 'standardize'),
-    'parents': processDataFrame(dataset_obj, X_all[parents], 'standardize'),
-    'seed': 0,
-    'epochs': 100,
-    'batch_size': 64,
-    'learning_rate': 0.001,
-    'encoder_layer_sizes': [1, 5, 5, 5], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
-    'decoder_layer_sizes': [5, 5, 5, 1], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
-    'latent_size': 2, # TODO: should this be 1 to be interpreted as noise?
-    'conditional': True,
-    'print_every': 1000,
-    'debug_flag': DEBUG_FLAG,
-    'debug_folder': experiment_folder_name,
-  }))
-
-
-def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recourse_type):
-  trained_cvae = trainCVAE(dataset_obj, node, parents)
-  num_samples = samples_df.shape[0]
-
-  x_factual = pd.DataFrame(dict(zip(
-    [node],
-    [num_samples * [factual_instance[node]] for node in [node]],
-  )))
-  pa_factual = pd.DataFrame(dict(zip(
-    parents,
-    [num_samples * [factual_instance[node]] for node in parents],
-  )))
-  pa_counter = samples_df[parents]
-
-  if recourse_type == 'm1_cvae':
-    sample_from = 'prior'
-  elif recourse_type == 'm2_cvae':
-    sample_from = 'posterior'
-  elif recourse_type == 'm2_cvae_ps':
-    sample_from = 'reweighted_prior'
-
-  tmp = trained_cvae.reconstruct(
-    x_factual=processDataFrame(dataset_obj, x_factual, 'standardize'),
-    pa_factual=processDataFrame(dataset_obj, pa_factual, 'standardize'),
-    pa_counter=processDataFrame(dataset_obj, pa_counter, 'standardize'),
-    # sample_from='reweighted_prior',
-    # sample_from='posterior' if recourse_type == 'm1_cvae' else 'prior',
-    sample_from=sample_from,
-  )
-  tmp = tmp.rename(columns={0: node}) # bad code amir, this violates abstraction!
-  samples_df[node] = deprocessDataFrame(dataset_obj, tmp, 'standardize')
-  return samples_df
 
 
 def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
