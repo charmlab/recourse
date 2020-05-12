@@ -116,7 +116,7 @@ def train_cvae(args):
             KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
             # writer.add_scalar('MSE', MSE, epoch)
             # writer.add_scalar('KLD', KLD, epoch)
-            writer.add_scalars(f'loss', {
+            writer.add_scalars(f'loss/{args.name}', {
                 'MSE': MSE,
                 'KLD': KLD,
                 'sum': MSE + KLD,

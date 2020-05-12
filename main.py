@@ -38,9 +38,9 @@ np.random.seed(RANDOM_SEED)
 DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
-NUM_TRAIN_SAMPLES = 500
-NUM_TEST_SAMPLES = 30
-GRID_SEARCH_BINS = 5
+NUM_TRAIN_SAMPLES = 250
+NUM_TEST_SAMPLES = 10
+GRID_SEARCH_BINS = 3
 NUMBER_OF_MONTE_CARLO_SAMPLES = 100
 SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
 SAVED_MACE_RESULTS_PATH_M1 = '/Users/a6karimi/dev/recourse/_minimum_distances_m1'
@@ -178,8 +178,6 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
     X_all = X_all[:NUM_TRAIN_SAMPLES]
 
     parents = causal_model_obj.getParentsForNode(node)
-    if DEBUG_FLAG:
-      print(f'[INFO] Fitting `{recourse_type}` (parents: {parents}; child: {node}) may be very expensive, memoizing aftewards.')
 
     if len(parents) == 0: # if root node
 
@@ -188,18 +186,9 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
     else:
 
       if recourse_type == 'm1_alin':
-        param_grid = {"alpha": np.linspace(0,10,11)}
-        model = GridSearchCV(Ridge(), param_grid=param_grid)
+        model = trainRidge(dataset_obj, node, parents)
       elif recourse_type == 'm1_akrr':
-        param_grid = {
-          "alpha": [1e0, 1e-1, 1e-2, 1e-3],
-          "kernel": [
-            ExpSineSquared(l, p)
-            for l in np.logspace(-2, 2, 5)
-            for p in np.logspace(0, 2, 5)
-          ]
-        }
-        model = GridSearchCV(KernelRidge(), param_grid=param_grid)
+        model = trainKernelRidge(dataset_obj, node, parents)
 
       model.fit(X_all[parents], X_all[[node]])
 
@@ -282,9 +271,42 @@ def lambdaWrapper(new_value):
 
 
 @utils.Memoize
+def trainRidge(dataset_obj, node, parents):
+  assert len(parents) > 0, 'parents set cannot be empty'
+  print(f'[INFO] Fitting p({node} | {", ".join(parents)}) using Ridge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  X_all = X_train.append(X_test)
+  X_all = X_all[:NUM_TRAIN_SAMPLES]
+  param_grid = {"alpha": np.linspace(0,10,11)}
+  model = GridSearchCV(Ridge(), param_grid=param_grid)
+  model.fit(X_all[parents], X_all[[node]])
+  return model
+
+
+@utils.Memoize
+def trainKernelRidge(dataset_obj, node, parents):
+  assert len(parents) > 0, 'parents set cannot be empty'
+  print(f'[INFO] Fitting p({node} | {", ".join(parents)}) using KernelRidge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  X_all = X_train.append(X_test)
+  X_all = X_all[:NUM_TRAIN_SAMPLES]
+  param_grid = {
+    "alpha": [1e0, 1e-1, 1e-2, 1e-3],
+    "kernel": [
+      ExpSineSquared(l, p)
+      for l in np.logspace(-2, 2, 5)
+      for p in np.logspace(0, 2, 5)
+    ]
+  }
+  model = GridSearchCV(KernelRidge(), param_grid=param_grid)
+  model.fit(X_all[parents], X_all[[node]])
+  return model
+
+
+@utils.Memoize
 def trainGP(dataset_obj, node, parents, X, Y):
-  if DEBUG_FLAG:
-    print(f'[INFO] Fitting GP (parents: {parents}; child: {node}) may be very expensive, memoizing aftewards.')
+  assert len(parents) > 0, 'parents set cannot be empty'
+  print(f'[INFO] Fitting p({node} | {", ".join(parents)}) using GP on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
   kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
   model = GPy.models.GPRegression(X, Y, kernel)
   model.optimize_restarts(parallel=True, num_restarts = 5, verbose=False)
@@ -345,12 +367,13 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
 
 @utils.Memoize
 def trainCVAE(dataset_obj, node, parents):
-  if DEBUG_FLAG:
-    print(f'[INFO] Training CVAE on complete data; this may be very expensive, memoizing aftewards.')
+  assert len(parents) > 0, 'parents set cannot be empty'
+  print(f'[INFO] Fitting p({node} | {", ".join(parents)}) using CVAE on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   X_all = X_all[:NUM_TRAIN_SAMPLES]
   return train_cvae(AttrDict({
+    'name': f'p({node} | {", ".join(parents)})',
     'node': processDataFrame(dataset_obj, X_all[[node]], 'standardize'),
     'parents': processDataFrame(dataset_obj, X_all[parents], 'standardize'),
     'seed': 0,
@@ -362,7 +385,7 @@ def trainCVAE(dataset_obj, node, parents):
     'latent_size': 2, # TODO: should this be 1 to be interpreted as noise?
     'conditional': True,
     'print_every': 1000,
-    'debug_flag': False,
+    'debug_flag': DEBUG_FLAG,
     'debug_folder': experiment_folder_name,
   }))
 
@@ -451,7 +474,7 @@ def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj,
   return counterfactual_instance_new
 
 
-def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples, debug_flag = DEBUG_FLAG):
+def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples):
 
   if not bool(action_set): # if action_set is empty, CFE = F
     return pd.DataFrame(dict(zip(
@@ -514,7 +537,7 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         parents = causal_model_obj.getParentsForNode(node)
         # Confirm parents columns are present/have assigned values in samples_df
         assert not samples_df.loc[:,list(parents)].isnull().values.any()
-        if debug_flag:
+        if DEBUG_FLAG:
           print(f'Sampling `{recourse_type}` from p({node} | {", ".join(parents)})')
         if recourse_type in {'m1_gaus', 'm2_gaus'}:
           samples_df = sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_type)
@@ -877,7 +900,20 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   per_instance_results = {}
 
-  # TODO: hot train alin, akrr, gaus, cvae, so it doesn't affect runtime evaluations below (can't do this for gaus...)
+  start_time = time.time()
+  print(f'\n' + '='*60 + '\n')
+  print(f'[INFO] Hot-training ALIN, AKRR, CVAE so they do not affect runtime...')
+  training_handles = [trainCVAE, trainRidge, trainKernelRidge] # TODO: add trainGP
+  for training_handle in training_handles:
+    print()
+    for node in causal_model_obj.getTopologicalOrdering():
+      parents = causal_model_obj.getParentsForNode(node)
+      if len(parents): # if not a root node
+        training_handle(dataset_obj, node, parents)
+  end_time = time.time()
+  print(f'done (total warm-up time: {end_time - start_time}.')
+  print(f'\n' + '='*60 + '\n')
+
 
   recourse_types = [
     'm0_true', \
@@ -926,10 +962,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
       exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_cvae') # IMPORTANT: assume h(x^f) always 0
       tmp['int_confidence_cvae'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
       tmp['cost_all'] = measureActionSetCost(dataset_obj, factual_instance, tmp['optimal_action_set'], NORM_TYPE)
-      if tmp['scf_validity']:
-        tmp['cost_valid'] = tmp['cost_all']
-      else:
-        tmp['cost_valid'] = np.NaN
+      tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
 
       # print(f'\t done.')
 
