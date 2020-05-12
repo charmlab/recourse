@@ -341,6 +341,7 @@ def trainCVAE(dataset_obj, node, parents):
     print(f'[INFO] Training CVAE on complete data; this may be very expensive, memoizing aftewards.')
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
+  X_all = X_all[:500]
   return train_cvae(AttrDict({
     'node': processDataFrame(dataset_obj, X_all[[node]], 'standardize'),
     'parents': processDataFrame(dataset_obj, X_all[parents], 'standardize'),
@@ -660,6 +661,20 @@ def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factu
   elif optimization_approach == 'grad_descent':
 
     raise NotImplementedError
+    # for all possible intervention sets (without value)
+    # for each child-parent that is missing
+    #     get object: trained_cvae = trainCVAE(dataset_obj, node, parents)
+    #     this should be a torch object
+    #     then the child is a function of
+    #         its factual value
+    #         its parents' factual value
+    #         the post-intervention value of its parents
+    #     then write h() as a function of all nodes
+    #     see if you can pass gradients back to the intervention value of the nodes (possibly > 1) being intervened on
+    #     then add the cost function
+    #     and finally minimize everything together
+
+
 
   else:
     raise Exception(f'{optimization_approach} not recognized.')
@@ -892,7 +907,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
       )
       end_time = time.time()
 
-      tmp['time'] = np.around(end_time - start_time, 4)
+      tmp['runtime'] = np.around(end_time - start_time, 4)
 
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
@@ -919,7 +934,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   # Table
   for recourse_type in recourse_types:
     print()
-    for field in ['scf_validity', 'int_confidence_true', 'int_confidence_cvae', 'time', 'cost_all', 'cost_valid']:
+    for field in ['scf_validity', 'int_confidence_true', 'int_confidence_cvae', 'cost_all', 'cost_valid', 'runtime']:
       print(f'`{recourse_type}-{field}`:', end='\t')
       print(f'{np.around(np.nanmean([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}', end='+/-')
       print(f'{np.around(np.nanstd([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}')
