@@ -38,9 +38,9 @@ np.random.seed(RANDOM_SEED)
 DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
-NUM_TRAIN_SAMPLES = 100
-NUM_TEST_SAMPLES = 10
-GRID_SEARCH_BINS = 3
+NUM_TRAIN_SAMPLES = 500
+NUM_TEST_SAMPLES = 4
+GRID_SEARCH_BINS = 2
 NUMBER_OF_MONTE_CARLO_SAMPLES = 100
 SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
 SAVED_MACE_RESULTS_PATH_M1 = '/Users/a6karimi/dev/recourse/_minimum_distances_m1'
@@ -114,17 +114,17 @@ def loadCausalModel(dataset_class, experiment_folder_name):
   # scm = CausalModel(new_dict)
 
 
-  scm = CausalModel({
-    'x1': lambda         n_samples:                                  np.random.normal(size=n_samples),
-    'x2': lambda     x1, n_samples:                         x1 + 1 + np.random.normal(size=n_samples),
-    'x3': lambda x1, x2, n_samples: x1 / 4 + np.sqrt(3) * x2 - 1/4 + np.random.normal(size=n_samples),
-  })
-
   # scm = CausalModel({
-  #   'x1': lambda         n_samples:                               np.random.normal(size=n_samples),
-  #   'x2': lambda     x1, n_samples:                      x1 + 1 + np.random.normal(size=n_samples),
-  #   'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
+  #   'x1': lambda         n_samples:                                  np.random.normal(size=n_samples),
+  #   'x2': lambda     x1, n_samples:                         x1 + 1 + np.random.normal(size=n_samples),
+  #   'x3': lambda x1, x2, n_samples: x1 / 4 + np.sqrt(3) * x2 - 1/4 + np.random.normal(size=n_samples),
   # })
+
+  scm = CausalModel({
+    'x1': lambda         n_samples:                               np.random.normal(size=n_samples),
+    'x2': lambda     x1, n_samples:                      x1 + 1 + np.random.normal(size=n_samples),
+    'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
+  })
 
   # scm = CausalModel({
   #   'x1': lambda         n_samples:                 1.00 * np.random.normal(size=n_samples),
@@ -143,20 +143,20 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
 
   if recourse_type == 'm0_true':
 
-    # # TODO: use causal_model_obj to get this?
-    if node == 'x1':
-      return lambda n1: n1
-    elif node == 'x2':
-      return lambda n2, x1: x1 + 1 + n2
-    elif node == 'x3':
-      return lambda n3, x1, x2: x1 / 4 + np.sqrt(3) * x2 - 1/4 + n3
-
+    # # # TODO: use causal_model_obj to get this?
     # if node == 'x1':
     #   return lambda n1: n1
     # elif node == 'x2':
     #   return lambda n2, x1: x1 + 1 + n2
     # elif node == 'x3':
-    #   return lambda n3, x1, x2: np.sqrt(3) * x1 * (x2 ** 2) + n3
+    #   return lambda n3, x1, x2: x1 / 4 + np.sqrt(3) * x2 - 1/4 + n3
+
+    if node == 'x1':
+      return lambda n1: n1
+    elif node == 'x2':
+      return lambda n2, x1: x1 + 1 + n2
+    elif node == 'x3':
+      return lambda n3, x1, x2: np.sqrt(3) * x1 * (x2 ** 2) + n3
 
     # if node == 'x1':
     #   return lambda n1: n1
@@ -195,14 +195,14 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
       return lambda noise, *parents: model.predict([[*parents]])[0][0] + noise
 
 
-def measureActionSetCost(dataset_obj, factual_instance, action_set, norm_type):
+def measureActionSetCost(dataset_obj, factual_instance, action_set):
   # TODO: the cost should be measured in normalized space over all features
   #       pass in dataset_obj to get..
   deltas = []
   ranges = dataset_obj.getVariableRanges()
   for key in action_set.keys():
     deltas.append((action_set[key] - factual_instance[key]) / ranges[key])
-  return np.linalg.norm(deltas, norm_type)
+  return np.linalg.norm(deltas, NORM_TYPE)
 
 
 def processDataFrame(dataset_obj, df, processing_type):
@@ -378,7 +378,8 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
   X_all = X_all[:NUM_TRAIN_SAMPLES]
   # make sure factual instance is in training set (you lose indexing, but no need)
   X_all = X_all.append(factual_instance, ignore_index=True)
-  X_all = processDataFrame(dataset_obj, X_all, 'mean_subtract')
+  # X_all = processDataFrame(dataset_obj, X_all, 'mean_subtract')
+  # X_all[parents] = processDataFrame(dataset_obj, X_all[parents], 'standardize'),
   X = X_all[parents].to_numpy()
   Y = X_all[[node]].to_numpy()
 
@@ -420,9 +421,8 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
   new_samples = new_means + np.sqrt(new_vars) * new_noise
 
   samples_df[node] = new_samples
-  samples_df = deprocessDataFrame(dataset_obj, samples_df, 'mean_subtract')
+  # samples_df = deprocessDataFrame(dataset_obj, samples_df, 'mean_subtract')
   return samples_df
-
 
 
 def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
@@ -684,7 +684,7 @@ def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factu
     min_cost_action_set = {}
     for action_set in tqdm(valid_action_sets):
       if constraint_handle(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
-        cost_of_action_set = measureActionSetCost(dataset_obj, factual_instance, action_set, NORM_TYPE)
+        cost_of_action_set = measureActionSetCost(dataset_obj, factual_instance, action_set)
         if cost_of_action_set < min_cost:
           min_cost = cost_of_action_set
           min_cost_action_set = action_set
@@ -758,7 +758,7 @@ def scatterFactual(dataset_obj, factual_instance, ax):
   )
 
 
-def scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, marker_type, ax):
+def scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, marker_type, legend_label, ax):
 
   assert len(dataset_obj.getInputAttributeNames()) == 3
 
@@ -767,24 +767,25 @@ def scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_insta
 
     point = computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type)
     color_string = 'green' if didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, point) else 'red'
-    ax.scatter(point['x1'], point['x2'], point['x3'], marker = marker_type, color=color_string, s=70)
+    ax.scatter(point['x1'], point['x2'], point['x3'], marker=marker_type, color=color_string, s=70, label=legend_label)
 
   elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
     # distr recourse
 
-    samples_df = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, 100)
-    for sample_idx in range(samples_df.shape[0]):
-      sample = samples_df.iloc[sample_idx].to_dict()
-      color_string = 'green' if didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, sample) else 'red'
-      ax.scatter(sample['x1'], sample['x2'], sample['x3'], marker = marker_type, color=color_string, alpha=0.1, s=30)
+    samples_df = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, 10)
+    x1s = samples_df.iloc[:,0]
+    x2s = samples_df.iloc[:,1]
+    x3s = samples_df.iloc[:,2]
+    color_strings = ['green' if didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, sample.to_dict()) else 'red' for _, sample in samples_df.iterrows()]
+    ax.scatter(x1s, x2s, x3s, marker=marker_type, color=color_strings, alpha=0.1, s=30, label=legend_label)
 
-    mean_distr_samples = {
-      'x1': np.mean(samples_df['x1']),
-      'x2': np.mean(samples_df['x2']),
-      'x3': np.mean(samples_df['x3']),
-    }
-    color_string = 'green' if didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, mean_distr_samples) else 'red'
-    ax.scatter(mean_distr_samples['x1'], mean_distr_samples['x2'], mean_distr_samples['x3'], marker = marker_type, color=color_string, alpha=0.5, s=70)
+    # mean_distr_samples = {
+    #   'x1': np.mean(samples_df['x1']),
+    #   'x2': np.mean(samples_df['x2']),
+    #   'x3': np.mean(samples_df['x3']),
+    # }
+    # color_string = 'green' if didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, mean_distr_samples) else 'red'
+    # ax.scatter(mean_distr_samples['x1'], mean_distr_samples['x2'], mean_distr_samples['x3'], marker=marker_type, color=color_string, alpha=0.5, s=70, label=legend_label)
 
   else:
 
@@ -797,8 +798,8 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   factual_instance = X_test.iloc[0].T.to_dict()
 
   # iterative over a number of action sets and compare the three counterfactuals
-  # action_set = {'x1': -3}
-  action_set = {'x2': +1}
+  action_set = {'x1': -3}
+  # action_set = {'x2': +1}
   # action_set = {'x3': +1}
   # action_set = {'x1': +2, 'x3': +1, 'x5': 3}
   # action_set = {'x0': +2, 'x2': +1}
@@ -816,7 +817,7 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
 
   # print(f'm2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
   # print(f'm2_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_gaus", 10)}')
-  # print(f'm2_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae", 10)}')
+  print(f'm2_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae", 10)}')
   # print(f'm2_cvae_ps: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae_ps", 10)}')
 
 
@@ -876,17 +877,17 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
         raise Exception(f'{recourse_type} not supported.')
 
       print(f'{recourse_type}:\t{samples}')
-      axes.ravel()[idx].plot(samples['x4'], samples['x5'], marker, label=recourse_type)
+      axes.flatten()[idx].plot(samples['x4'], samples['x5'], marker, label=recourse_type)
 
-    axes.ravel()[idx].set_ylabel('$x5$', fontsize='x-small')
-    axes.ravel()[idx].set_xlabel('$x4$', fontsize='x-small')
-    # axes.ravel()[idx].set_ylim(-10, 10)
-    # axes.ravel()[idx].set_xlim(-10, 10)
-    axes.ravel()[idx].tick_params(axis='both', which='major', labelsize=6)
-    axes.ravel()[idx].tick_params(axis='both', which='minor', labelsize=4)
-    axes.ravel()[idx].set_title(f'action_set: {str(action_set)}', fontsize='x-small')
+    axes.flatten()[idx].set_xlabel('$x4$', fontsize='x-small')
+    axes.flatten()[idx].set_ylabel('$x5$', fontsize='x-small')
+    # axes.flatten()[idx].set_xlim(-10, 10)
+    # axes.flatten()[idx].set_ylim(-10, 10)
+    axes.flatten()[idx].tick_params(axis='both', which='major', labelsize=6)
+    axes.flatten()[idx].tick_params(axis='both', which='minor', labelsize=4)
+    axes.flatten()[idx].set_title(f'action_set: {str(action_set)}', fontsize='x-small')
 
-  for ax in axes.ravel():
+  for ax in axes.flatten():
     ax.legend(fontsize='xx-small')
   fig.tight_layout()
   pyplot.savefig(f'{experiment_folder_name}/comparison.eps', format='eps')
@@ -901,10 +902,27 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   per_instance_results = {}
 
+  experimental_setups = [
+    ('m0_true', '*'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
+    # ('m1_gaus', 'D'), \
+    ('m1_cvae', 'x'), \
+    ('m2_true', 'o'), \
+    # ('m2_gaus', 's'), \
+    ('m2_cvae', '+'), \
+    # ('m2_cvae_ps', 'P'), \
+  ]
+  recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
+
   start_time = time.time()
   print(f'\n' + '='*60 + '\n')
   print(f'[INFO] Hot-training ALIN, AKRR, CVAE so they do not affect runtime...')
-  training_handles = [trainCVAE, trainRidge, trainKernelRidge] # TODO: add trainGP
+  training_handles = []
+  if any(['alin' in elem for elem in recourse_types]): training_handles.append(trainRidge)
+  if any(['akrr' in elem for elem in recourse_types]): training_handles.append(trainKernelRidge)
+  # if any(['gaus' in elem for elem in recourse_types]): training_handles.append(trainGP) # TODO
+  if any(['cvae' in elem for elem in recourse_types]): training_handles.append(trainCVAE)
   for training_handle in training_handles:
     print()
     for node in causal_model_obj.getTopologicalOrdering():
@@ -916,25 +934,11 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   print(f'\n' + '='*60 + '\n')
 
 
-  recourse_types = [
-    'm0_true', \
-    'm1_alin', \
-    # 'm1_akrr', \
-    'm1_gaus', \
-    'm1_cvae', \
-    'm2_true', \
-    'm2_gaus', \
-    'm2_cvae', \
-    # 'm2_cvae_ps', \
-  ]
-  # markers = ['k*', 'cD', 'mP', 'ko', 'bs', 'r+', 'gx']
-  markers = ['*', 'D', 'P', 'o', 's', '+', 'x']
-
   for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
     factual_instance_idx = f'sample_{key}'
     factual_instance = value
 
-    print(f'\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
+    print(f'\n\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
 
     per_instance_results[factual_instance_idx] = {}
 
@@ -962,7 +966,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
       tmp['int_confidence_true'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
       exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_cvae') # IMPORTANT: assume h(x^f) always 0
       tmp['int_confidence_cvae'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
-      tmp['cost_all'] = measureActionSetCost(dataset_obj, factual_instance, tmp['optimal_action_set'], NORM_TYPE)
+      tmp['cost_all'] = measureActionSetCost(dataset_obj, factual_instance, tmp['optimal_action_set'])
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
 
       # print(f'\t done.')
@@ -980,7 +984,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   for metric in metrics:
     metrics_summary[metric] = []
-  # metrics_summary = dict.fromkeys(metrics, []) # BROKEN: all lists are shared causing massive headache!!!
+  # metrics_summary = dict.fromkeys(metrics, []) # BROKEN: all lists will be shared; causing massive headache!!!
 
   for recourse_type in recourse_types:
     for metric in metrics:
@@ -991,47 +995,43 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
       )
   print(pd.DataFrame(metrics_summary, recourse_types))
 
-  # # Figure # TODO: make much cleaner, and use fig, axes = pyplot.subplots like above + add legend
-  # if len(dataset_obj.getInputAttributeNames()) != 3:
-  #   return
+  # Figure
+  if len(dataset_obj.getInputAttributeNames()) != 3:
+    return
 
-  # num_plot_rows = np.floor(np.sqrt(NUM_TEST_SAMPLES))
-  # num_plot_cols = np.ceil(NUM_TEST_SAMPLES / num_plot_rows)
+  num_plot_cols = int(np.floor(np.sqrt(NUM_TEST_SAMPLES)))
+  num_plot_rows = int(np.ceil(NUM_TEST_SAMPLES / num_plot_cols))
 
-  # axes = []
-  # for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
+  fig, axes = pyplot.subplots(num_plot_rows, num_plot_cols, subplot_kw=dict(projection='3d'))
+  for idx, (key, value) in enumerate(factual_instances_dict.items()):
 
-  #   factual_instance_idx = f'sample_{key}'
-  #   factual_instance = value
+    factual_instance_idx = f'sample_{key}'
+    factual_instance = value
 
-  #   ax = pyplot.subplot(
-  #     num_plot_cols,
-  #     num_plot_rows,
-  #     enumeration_idx + 1,
-  #     projection = '3d')
-  #   axes.append(ax)
+    ax = axes.flatten()[idx]
 
-  #   scatterFactual(dataset_obj, factual_instance, ax)
-  #   title = f'sample_{factual_instance_idx} - {prettyPrintDict(factual_instance)}'
+    scatterFactual(dataset_obj, factual_instance, ax)
+    title = f'sample_{factual_instance_idx} - {prettyPrintDict(factual_instance)}'
 
-  #   for (recourse_type, marker) in zip(recourse_types, markers):
+    for experimental_setup in experimental_setups:
+      recourse_type, marker = experimental_setup[0], experimental_setup[1]
+      optimal_action_set = per_instance_results[factual_instance_idx][recourse_type]['optimal_action_set']
+      legend_label = f'\n {recourse_type}; do({prettyPrintDict(optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, optimal_action_set):.2f}'
+      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, 'm0_true', marker, legend_label, ax)
+      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, recourse_type, marker, legend_label, ax)
 
-  #     optimal_action_set = per_instance_results[factual_instance_idx][recourse_type]['optimal_action_set']
-  #     scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, recourse_type, marker, ax)
-  #     title += f'\n {recourse_type} action set: do({prettyPrintDict(optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, optimal_action_set, NORM_TYPE):.2f}'
+    scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
+    ax.set_xlabel('x1', fontsize=8)
+    ax.set_ylabel('x2', fontsize=8)
+    ax.set_zlabel('x3', fontsize=8)
+    ax.set_title(title, fontsize=8)
+    ax.view_init(elev=20, azim=-30)
 
-  #   scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
-  #   ax.set_xlabel('x1', fontsize=4)
-  #   ax.set_ylabel('x2', fontsize=4)
-  #   ax.set_zlabel('x3', fontsize=4)
-  #   ax.set_title(title, fontsize=4, horizontalalignment='left')
-  #   ax.view_init(elev=20, azim=-30)
-
-  # # for ax in axes.ravel():
-  # for ax in axes:
-  #   ax.legend(fontsize='xx-small')
-  # # fig.tight_layout()
-  # pyplot.savefig(f'{experiment_folder_name}/comparison.eps', format='eps')
+  for ax in axes.flatten():
+    ax.legend(fontsize='xx-small')
+  fig.tight_layout()
+  pyplot.show()
+  pyplot.savefig(f'{experiment_folder_name}/comparison.eps', format='eps')
 
 
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):

@@ -17,7 +17,7 @@ d = 3
 w = np.random.normal(mu_w, sigma_w, (d, 1))
 # b = 0 # see below.
 
-def load_random_data(variable_type = 'real', scm_class = 'linear'):
+def load_random_data(variable_type = 'real', scm_class = 'nonlinear'):
 
   # X = np.concatenate(
   #   (

@@ -105,22 +105,20 @@ def train_cvae(args):
                     print("Epoch {:02d}/{:02d} Batch {:04d}/{:d}, Loss {:9.4f}".format(
                         epoch, args.epochs, iteration, len(data_loader)-1, loss.item()))
 
-        if args.debug_flag:
-            x = torch.tensor(args.node.to_numpy()).float()
-            pa = torch.tensor(args.parents.to_numpy()).float()
-            recon_x, mean, log_var, z = vae(x, pa)
-            recon_x = recon_x.detach()
-            mean = mean.detach()
-            log_var = log_var.detach()
-            MSE = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
-            KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
-            # writer.add_scalar('MSE', MSE, epoch)
-            # writer.add_scalar('KLD', KLD, epoch)
-            writer.add_scalars(f'loss/{args.name}', {
-                'MSE': MSE,
-                'KLD': KLD,
-                'sum': MSE + KLD,
-            }, epoch)
+
+        x = torch.tensor(args.node.to_numpy()).float()
+        pa = torch.tensor(args.parents.to_numpy()).float()
+        recon_x, mean, log_var, z = vae(x, pa)
+        recon_x = recon_x.detach()
+        mean = mean.detach()
+        log_var = log_var.detach()
+        MSE = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
+        KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
+        writer.add_scalars(f'loss/{args.name}', {
+            'MSE': MSE,
+            'KLD': KLD,
+            'sum': MSE + KLD,
+        }, epoch)
 
 
 
