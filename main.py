@@ -138,7 +138,6 @@ def loadCausalModel(dataset_class, experiment_folder_name):
   return scm
 
 
-
 @utils.Memoize
 def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, recourse_type):
 
@@ -205,6 +204,7 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
       model.fit(X_all[parents], X_all[[node]])
 
       return lambda noise, *parents: model.predict([[*parents]])[0][0] + noise
+
 
 def measureActionSetCost(dataset_obj, factual_instance, action_set, norm_type):
   # TODO: the cost should be measured in normalized space over all features
@@ -877,12 +877,12 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   per_instance_results = {}
 
-  # TODO: hot train krr and other methods, so it doesn't affect runtime evaluations below
+  # TODO: hot train alin, akrr, gaus, cvae, so it doesn't affect runtime evaluations below (can't do this for gaus...)
 
   recourse_types = [
     'm0_true', \
     'm1_alin', \
-    'm1_akrr', \
+    # 'm1_akrr', \
     'm1_gaus', \
     'm1_cvae', \
     'm2_true', \
@@ -941,12 +941,21 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     print(f'done.')
 
   # Table
+  metrics_summary = {}
+  metrics = ['scf_validity', 'int_confidence_true', 'int_confidence_cvae', 'cost_all', 'cost_valid', 'runtime']
+
+  for metric in metrics:
+    metrics_summary[metric] = []
+  # metrics_summary = dict.fromkeys(metrics, []) # BROKEN: all lists are shared causing massive headache!!!
+
   for recourse_type in recourse_types:
-    print()
-    for field in ['scf_validity', 'int_confidence_true', 'int_confidence_cvae', 'cost_all', 'cost_valid', 'runtime']:
-      print(f'`{recourse_type}-{field}`:', end='\t')
-      print(f'{np.around(np.nanmean([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}', end='+/-')
-      print(f'{np.around(np.nanstd([v[recourse_type][field] for k,v in per_instance_results.items()]), 2):.2f}')
+    for metric in metrics:
+      metrics_summary[metric].append(
+        f'{np.around(np.nanmean([v[recourse_type][metric] for k,v in per_instance_results.items()]), 4):.4f}' + \
+        '+/-' + \
+        f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 4):.4f}'
+      )
+  print(pd.DataFrame(metrics_summary, recourse_types))
 
   # # Figure # TODO: make much cleaner, and use fig, axes = pyplot.subplots like above + add legend
   # if len(dataset_obj.getInputAttributeNames()) != 3:
