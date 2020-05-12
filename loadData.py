@@ -393,14 +393,14 @@ class Dataset(object):
     return np.setdiff1d(a,b)
 
   def getVariableRanges(self):
-    bounds = []
-    for attr_name_kurz in self.getInputAttributeNames('kurz'):
-      attr_obj = self.attributes_kurz[attr_name_kurz]
-      bounds.append(
+    return dict(zip(
+      self.getInputAttributeNames('kurz'),
+      [
         self.attributes_kurz[attr_name_kurz].upper_bound -
         self.attributes_kurz[attr_name_kurz].lower_bound
-      )
-    return np.array(bounds)
+        for attr_name_kurz in self.getInputAttributeNames('kurz')
+      ],
+    ))
 
   def printDataset(self, long_or_kurz = 'kurz'):
     if long_or_kurz == 'long':

@@ -141,8 +141,9 @@ def measureActionSetCost(dataset_obj, factual_instance, action_set, norm_type):
   # TODO: the cost should be measured in normalized space over all features
   #       pass in dataset_obj to get..
   deltas = []
+  ranges = dataset_obj.getVariableRanges()
   for key in action_set.keys():
-    deltas.append(action_set[key] - factual_instance[key])
+    deltas.append((action_set[key] - factual_instance[key]) / ranges[key])
   return np.linalg.norm(deltas, norm_type)
 
 
@@ -259,6 +260,7 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
   X_all = X_all[:500]
   # make sure factual instance is in training set (you lose indexing, but no need)
   X_all = X_all.append(factual_instance, ignore_index=True)
+  X_all = processDataFrame(dataset_obj, X_all, 'standardize')
   X = X_all[parents].to_numpy()
   Y = X_all[[node]].to_numpy()
 
@@ -300,6 +302,7 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
   new_samples = new_means + np.sqrt(new_vars) * new_noise
 
   samples_df[node] = new_samples
+  samples_df = deprocessDataFrame(dataset_obj, samples_df, 'standardize')
   return samples_df
 
 
@@ -872,12 +875,12 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   recourse_types = [
     'm0_true', \
-    'm1_alin', \
-    'm1_akrr', \
-    # 'm1_gaus', \
+    # 'm1_alin', \
+    # 'm1_akrr', \
+    'm1_gaus', \
     # 'm1_cvae', \
     # 'm2_true', \
-    # 'm2_gaus', \
+    'm2_gaus', \
     # 'm2_cvae', \
     # 'm2_cvae_ps', \
   ]
