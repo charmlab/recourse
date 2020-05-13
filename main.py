@@ -40,8 +40,8 @@ DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
 GRID_SEARCH_BINS = 3
-NUM_TRAIN_SAMPLES = 500
-NUM_TEST_SAMPLES = 10
+NUM_TRAIN_SAMPLES = 50
+NUM_RECOURSE_SAMPLES = 10
 NUM_DISPLAY_SAMPLES = 10
 NUM_MONTE_CARLO_SAMPLES = 100
 
@@ -203,43 +203,71 @@ def measureActionSetCost(dataset_obj, factual_instance, action_set):
   return np.linalg.norm(deltas, NORM_TYPE)
 
 
-def processDataFrame(dataset_obj, df, processing_type):
-  df = df.copy() # so as not to change the underlying object
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = X_train.append(X_test)
-  for col_idx in df.columns:
-    col_min = float(min(X_all[col_idx]))
-    col_max = float(max(X_all[col_idx]))
-    col_mean = float(np.mean(X_all[col_idx]))
-    col_std = float(np.std(X_all[col_idx]))
+def processDataFrameOrDict(dataset_obj, obj, processing_type):
+
+  X_all = getOriginalData()
+
+  if isinstance(obj, dict):
+    iterate_over = obj.keys()
+  elif isinstance(obj, pd.DataFrame):
+    iterate_over = obj.columns
+
+  obj = obj.copy() # so as not to change the underlying object
+  for node in iterate_over:
+    node_min = float(min(X_all[node]))
+    node_max = float(max(X_all[node]))
+    node_mean = float(np.mean(X_all[node]))
+    node_std = float(np.std(X_all[node]))
     if processing_type == 'normalize':
-      df[col_idx] = (df[col_idx] - col_min) / (col_max - col_min)
+      obj[node] = (obj[node] - node_min) / (node_max - node_min)
     elif processing_type == 'standardize':
-      df[col_idx] = (df[col_idx] - col_mean) / col_std
+      obj[node] = (obj[node] - node_mean) / node_std
     elif processing_type == 'mean_subtract':
-      df[col_idx] = (df[col_idx] - col_mean)
-  return df
+      obj[node] = (obj[node] - node_mean)
+  return obj
 
 
-def deprocessDataFrame(dataset_obj, df, processing_type):
-  df = df.copy() # so as not to change the underlying object
+def deprocessDataFrameOrDict(dataset_obj, obj, processing_type):
+
+  X_all = getOriginalData()
+
+  if isinstance(obj, dict):
+    iterate_over = obj.keys()
+  elif isinstance(obj, pd.DataFrame):
+    iterate_over = obj.columns
+
+  obj = obj.copy() # so as not to change the underlying object
+  for node in iterate_over:
+    node_min = float(min(X_all[node]))
+    node_max = float(max(X_all[node]))
+    node_mean = float(np.mean(X_all[node]))
+    node_std = float(np.std(X_all[node]))
+    if processing_type == 'normalize':
+      obj[node] = obj[node] * (node_max - node_min) + node_min
+    elif processing_type == 'standardize':
+      obj[node] = obj[node] * node_std + node_mean
+    elif processing_type == 'mean_subtract':
+      obj[node] = obj[node] + node_mean
+  return obj
+
+
+@utils.Memoize
+def getOriginalData():
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
-  for col_idx in df.columns:
-    col_min = float(min(X_all[col_idx]))
-    col_max = float(max(X_all[col_idx]))
-    col_mean = float(np.mean(X_all[col_idx]))
-    col_std = float(np.std(X_all[col_idx]))
-    if processing_type == 'normalize':
-      df[col_idx] = df[col_idx] * (col_max - col_min) + col_min
-    elif processing_type == 'standardize':
-      df[col_idx] = df[col_idx] * col_std + col_mean
-    elif processing_type == 'mean_subtract':
-      df[col_idx] = df[col_idx] + col_mean
-  return df
+  X_all = X_all[:NUM_TRAIN_SAMPLES]
+  return X_all
+
+
+@utils.Memoize
+def getStandardizedData():
+  X_all = getOriginalData()
+  X_all = processDataFrameOrDict(dataset_obj, X_all, 'standardize')
+  return X_all
 
 
 def prettyPrintDict(my_dict):
+  my_dict = my_dict.copy()
   for key, value in my_dict.items():
     my_dict[key] = np.around(value, 3)
   return my_dict
@@ -258,6 +286,9 @@ def getPrediction(dataset_obj, classifier_obj, causal_model_obj, instance):
 
 
 def didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, counterfactual_instance):
+  # return \
+  #   getPrediction(dataset_obj, classifier_obj, causal_model_obj, deprocessDataFrameOrDict(dataset_obj, factual_instance, 'standardize')) != \
+  #   getPrediction(dataset_obj, classifier_obj, causal_model_obj, deprocessDataFrameOrDict(dataset_obj, counterfactual_instance, 'standardize'))
   return \
     getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) != \
     getPrediction(dataset_obj, classifier_obj, causal_model_obj, counterfactual_instance)
@@ -270,11 +301,9 @@ def lambdaWrapper(new_value):
 
 @utils.Memoize
 def trainRidge(dataset_obj, node, parents):
-  assert len(parents) > 0, 'parents set cannot be empty'
+  assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using Ridge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = X_train.append(X_test)
-  X_all = X_all[:NUM_TRAIN_SAMPLES]
+  X_all = getStandardizedData()
   param_grid = {"alpha": np.linspace(0,10,11)}
   model = GridSearchCV(Ridge(), param_grid=param_grid)
   model.fit(X_all[parents], X_all[[node]])
@@ -283,11 +312,9 @@ def trainRidge(dataset_obj, node, parents):
 
 @utils.Memoize
 def trainKernelRidge(dataset_obj, node, parents):
-  assert len(parents) > 0, 'parents set cannot be empty'
+  assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using KernelRidge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = X_train.append(X_test)
-  X_all = X_all[:NUM_TRAIN_SAMPLES]
+  X_all = getStandardizedData()
   param_grid = {
     "alpha": [1e0, 1e-1, 1e-2, 1e-3],
     "kernel": [
@@ -303,15 +330,15 @@ def trainKernelRidge(dataset_obj, node, parents):
 
 @utils.Memoize
 def trainCVAE(dataset_obj, node, parents):
-  assert len(parents) > 0, 'parents set cannot be empty'
+  assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using CVAE on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = X_train.append(X_test)
-  X_all = X_all[:NUM_TRAIN_SAMPLES]
+  X_all = getStandardizedData()
   return train_cvae(AttrDict({
     'name': f'p({node} | {", ".join(parents)})',
-    'node': processDataFrame(dataset_obj, X_all[[node]], 'standardize'),
-    'parents': processDataFrame(dataset_obj, X_all[parents], 'standardize'),
+    # 'node': processDataFrameOrDict(dataset_obj, X_all[[node]], 'standardize'),
+    # 'parents': processDataFrameOrDict(dataset_obj, X_all[parents], 'standardize'),
+    'node': X_all[[node]],
+    'parents': X_all[parents],
     'seed': 0,
     'epochs': 100,
     'batch_size': 64,
@@ -328,19 +355,13 @@ def trainCVAE(dataset_obj, node, parents):
 
 @utils.Memoize
 def trainGP(dataset_obj, node, parents):
-  assert len(parents) > 0, 'parents set cannot be empty'
+  assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using GP on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = X_train.append(X_test)
-  X_all = X_all[:NUM_TRAIN_SAMPLES]
-  # X_all = processDataFrame(dataset_obj, X_all, 'mean_subtract')
-  # X_all[parents] = processDataFrame(dataset_obj, X_all[parents], 'standardize'),
+  X_all = getStandardizedData()
+  kernel = GPy.kern.RBF(input_dim=len(parents), variance=1., lengthscale=1.)
+  model = GPy.models.GPRegression(X_all[parents], X_all[[node]], kernel)
+  model.optimize_restarts(parallel=True, num_restarts=5, verbose=False)
   X = X_all[parents].to_numpy()
-  Y = X_all[[node]].to_numpy()
-
-  kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
-  model = GPy.models.GPRegression(X, Y, kernel)
-  model.optimize_restarts(parallel=True, num_restarts = 5, verbose=False)
   return kernel, X, model
 
 
@@ -365,16 +386,18 @@ def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recours
   elif recourse_type == 'm2_cvae_ps':
     sample_from = 'reweighted_prior'
 
-  tmp = trained_cvae.reconstruct(
-    x_factual=processDataFrame(dataset_obj, x_factual, 'standardize'),
-    pa_factual=processDataFrame(dataset_obj, pa_factual, 'standardize'),
-    pa_counter=processDataFrame(dataset_obj, pa_counter, 'standardize'),
-    # sample_from='reweighted_prior',
-    # sample_from='posterior' if recourse_type == 'm1_cvae' else 'prior',
+  new_samples = trained_cvae.reconstruct(
+    x_factual=processDataFrameOrDict(dataset_obj, x_factual, 'standardize'),
+    pa_factual=processDataFrameOrDict(dataset_obj, pa_factual, 'standardize'),
+    pa_counter=processDataFrameOrDict(dataset_obj, pa_counter, 'standardize'),
+    # x_factual=x_factual,
+    # pa_factual=pa_factual,
+    # pa_counter=pa_counter,
     sample_from=sample_from,
   )
-  tmp = tmp.rename(columns={0: node}) # bad code amir, this violates abstraction!
-  samples_df[node] = deprocessDataFrame(dataset_obj, tmp, 'standardize')
+  new_samples = new_samples.rename(columns={0: node}) # bad code amir, this violates abstraction!
+  samples_df[node] = new_samples
+  # samples_df[node] = deprocessDataFrameOrDict(dataset_obj, new_samples, 'standardize')
   return samples_df
 
 
@@ -405,11 +428,21 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
   # GP posterior for node at new (intervened & conditioned) input given parents
   pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
 
-  if recourse_type == 'm1_gaus':
-    # counterfactual distribution for node
-    new_means = pred_means + noise_post_means[-1] # -1 b/c factual instance was appended as last instance
-    new_vars = pred_vars + noise_post_vars[-1] # -1 b/c factual instance was appended as last instance
-  elif recourse_type == 'm2_gaus':
+  # Find index of factual instance in dataframe used for training GP
+  # (earlier, the factual instance was appended as the last instance)
+  assert set(factual_instance.keys()) == set(getOriginalData().columns)
+  for enumeration_idx, (factual_instance_idx, row) in enumerate(getOriginalData().iterrows()):
+    if np.all([
+      factual_instance[key] == row[key]
+      for key in factual_instance.keys()
+    ]):
+      break
+  ipsh()
+
+  if recourse_type == 'm1_gaus': # counterfactual distribution for node
+    new_means = pred_means + noise_post_means[enumeration_idx]
+    new_vars = pred_vars + noise_post_vars[enumeration_idx]
+  elif recourse_type == 'm2_gaus': # interventional distribution for node
     new_means = pred_means + 0
     new_vars = pred_vars + sigma_noise
 
@@ -418,7 +451,7 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
   new_samples = new_means + np.sqrt(new_vars) * new_noise
 
   samples_df[node] = new_samples
-  # samples_df = deprocessDataFrame(dataset_obj, samples_df, 'mean_subtract')
+  samples_df[node] = deprocessDataFrameOrDict(dataset_obj, new_samples, 'standardize')
   return samples_df
 
 
@@ -789,6 +822,26 @@ def scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_insta
     raise Exception(f'{recourse_type} not recognized.')
 
 
+def getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_obj):
+  # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
+  X_all = getOriginalData()
+  factual_instances_dict = {}
+  tmp_counter = 1
+  for factual_instance_idx, row in X_all.iterrows():
+    factual_instance = row.T.to_dict()
+    if getPrediction(
+      dataset_obj,
+      classifier_obj,
+      causal_model_obj,
+      deprocessDataFrameOrDict(dataset_obj, factual_instance, 'standardize')
+    ) == 0:
+      tmp_counter += 1
+      factual_instances_dict[factual_instance_idx] = factual_instance
+    if tmp_counter > NUM_RECOURSE_SAMPLES:
+      break
+  return factual_instances_dict
+
+
 def hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types):
   start_time = time.time()
   print(f'\n' + '='*60 + '\n')
@@ -809,33 +862,7 @@ def hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recours
   print(f'\n' + '='*60 + '\n')
 
 
-def experiment1(dataset_obj, classifier_obj, causal_model_obj):
-  ''' debugging: sanity check to make sure code runs '''
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  factual_instance = X_test.iloc[0].T.to_dict()
-
-  # iterative over a number of action sets and compare the three counterfactuals
-  action_set = {'x1': -3}
-  # action_set = {'x2': +1}
-  # action_set = {'x3': +1}
-  # action_set = {'x1': +2, 'x3': +1, 'x5': 3}
-  # action_set = {'x0': +2, 'x2': +1}
-  # action_set = {'x1': +2, 'x3': +1}
-  # action_set = {'x2': +1, 'x6': 2}
-  # action_set = {'x3': +4}
-
-  print(f'fc: \t\t{prettyPrintDict(factual_instance)}')
-  # print(f'm0_true: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m0_true")}')
-
-  # print(f'm1_alin: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_alin")}')
-  # print(f'm1_akrr: \t{computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_akrr")}')
-  # print(f'm1_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_gaus", 10)}')
-  print(f'm1_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m1_cvae", 10)}')
-
-  # print(f'm2_true: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_true", 10)}')
-  # print(f'm2_gaus: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_gaus", 10)}')
-  print(f'm2_cvae: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae", 10)}')
-  # print(f'm2_cvae_ps: \n{getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, "m2_cvae_ps", 10)}')
+# DEPRECATED def experiment1
 
 
 # DEPRECATED def experiment2
@@ -849,16 +876,8 @@ def experiment1(dataset_obj, classifier_obj, causal_model_obj):
 
 def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
   ''' fixed action set: assert {m1, m2} x {gaus, cvae} working '''
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  factual_instance = X_test.iloc[0].T.to_dict()
+  factual_instances_dict = getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_obj)
 
-  # iterative over a number of action sets and compare the three counterfactuals
-  action_sets = [ \
-    {'x1': +6}, \
-    {'x1': +3}, \
-    {'x1': +0}, \
-    {'x1': -3}, \
-  ]
   experimental_setups = [
     ('m0_true', '*'), \
     ('m1_alin', 'v'), \
@@ -874,11 +893,19 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
 
+  action_sets = [ \
+    # {'x1': +6}, \
+    # {'x1': +3}, \
+    {'x1': +0}, \
+    # {'x1': -3}, \
+  ]
+  factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
+
   fig, axes = pyplot.subplots(int(np.sqrt(len(action_sets))), int(np.sqrt(len(action_sets))))
   fig.suptitle(f'FC: {prettyPrintDict(factual_instance)}', fontsize='x-small')
+  if len(action_sets) == 1:
+    axes = np.array(axes) # weird hack we need to use so to later use flatten()
 
-  print(f'\nX_train:\n{X_train}')
-  print(f'\nX_train description:\n{X_train.describe()}')
   print(f'\nFC: \t\t{prettyPrintDict(factual_instance)}')
 
   for idx, action_set in enumerate(action_sets):
@@ -889,9 +916,9 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
       recourse_type, marker = experimental_setup[0], experimental_setup[1]
 
       if recourse_type in ACCEPTABLE_POINT_RECOURSE:
-        samples = computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type)
-        print(f'{recourse_type}:\n{prettyPrintDict(samples)}')
-        axes.flatten()[idx].plot(samples['x2'], samples['x3'], marker, alpha=1.0, markersize = 7, label=recourse_type)
+        sample = computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type)
+        print(f'{recourse_type}:\t{prettyPrintDict(sample)}')
+        axes.flatten()[idx].plot(sample['x2'], sample['x3'], marker, alpha=1.0, markersize = 7, label=recourse_type)
       elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
         samples = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, NUM_DISPLAY_SAMPLES)
         print(f'{recourse_type}:\n{samples.head()}')
@@ -916,21 +943,15 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
 def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
   ''' optimal action set: figure + table '''
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = X_train.append(X_test)
-  X_all = X_all[:NUM_TRAIN_SAMPLES]
-  y_all = y_train.append(y_test)
-  y_all = y_all[:NUM_TRAIN_SAMPLES]
 
-  # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
-  # Test samples are chosen from the joint of X_train & X_test. This is OK as the
-  # tasks of conditional density estimation and recourse generation are distinct.
-  # Given the same data splicing used here and in trainGP, it is guaranteed that
-  # we the facutal sample for which we seek recourse is in training set for GP,
-  # and hence a posterior over noise for it is computed (i.e., we can cache).
-  factual_instances_dict = X_all.loc[y_all.index[y_all == 0]].iloc[:NUM_TEST_SAMPLES].T.to_dict()
+  # Samples for which we seek recourse are chosen from the joint of X_train/test.
+  # This is OK because the tasks of conditional density estimation and recourse
+  # generation are distinct. Given the same data splicing used here and in trainGP,
+  # it is guaranteed that we the factual sample for which we seek recourse is in
+  # training set for GP, and hence a posterior over noise for it is computed
+  # (i.e., we can cache).
 
-  per_instance_results = {}
+  factual_instances_dict = getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_obj)
 
   experimental_setups = [
     ('m0_true', '*'), \
@@ -947,7 +968,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
 
-
+  per_instance_results = {}
   for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
     factual_instance_idx = f'sample_{key}'
     factual_instance = value
@@ -1010,12 +1031,12 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   print(pd.DataFrame(metrics_summary, recourse_types))
 
   # Figure
-  if len(dataset_obj.getInputAttributeNames()) != 3 or NUM_TEST_SAMPLES > 9:
+  if len(dataset_obj.getInputAttributeNames()) != 3 or NUM_RECOURSE_SAMPLES > 9:
     print('Cannot plot in more than 3 dimensions, or for more than 9 samples')
     return
 
-  num_plot_cols = int(np.floor(np.sqrt(NUM_TEST_SAMPLES)))
-  num_plot_rows = int(np.ceil(NUM_TEST_SAMPLES / num_plot_cols))
+  num_plot_cols = int(np.floor(np.sqrt(NUM_RECOURSE_SAMPLES)))
+  num_plot_rows = int(np.ceil(NUM_RECOURSE_SAMPLES / num_plot_cols))
 
   fig, axes = pyplot.subplots(num_plot_rows, num_plot_cols, subplot_kw=dict(projection='3d'))
   for idx, (key, value) in enumerate(factual_instances_dict.items()):
