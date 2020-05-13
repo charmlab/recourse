@@ -35,15 +35,15 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
+SCM_CLASS = 'nonlinear'
 DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
+GRID_SEARCH_BINS = 3
 NUM_TRAIN_SAMPLES = 500
-NUM_TEST_SAMPLES = 4
-GRID_SEARCH_BINS = 2
-NUMBER_OF_MONTE_CARLO_SAMPLES = 100
-SAVED_MACE_RESULTS_PATH_M0 = '/Users/a6karimi/dev/recourse/_minimum_distances_m0'
-SAVED_MACE_RESULTS_PATH_M1 = '/Users/a6karimi/dev/recourse/_minimum_distances_m1'
+NUM_TEST_SAMPLES = 10
+NUM_DISPLAY_SAMPLES = 10
+NUM_MONTE_CARLO_SAMPLES = 100
 
 ACCEPTABLE_POINT_RECOURSE = {'m0_true', 'm1_alin', 'm1_akrr'}
 ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cvae', 'm2_cvae_ps'}
@@ -113,18 +113,18 @@ def loadCausalModel(dataset_class, experiment_folder_name):
   # ))
   # scm = CausalModel(new_dict)
 
-
-  # scm = CausalModel({
-  #   'x1': lambda         n_samples:                                  np.random.normal(size=n_samples),
-  #   'x2': lambda     x1, n_samples:                         x1 + 1 + np.random.normal(size=n_samples),
-  #   'x3': lambda x1, x2, n_samples: x1 / 4 + np.sqrt(3) * x2 - 1/4 + np.random.normal(size=n_samples),
-  # })
-
-  scm = CausalModel({
-    'x1': lambda         n_samples:                               np.random.normal(size=n_samples),
-    'x2': lambda     x1, n_samples:                      x1 + 1 + np.random.normal(size=n_samples),
-    'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
-  })
+  if SCM_CLASS == 'linear':
+    scm = CausalModel({
+      'x1': lambda         n_samples:                                  np.random.normal(size=n_samples),
+      'x2': lambda     x1, n_samples:                         x1 + 1 + np.random.normal(size=n_samples),
+      'x3': lambda x1, x2, n_samples: x1 / 4 + np.sqrt(3) * x2 - 1/4 + np.random.normal(size=n_samples),
+    })
+  elif SCM_CLASS == 'nonlinear':
+    scm = CausalModel({
+      'x1': lambda         n_samples:                               np.random.normal(size=n_samples),
+      'x2': lambda     x1, n_samples:                      x1 + 1 + np.random.normal(size=n_samples),
+      'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
+    })
 
   # scm = CausalModel({
   #   'x1': lambda         n_samples:                 1.00 * np.random.normal(size=n_samples),
@@ -144,19 +144,23 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
   if recourse_type == 'm0_true':
 
     # # # TODO: use causal_model_obj to get this?
-    # if node == 'x1':
-    #   return lambda n1: n1
-    # elif node == 'x2':
-    #   return lambda n2, x1: x1 + 1 + n2
-    # elif node == 'x3':
-    #   return lambda n3, x1, x2: x1 / 4 + np.sqrt(3) * x2 - 1/4 + n3
+    if SCM_CLASS == 'linear':
 
-    if node == 'x1':
-      return lambda n1: n1
-    elif node == 'x2':
-      return lambda n2, x1: x1 + 1 + n2
-    elif node == 'x3':
-      return lambda n3, x1, x2: np.sqrt(3) * x1 * (x2 ** 2) + n3
+      if node == 'x1':
+        return lambda n1: n1
+      elif node == 'x2':
+        return lambda n2, x1: x1 + 1 + n2
+      elif node == 'x3':
+        return lambda n3, x1, x2: x1 / 4 + np.sqrt(3) * x2 - 1/4 + n3
+
+    elif SCM_CLASS == 'nonlinear':
+
+      if node == 'x1':
+        return lambda n1: n1
+      elif node == 'x2':
+        return lambda n2, x1: x1 + 1 + n2
+      elif node == 'x3':
+        return lambda n3, x1, x2: np.sqrt(3) * x1 * (x2 ** 2) + n3
 
     # if node == 'x1':
     #   return lambda n1: n1
@@ -173,10 +177,6 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
 
   elif recourse_type in {'m1_alin', 'm1_akrr'}:
 
-    X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-    X_all = X_train.append(X_test)
-    X_all = X_all[:NUM_TRAIN_SAMPLES]
-
     parents = causal_model_obj.getParentsForNode(node)
 
     if len(parents) == 0: # if root node
@@ -189,8 +189,6 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
         model = trainRidge(dataset_obj, node, parents)
       elif recourse_type == 'm1_akrr':
         model = trainKernelRidge(dataset_obj, node, parents)
-
-      model.fit(X_all[parents], X_all[[node]])
 
       return lambda noise, *parents: model.predict([[*parents]])[0][0] + noise
 
@@ -243,7 +241,7 @@ def deprocessDataFrame(dataset_obj, df, processing_type):
 
 def prettyPrintDict(my_dict):
   for key, value in my_dict.items():
-    my_dict[key] = np.around(value, 2)
+    my_dict[key] = np.around(value, 4)
   return my_dict
 
 
@@ -329,13 +327,21 @@ def trainCVAE(dataset_obj, node, parents):
 
 
 @utils.Memoize
-def trainGP(dataset_obj, node, parents, X, Y):
+def trainGP(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty'
   print(f'[INFO] Fitting p({node} | {", ".join(parents)}) using GP on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  X_all = X_train.append(X_test)
+  X_all = X_all[:NUM_TRAIN_SAMPLES]
+  # X_all = processDataFrame(dataset_obj, X_all, 'mean_subtract')
+  # X_all[parents] = processDataFrame(dataset_obj, X_all[parents], 'standardize'),
+  X = X_all[parents].to_numpy()
+  Y = X_all[[node]].to_numpy()
+
   kernel = GPy.kern.RBF(input_dim=X.shape[1], variance=1., lengthscale=1.)
   model = GPy.models.GPRegression(X, Y, kernel)
   model.optimize_restarts(parallel=True, num_restarts = 5, verbose=False)
-  return kernel, model
+  return kernel, X, model
 
 
 def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recourse_type):
@@ -373,15 +379,6 @@ def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recours
 
 
 def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_type):
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = X_train.append(X_test)
-  X_all = X_all[:NUM_TRAIN_SAMPLES]
-  # make sure factual instance is in training set (you lose indexing, but no need)
-  X_all = X_all.append(factual_instance, ignore_index=True)
-  # X_all = processDataFrame(dataset_obj, X_all, 'mean_subtract')
-  # X_all[parents] = processDataFrame(dataset_obj, X_all[parents], 'standardize'),
-  X = X_all[parents].to_numpy()
-  Y = X_all[[node]].to_numpy()
 
   def noise_post_mean(K, sigma, Y):
     N = K.shape[0]
@@ -398,7 +395,7 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
     C = noise_post_cov(K, sigma)
     return np.array([C[i,i] for i in range(N)])
 
-  kernel, model = trainGP(dataset_obj, node, parents, X, Y)
+  kernel, X, model = trainGP(dataset_obj, node, parents)
 
   K = kernel.K(X)
   sigma_noise = np.array(model.Gaussian_noise.variance)
@@ -576,7 +573,7 @@ def getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factua
     factual_instance,
     action_set,
     recourse_type,
-    NUMBER_OF_MONTE_CARLO_SAMPLES,
+    NUM_MONTE_CARLO_SAMPLES,
   )
   monte_carlo_predictions = getPredictionBatch(
     dataset_obj,
@@ -644,7 +641,7 @@ def getValidDiscretizedActionSets(dataset_obj):
       # in some repeated values
       possible_actions_per_node.append(tmp)
 
-    else: # TODO
+    else: # TODO:
 
       raise NotImplementedError
 
@@ -772,7 +769,7 @@ def scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_insta
   elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
     # distr recourse
 
-    samples_df = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, 10)
+    samples_df = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, NUM_DISPLAY_SAMPLES)
     x1s = samples_df.iloc[:,0]
     x2s = samples_df.iloc[:,1]
     x3s = samples_df.iloc[:,2]
@@ -842,18 +839,17 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     {'x3': +0}, \
     {'x3': -3}, \
   ]
-  recourse_types = [
-    'm0_true', \
-    # 'm1_alin', \
-    # 'm1_akrr', \
-    'm1_gaus', \
-    'm1_cvae', \
-    'm2_true', \
-    'm2_gaus', \
-    'm2_cvae', \
-    'm2_cvae_ps', \
+  experimental_setups = [
+    ('m0_true', '*'), \
+    ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
+    ('m1_gaus', 'D'), \
+    ('m1_cvae', 'x'), \
+    ('m2_true', 'o'), \
+    ('m2_gaus', 's'), \
+    ('m2_cvae', '+'), \
+    # ('m2_cvae_ps', 'P'), \
   ]
-  markers = ['k*', 'cD', 'mP', 'ko', 'bs', 'r+', 'gx']
   num_samples = 10
 
   fig, axes = pyplot.subplots(int(np.sqrt(len(action_sets))), int(np.sqrt(len(action_sets))))
@@ -867,12 +863,13 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
     print(f'\n\n[INFO] ACTION SET: {str(action_set)}' + ' =' * 40)
 
-    for (recourse_type, marker) in zip(recourse_types, markers):
+    for experimental_setup in experimental_setups:
+      recourse_type, marker = experimental_setup[0], experimental_setup[1]
 
       if recourse_type in ACCEPTABLE_POINT_RECOURSE:
         samples = computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type)
       elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
-        samples = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples)
+        samples = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, NUM_DISPLAY_SAMPLES)
       else:
         raise Exception(f'{recourse_type} not supported.')
 
@@ -896,20 +893,29 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
   ''' optimal action set: figure + table '''
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  X_all = X_train.append(X_test)
+  X_all = X_all[:NUM_TRAIN_SAMPLES]
+  y_all = y_train.append(y_test)
+  y_all = y_all[:NUM_TRAIN_SAMPLES]
 
   # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
-  factual_instances_dict = X_test.loc[y_test.index[y_test == 0]].iloc[:NUM_TEST_SAMPLES].T.to_dict()
+  # Test samples are chosen from the joint of X_train & X_test. This is OK as the
+  # tasks of conditional density estimation and recourse generation are distinct.
+  # Given the same data splicing used here and in trainGP, it is guaranteed that
+  # we the facutal sample for which we seek recourse is in training set for GP,
+  # and hence a posterior over noise for it is computed (i.e., we can cache).
+  factual_instances_dict = X_all.loc[y_all.index[y_all == 0]].iloc[:NUM_TEST_SAMPLES].T.to_dict()
 
   per_instance_results = {}
 
   experimental_setups = [
     ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
-    # ('m1_gaus', 'D'), \
+    ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
+    ('m1_gaus', 'D'), \
     ('m1_cvae', 'x'), \
     ('m2_true', 'o'), \
-    # ('m2_gaus', 's'), \
+    ('m2_gaus', 's'), \
     ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
@@ -917,11 +923,11 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   start_time = time.time()
   print(f'\n' + '='*60 + '\n')
-  print(f'[INFO] Hot-training ALIN, AKRR, CVAE so they do not affect runtime...')
+  print(f'[INFO] Hot-training ALIN, AKRR, GAUS, CVAE so they do not affect runtime...')
   training_handles = []
   if any(['alin' in elem for elem in recourse_types]): training_handles.append(trainRidge)
   if any(['akrr' in elem for elem in recourse_types]): training_handles.append(trainKernelRidge)
-  # if any(['gaus' in elem for elem in recourse_types]): training_handles.append(trainGP) # TODO
+  if any(['gaus' in elem for elem in recourse_types]): training_handles.append(trainGP)
   if any(['cvae' in elem for elem in recourse_types]): training_handles.append(trainCVAE)
   for training_handle in training_handles:
     print()
@@ -930,7 +936,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
       if len(parents): # if not a root node
         training_handle(dataset_obj, node, parents)
   end_time = time.time()
-  print(f'done (total warm-up time: {end_time - start_time}.')
+  print(f'\ndone (total warm-up time: {end_time - start_time}.')
   print(f'\n' + '='*60 + '\n')
 
 
@@ -996,7 +1002,8 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   print(pd.DataFrame(metrics_summary, recourse_types))
 
   # Figure
-  if len(dataset_obj.getInputAttributeNames()) != 3:
+  if len(dataset_obj.getInputAttributeNames()) != 3 or NUM_TEST_SAMPLES > 9:
+    print('Cannot plot in more than 3 dimensions, or for more than 9 samples')
     return
 
   num_plot_cols = int(np.floor(np.sqrt(NUM_TEST_SAMPLES)))
@@ -1016,7 +1023,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     for experimental_setup in experimental_setups:
       recourse_type, marker = experimental_setup[0], experimental_setup[1]
       optimal_action_set = per_instance_results[factual_instance_idx][recourse_type]['optimal_action_set']
-      legend_label = f'\n {recourse_type}; do({prettyPrintDict(optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, optimal_action_set):.2f}'
+      legend_label = f'\n {recourse_type}; do({prettyPrintDict(optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, optimal_action_set):.4f}'
       scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, 'm0_true', marker, legend_label, ax)
       scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, recourse_type, marker, legend_label, ax)
 
