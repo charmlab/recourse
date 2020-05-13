@@ -241,7 +241,7 @@ def deprocessDataFrame(dataset_obj, df, processing_type):
 
 def prettyPrintDict(my_dict):
   for key, value in my_dict.items():
-    my_dict[key] = np.around(value, 4)
+    my_dict[key] = np.around(value, 3)
   return my_dict
 
 
@@ -271,7 +271,7 @@ def lambdaWrapper(new_value):
 @utils.Memoize
 def trainRidge(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty'
-  print(f'[INFO] Fitting p({node} | {", ".join(parents)}) using Ridge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
+  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using Ridge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   X_all = X_all[:NUM_TRAIN_SAMPLES]
@@ -284,7 +284,7 @@ def trainRidge(dataset_obj, node, parents):
 @utils.Memoize
 def trainKernelRidge(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty'
-  print(f'[INFO] Fitting p({node} | {", ".join(parents)}) using KernelRidge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
+  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using KernelRidge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   X_all = X_all[:NUM_TRAIN_SAMPLES]
@@ -304,7 +304,7 @@ def trainKernelRidge(dataset_obj, node, parents):
 @utils.Memoize
 def trainCVAE(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty'
-  print(f'[INFO] Fitting p({node} | {", ".join(parents)}) using CVAE on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
+  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using CVAE on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   X_all = X_all[:NUM_TRAIN_SAMPLES]
@@ -316,8 +316,8 @@ def trainCVAE(dataset_obj, node, parents):
     'epochs': 100,
     'batch_size': 64,
     'learning_rate': 0.001,
-    'encoder_layer_sizes': [1, 5, 5, 5], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
-    'decoder_layer_sizes': [5, 5, 5, 1], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
+    'encoder_layer_sizes': [1, 10, 10], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
+    'decoder_layer_sizes': [10, 10, 1], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
     'latent_size': 2, # TODO: should this be 1 to be interpreted as noise?
     'conditional': True,
     'print_every': 1000,
@@ -329,7 +329,7 @@ def trainCVAE(dataset_obj, node, parents):
 @utils.Memoize
 def trainGP(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty'
-  print(f'[INFO] Fitting p({node} | {", ".join(parents)}) using GP on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
+  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using GP on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   X_all = X_all[:NUM_TRAIN_SAMPLES]
@@ -620,7 +620,7 @@ def getValidDiscretizedActionSets(dataset_obj):
     if attr_obj.attr_type in {'numeric-real', 'numeric-int', 'binary'}:
 
       if attr_obj.attr_type == 'numeric-real':
-        number_decimals = 4
+        number_decimals = 3
       elif attr_obj.attr_type in {'numeric-int', 'binary'}:
         number_decimals = 0
 
@@ -789,6 +789,26 @@ def scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_insta
     raise Exception(f'{recourse_type} not recognized.')
 
 
+def hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types):
+  start_time = time.time()
+  print(f'\n' + '='*60 + '\n')
+  print(f'[INFO] Hot-training ALIN, AKRR, GAUS, CVAE so they do not affect runtime...')
+  training_handles = []
+  if any(['alin' in elem for elem in recourse_types]): training_handles.append(trainRidge)
+  if any(['akrr' in elem for elem in recourse_types]): training_handles.append(trainKernelRidge)
+  if any(['gaus' in elem for elem in recourse_types]): training_handles.append(trainGP)
+  if any(['cvae' in elem for elem in recourse_types]): training_handles.append(trainCVAE)
+  for training_handle in training_handles:
+    print()
+    for node in causal_model_obj.getTopologicalOrdering():
+      parents = causal_model_obj.getParentsForNode(node)
+      if len(parents): # if not a root node
+        training_handle(dataset_obj, node, parents)
+  end_time = time.time()
+  print(f'\ndone (total warm-up time: {end_time - start_time}.')
+  print(f'\n' + '='*60 + '\n')
+
+
 def experiment1(dataset_obj, classifier_obj, causal_model_obj):
   ''' debugging: sanity check to make sure code runs '''
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
@@ -834,10 +854,10 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   # iterative over a number of action sets and compare the three counterfactuals
   action_sets = [ \
-    {'x3': +6}, \
-    {'x3': +3}, \
-    {'x3': +0}, \
-    {'x3': -3}, \
+    {'x1': +6}, \
+    {'x1': +3}, \
+    {'x1': +0}, \
+    {'x1': -3}, \
   ]
   experimental_setups = [
     ('m0_true', '*'), \
@@ -850,14 +870,16 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
-  num_samples = 10
+  recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
+
+  hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
 
   fig, axes = pyplot.subplots(int(np.sqrt(len(action_sets))), int(np.sqrt(len(action_sets))))
-  # fig.suptitle(f'Comparing conditioning on pa(I) vs pa(I) and nd(I)')
+  fig.suptitle(f'FC: {prettyPrintDict(factual_instance)}', fontsize='x-small')
 
-  print(f'X_train:\n{X_train}')
-  print(X_train.describe())
-  print(f'FC: \t\t{prettyPrintDict(factual_instance)}')
+  print(f'\nX_train:\n{X_train}')
+  print(f'\nX_train description:\n{X_train.describe()}')
+  print(f'\nFC: \t\t{prettyPrintDict(factual_instance)}')
 
   for idx, action_set in enumerate(action_sets):
 
@@ -868,16 +890,17 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
       if recourse_type in ACCEPTABLE_POINT_RECOURSE:
         samples = computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type)
+        print(f'{recourse_type}:\n{prettyPrintDict(samples)}')
+        axes.flatten()[idx].plot(samples['x2'], samples['x3'], marker, alpha=1.0, markersize = 7, label=recourse_type)
       elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
         samples = getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, NUM_DISPLAY_SAMPLES)
+        print(f'{recourse_type}:\n{samples.head()}')
+        axes.flatten()[idx].plot(samples['x2'], samples['x3'], marker, alpha=0.3, markersize = 4, label=recourse_type)
       else:
         raise Exception(f'{recourse_type} not supported.')
 
-      print(f'{recourse_type}:\t{samples}')
-      axes.flatten()[idx].plot(samples['x4'], samples['x5'], marker, label=recourse_type)
-
-    axes.flatten()[idx].set_xlabel('$x4$', fontsize='x-small')
-    axes.flatten()[idx].set_ylabel('$x5$', fontsize='x-small')
+    axes.flatten()[idx].set_xlabel('$x2$', fontsize='x-small')
+    axes.flatten()[idx].set_ylabel('$x3$', fontsize='x-small')
     # axes.flatten()[idx].set_xlim(-10, 10)
     # axes.flatten()[idx].set_ylim(-10, 10)
     axes.flatten()[idx].tick_params(axis='both', which='major', labelsize=6)
@@ -887,7 +910,8 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   for ax in axes.flatten():
     ax.legend(fontsize='xx-small')
   fig.tight_layout()
-  pyplot.savefig(f'{experiment_folder_name}/comparison.eps', format='eps')
+  # pyplot.show()
+  pyplot.savefig(f'{experiment_folder_name}/comparison.pdf')
 
 
 def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
@@ -921,23 +945,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   ]
   recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
 
-  start_time = time.time()
-  print(f'\n' + '='*60 + '\n')
-  print(f'[INFO] Hot-training ALIN, AKRR, GAUS, CVAE so they do not affect runtime...')
-  training_handles = []
-  if any(['alin' in elem for elem in recourse_types]): training_handles.append(trainRidge)
-  if any(['akrr' in elem for elem in recourse_types]): training_handles.append(trainKernelRidge)
-  if any(['gaus' in elem for elem in recourse_types]): training_handles.append(trainGP)
-  if any(['cvae' in elem for elem in recourse_types]): training_handles.append(trainCVAE)
-  for training_handle in training_handles:
-    print()
-    for node in causal_model_obj.getTopologicalOrdering():
-      parents = causal_model_obj.getParentsForNode(node)
-      if len(parents): # if not a root node
-        training_handle(dataset_obj, node, parents)
-  end_time = time.time()
-  print(f'\ndone (total warm-up time: {end_time - start_time}.')
-  print(f'\n' + '='*60 + '\n')
+  hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
 
 
   for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
@@ -963,15 +971,15 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
       )
       end_time = time.time()
 
-      tmp['runtime'] = np.around(end_time - start_time, 4)
+      tmp['runtime'] = np.around(end_time - start_time, 3)
 
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
       tmp['scf_validity']  = isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm0_true')
       exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_true') # IMPORTANT: assume h(x^f) always 0
-      tmp['int_confidence_true'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
+      tmp['int_confidence_true'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 3)
       exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_cvae') # IMPORTANT: assume h(x^f) always 0
-      tmp['int_confidence_cvae'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 4)
+      tmp['int_confidence_cvae'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 3)
       tmp['cost_all'] = measureActionSetCost(dataset_obj, factual_instance, tmp['optimal_action_set'])
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
 
@@ -995,9 +1003,9 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   for recourse_type in recourse_types:
     for metric in metrics:
       metrics_summary[metric].append(
-        f'{np.around(np.nanmean([v[recourse_type][metric] for k,v in per_instance_results.items()]), 4):.4f}' + \
+        f'{np.around(np.nanmean([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}' + \
         '+/-' + \
-        f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 4):.4f}'
+        f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}'
       )
   print(pd.DataFrame(metrics_summary, recourse_types))
 
@@ -1023,7 +1031,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     for experimental_setup in experimental_setups:
       recourse_type, marker = experimental_setup[0], experimental_setup[1]
       optimal_action_set = per_instance_results[factual_instance_idx][recourse_type]['optimal_action_set']
-      legend_label = f'\n {recourse_type}; do({prettyPrintDict(optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, optimal_action_set):.4f}'
+      legend_label = f'\n {recourse_type}; do({prettyPrintDict(optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, optimal_action_set):.3f}'
       scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, 'm0_true', marker, legend_label, ax)
       scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, recourse_type, marker, legend_label, ax)
 
@@ -1037,8 +1045,8 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   for ax in axes.flatten():
     ax.legend(fontsize='xx-small')
   fig.tight_layout()
-  pyplot.show()
-  pyplot.savefig(f'{experiment_folder_name}/comparison.eps', format='eps')
+  # pyplot.show()
+  pyplot.savefig(f'{experiment_folder_name}/comparison.pdf')
 
 
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):
@@ -1104,8 +1112,8 @@ if __name__ == "__main__":
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
   # experiment1(dataset_obj, classifier_obj, causal_model_obj)
-  # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)
