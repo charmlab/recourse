@@ -35,13 +35,16 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
-SCM_CLASS = 'sanity'
+SCM_CLASS = 'sanity-add'
+# SCM_CLASS = 'sanity-mult'
+# SCM_CLASS = 'linear' # small SNR
+# SCM_CLASS = 'nonlinear'
 DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
-GRID_SEARCH_BINS = 3
+GRID_SEARCH_BINS = 5
 NUM_TRAIN_SAMPLES = 500
-NUM_RECOURSE_SAMPLES = 10
+NUM_RECOURSE_SAMPLES = 30
 NUM_DISPLAY_SAMPLES = 10
 NUM_MONTE_CARLO_SAMPLES = 100
 
@@ -113,11 +116,17 @@ def loadCausalModel(dataset_class, experiment_folder_name):
   # ))
   # scm = CausalModel(new_dict)
 
-  if SCM_CLASS == 'sanity':
+  if SCM_CLASS == 'sanity-add':
     scm = CausalModel({
       'x1': lambda         n_samples: np.sqrt(10) * np.random.normal(size=n_samples),
       'x2': lambda     x1, n_samples:      2 * x1 + np.random.normal(size=n_samples),
       'x3': lambda x1, x2, n_samples:     x1 + x2 + np.random.normal(size=n_samples),
+    })
+  elif SCM_CLASS == 'sanity-mult':
+    scm = CausalModel({
+      'x1': lambda         n_samples: np.sqrt(10) * np.random.normal(size=n_samples),
+      'x2': lambda     x1, n_samples:      2 * x1 + np.random.normal(size=n_samples),
+      'x3': lambda x1, x2, n_samples:     x1 * x2 + np.random.normal(size=n_samples),
     })
   elif SCM_CLASS == 'linear':
     scm = CausalModel({
@@ -150,7 +159,7 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
   if recourse_type == 'm0_true':
 
     # # # TODO: use causal_model_obj to get this?
-    if SCM_CLASS == 'sanity':
+    if SCM_CLASS == 'sanity-add':
 
       if node == 'x1':
         return lambda n1: n1
@@ -158,6 +167,15 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
         return lambda n2, x1: 2 * x1 + n2
       elif node == 'x3':
         return lambda n3, x1, x2: x1 + x2 + n3
+
+    elif SCM_CLASS == 'sanity-mult':
+
+      if node == 'x1':
+        return lambda n1: n1
+      elif node == 'x2':
+        return lambda n2, x1: 2 * x1 + n2
+      elif node == 'x3':
+        return lambda n3, x1, x2: x1 * x2 + n3
 
     elif SCM_CLASS == 'linear':
 
@@ -912,7 +930,7 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
 
-  print(f'Describe original data: {getOriginalData().describe()}')
+  print(f'Describe original data:\n{getOriginalData().describe()}')
 
   action_sets = [ \
     {'x1': +1.5}, \
@@ -1049,46 +1067,56 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
         '+/-' + \
         f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}'
       )
-  print(pd.DataFrame(metrics_summary, recourse_types))
+  tmp_df = pd.DataFrame(metrics_summary, recourse_types)
+  print(tmp_df)
+  tmp_df.to_csv(f'{experiment_folder_name}/comparison.txt', sep='\t')
 
-  # Figure
-  if len(dataset_obj.getInputAttributeNames()) != 3 or NUM_RECOURSE_SAMPLES > 9:
-    print('Cannot plot in more than 3 dimensions, or for more than 9 samples')
-    return
+  # FIX
+  # # Figure
+  # if len(dataset_obj.getInputAttributeNames()) != 3:
+  #   print('Cannot plot in more than 3 dimensions')
+  #   return
 
-  num_plot_cols = int(np.floor(np.sqrt(NUM_RECOURSE_SAMPLES)))
-  num_plot_rows = int(np.ceil(NUM_RECOURSE_SAMPLES / num_plot_cols))
+  # max_to_plot = 4
+  # tmp = min(NUM_RECOURSE_SAMPLES, max_to_plot)
+  # num_plot_cols = int(np.floor(np.sqrt(tmp)))
+  # num_plot_rows = int(np.ceil(tmp / num_plot_cols))
 
-  fig, axes = pyplot.subplots(num_plot_rows, num_plot_cols, subplot_kw=dict(projection='3d'))
-  for idx, (key, value) in enumerate(factual_instances_dict.items()):
+  # fig, axes = pyplot.subplots(num_plot_rows, num_plot_cols, subplot_kw=dict(projection='3d'))
+  # if num_plot_rows * num_plot_cols == max_to_plot:
+  #   axes = np.array(axes) # weird hack we need to use so to later use flatten()
 
-    factual_instance_idx = f'sample_{key}'
-    factual_instance = value
+  # for idx, (key, value) in enumerate(factual_instances_dict.items()):
+  #   if idx >= 1:
+  #     break
 
-    ax = axes.flatten()[idx]
+  #   factual_instance_idx = f'sample_{key}'
+  #   factual_instance = value
 
-    scatterFactual(dataset_obj, factual_instance, ax)
-    title = f'sample_{factual_instance_idx} - {prettyPrintDict(factual_instance)}'
+  #   ax = axes.flatten()[idx]
 
-    for experimental_setup in experimental_setups:
-      recourse_type, marker = experimental_setup[0], experimental_setup[1]
-      optimal_action_set = per_instance_results[factual_instance_idx][recourse_type]['optimal_action_set']
-      legend_label = f'\n {recourse_type}; do({prettyPrintDict(optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, optimal_action_set):.3f}'
-      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, 'm0_true', marker, legend_label, ax)
-      scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, recourse_type, marker, legend_label, ax)
+  #   scatterFactual(dataset_obj, factual_instance, ax)
+  #   title = f'sample_{factual_instance_idx} - {prettyPrintDict(factual_instance)}'
 
-    scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
-    ax.set_xlabel('x1', fontsize=8)
-    ax.set_ylabel('x2', fontsize=8)
-    ax.set_zlabel('x3', fontsize=8)
-    ax.set_title(title, fontsize=8)
-    ax.view_init(elev=20, azim=-30)
+  #   for experimental_setup in experimental_setups:
+  #     recourse_type, marker = experimental_setup[0], experimental_setup[1]
+  #     optimal_action_set = per_instance_results[factual_instance_idx][recourse_type]['optimal_action_set']
+  #     legend_label = f'\n {recourse_type}; do({prettyPrintDict(optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, optimal_action_set):.3f}'
+  #     scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, 'm0_true', marker, legend_label, ax)
+  #     # scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_instance, optimal_action_set, recourse_type, marker, legend_label, ax)
 
-  for ax in axes.flatten():
-    ax.legend(fontsize='xx-small')
-  fig.tight_layout()
-  # pyplot.show()
-  pyplot.savefig(f'{experiment_folder_name}/comparison.pdf')
+  #   scatterDecisionBoundary(dataset_obj, classifier_obj, causal_model_obj, ax)
+  #   ax.set_xlabel('x1', fontsize=8)
+  #   ax.set_ylabel('x2', fontsize=8)
+  #   ax.set_zlabel('x3', fontsize=8)
+  #   ax.set_title(title, fontsize=8)
+  #   ax.view_init(elev=20, azim=-30)
+
+  # for ax in axes.flatten():
+  #   ax.legend(fontsize='xx-small')
+  # fig.tight_layout()
+  # # pyplot.show()
+  # pyplot.savefig(f'{experiment_folder_name}/comparison.pdf')
 
 
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):

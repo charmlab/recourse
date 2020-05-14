@@ -17,7 +17,7 @@ d = 3
 w = np.random.normal(mu_w, sigma_w, (d, 1))
 # b = 0 # see below.
 
-def load_random_data(variable_type = 'real', scm_class = 'sanity'):
+def load_random_data(variable_type = 'real', scm_class = 'sanity-add'):
 
   # X = np.concatenate(
   #   (
@@ -53,11 +53,16 @@ def load_random_data(variable_type = 'real', scm_class = 'sanity'):
 
 
 def processDataAccordingToGraph(data, scm_class = 'nonlinear'):
-  if scm_class == 'sanity':
+  if scm_class == 'sanity-add':
     data = copy.deepcopy(data)
     data[:,0] *= np.sqrt(10)
     data[:,1] += 2 * data[:,0]
     data[:,2] += data[:,0] + data[:,1]
+  elif scm_class == 'sanity-mult':
+    data = copy.deepcopy(data)
+    data[:,0] *= np.sqrt(10)
+    data[:,1] += 2 * data[:,0]
+    data[:,2] += data[:,0] * data[:,1]
   elif scm_class == 'linear':
     # We assume the model below
     # X_1 := U_1 \\
