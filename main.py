@@ -35,12 +35,12 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
-SCM_CLASS = 'nonlinear'
+SCM_CLASS = 'sanity'
 DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
 GRID_SEARCH_BINS = 3
-NUM_TRAIN_SAMPLES = 50
+NUM_TRAIN_SAMPLES = 500
 NUM_RECOURSE_SAMPLES = 10
 NUM_DISPLAY_SAMPLES = 10
 NUM_MONTE_CARLO_SAMPLES = 100
@@ -113,7 +113,13 @@ def loadCausalModel(dataset_class, experiment_folder_name):
   # ))
   # scm = CausalModel(new_dict)
 
-  if SCM_CLASS == 'linear':
+  if SCM_CLASS == 'sanity':
+    scm = CausalModel({
+      'x1': lambda         n_samples: np.sqrt(10) * np.random.normal(size=n_samples),
+      'x2': lambda     x1, n_samples:      2 * x1 + np.random.normal(size=n_samples),
+      'x3': lambda x1, x2, n_samples:     x1 + x2 + np.random.normal(size=n_samples),
+    })
+  elif SCM_CLASS == 'linear':
     scm = CausalModel({
       'x1': lambda         n_samples:                                  np.random.normal(size=n_samples),
       'x2': lambda     x1, n_samples:                         x1 + 1 + np.random.normal(size=n_samples),
@@ -144,7 +150,16 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
   if recourse_type == 'm0_true':
 
     # # # TODO: use causal_model_obj to get this?
-    if SCM_CLASS == 'linear':
+    if SCM_CLASS == 'sanity':
+
+      if node == 'x1':
+        return lambda n1: n1
+      elif node == 'x2':
+        return lambda n2, x1: 2 * x1 + n2
+      elif node == 'x3':
+        return lambda n3, x1, x2: x1 + x2 + n3
+
+    elif SCM_CLASS == 'linear':
 
       if node == 'x1':
         return lambda n1: n1
@@ -303,7 +318,8 @@ def lambdaWrapper(new_value):
 def trainRidge(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using Ridge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_all = getStandardizedData()
+  # X_all = getStandardizedData()
+  X_all = getOriginalData()
   param_grid = {"alpha": np.linspace(0,10,11)}
   model = GridSearchCV(Ridge(), param_grid=param_grid)
   model.fit(X_all[parents], X_all[[node]])
@@ -314,7 +330,8 @@ def trainRidge(dataset_obj, node, parents):
 def trainKernelRidge(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using KernelRidge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_all = getStandardizedData()
+  # X_all = getStandardizedData()
+  X_all = getOriginalData()
   param_grid = {
     "alpha": [1e0, 1e-1, 1e-2, 1e-3],
     "kernel": [
@@ -397,7 +414,7 @@ def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recours
   )
   new_samples = new_samples.rename(columns={0: node}) # bad code amir, this violates abstraction!
   samples_df[node] = new_samples
-  # samples_df[node] = deprocessDataFrameOrDict(dataset_obj, new_samples, 'standardize')
+  samples_df[node] = deprocessDataFrameOrDict(dataset_obj, samples_df[[node]], 'standardize')
   return samples_df
 
 
@@ -426,10 +443,13 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
   noise_post_vars = noise_post_var(K, sigma_noise)
 
   # GP posterior for node at new (intervened & conditioned) input given parents
-  pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
+  # pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
+  pred_means, pred_vars = model.predict_noiseless(
+    processDataFrameOrDict(dataset_obj, samples_df[parents], 'standardize').to_numpy()
+  )
 
-  # Find index of factual instance in dataframe used for training GP
-  # (earlier, the factual instance was appended as the last instance)
+  # IMPORTANT: Find index of factual instance in dataframe used for training GP
+  #            (earlier, the factual instance was appended as the last instance)
   assert set(factual_instance.keys()) == set(getOriginalData().columns)
   for enumeration_idx, (factual_instance_idx, row) in enumerate(getOriginalData().iterrows()):
     if np.all([
@@ -437,7 +457,6 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
       for key in factual_instance.keys()
     ]):
       break
-  ipsh()
 
   if recourse_type == 'm1_gaus': # counterfactual distribution for node
     new_means = pred_means + noise_post_means[enumeration_idx]
@@ -451,7 +470,7 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
   new_samples = new_means + np.sqrt(new_vars) * new_noise
 
   samples_df[node] = new_samples
-  samples_df[node] = deprocessDataFrameOrDict(dataset_obj, new_samples, 'standardize')
+  samples_df[node] = deprocessDataFrameOrDict(dataset_obj, samples_df[[node]], 'standardize')
   return samples_df
 
 
@@ -893,11 +912,13 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
 
+  print(f'Describe original data: {getOriginalData().describe()}')
+
   action_sets = [ \
-    # {'x1': +6}, \
-    # {'x1': +3}, \
-    {'x1': +0}, \
-    # {'x1': -3}, \
+    {'x1': +1.5}, \
+    {'x1': +0.5}, \
+    {'x1': -0.5}, \
+    {'x1': -1.5}, \
   ]
   factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
 
