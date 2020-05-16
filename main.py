@@ -43,7 +43,7 @@ NORM_TYPE = 2
 LAMBDA_LCB = 1
 GRID_SEARCH_BINS = 5
 NUM_TRAIN_SAMPLES = 500
-NUM_RECOURSE_SAMPLES = 30
+NUM_RECOURSE_SAMPLES = 3
 NUM_DISPLAY_SAMPLES = 10
 NUM_MONTE_CARLO_SAMPLES = 100
 
@@ -253,9 +253,6 @@ def getPrediction(dataset_obj, classifier_obj, causal_model_obj, instance):
 
 
 def didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, counterfactual_instance):
-  # return \
-  #   getPrediction(dataset_obj, classifier_obj, causal_model_obj, deprocessDataFrameOrDict(dataset_obj, factual_instance, 'standardize')) != \
-  #   getPrediction(dataset_obj, classifier_obj, causal_model_obj, deprocessDataFrameOrDict(dataset_obj, counterfactual_instance, 'standardize'))
   return \
     getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) != \
     getPrediction(dataset_obj, classifier_obj, causal_model_obj, counterfactual_instance)
@@ -304,8 +301,6 @@ def trainCVAE(dataset_obj, node, parents):
   X_all = getStandardizedData()
   return train_cvae(AttrDict({
     'name': f'p({node} | {", ".join(parents)})',
-    # 'node': processDataFrameOrDict(dataset_obj, X_all[[node]], 'standardize'),
-    # 'parents': processDataFrameOrDict(dataset_obj, X_all[parents], 'standardize'),
     'node': X_all[[node]],
     'parents': X_all[parents],
     'seed': 0,
@@ -540,6 +535,8 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         sampling_handle = sampleGP
       elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
         sampling_handle = sampleCVAE
+      else:
+        raise Exception(f'{recourse_type} not recognized.')
       samples_df = sampling_handle(
         dataset_obj,
         classifier_obj,
@@ -615,7 +612,8 @@ def isDistrConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, fa
   if getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) == 0:
     return expectation - LAMBDA_LCB * np.sqrt(variance) > 0.5 # NOTE DIFFERNCE IN SIGN OF STD
   else: # factual_prediction == 1
-    return expectation + LAMBDA_LCB * np.sqrt(variance) < 0.5 # NOTE DIFFERNCE IN SIGN OF STD
+    raise Exception(f'Should only be considering negatively predicted individuals...')
+    # return expectation + LAMBDA_LCB * np.sqrt(variance) < 0.5 # NOTE DIFFERNCE IN SIGN OF STD
 
 
 def getValidDiscretizedActionSets(dataset_obj):
@@ -805,12 +803,7 @@ def getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_ob
   tmp_counter = 1
   for factual_instance_idx, row in X_all.iterrows():
     factual_instance = row.T.to_dict()
-    if getPrediction(
-      dataset_obj,
-      classifier_obj,
-      causal_model_obj,
-      deprocessDataFrameOrDict(dataset_obj, factual_instance, 'standardize')
-    ) == 0:
+    if getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) == 0:
       tmp_counter += 1
       factual_instances_dict[factual_instance_idx] = factual_instance
     if tmp_counter > NUM_RECOURSE_SAMPLES:
@@ -976,9 +969,9 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
       tmp['scf_validity']  = isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm0_true')
       exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_true') # IMPORTANT: assume h(x^f) always 0
-      tmp['int_confidence_true'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 3)
+      tmp['int_conf_true'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 3)
       exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_cvae') # IMPORTANT: assume h(x^f) always 0
-      tmp['int_confidence_cvae'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 3)
+      tmp['int_conf_cvae'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 3)
       tmp['cost_all'] = measureActionSetCost(dataset_obj, factual_instance, tmp['optimal_action_set'])
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
 
@@ -993,7 +986,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   # Table
   metrics_summary = {}
-  metrics = ['scf_validity', 'int_confidence_true', 'int_confidence_cvae', 'cost_all', 'cost_valid', 'runtime']
+  metrics = ['scf_validity', 'int_conf_true', 'int_conf_cvae', 'cost_all', 'cost_valid', 'runtime']
 
   for metric in metrics:
     metrics_summary[metric] = []
@@ -1121,8 +1114,8 @@ if __name__ == "__main__":
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
   # experiment1(dataset_obj, classifier_obj, causal_model_obj)
-  experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)

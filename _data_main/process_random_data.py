@@ -23,7 +23,7 @@ def load_random_data(variable_type = 'real'):
 
   print(f'\n\n[INFO] Creating dataset using scm class `???`...')
 
-  print(f'\t[INFO] Sampling exogenous U variables (d = {d})...')
+  print(f'\t[INFO] Sampling {n} exogenous U variables (d = {d})...')
   U = np.concatenate(
     [
       np.array(
@@ -38,7 +38,7 @@ def load_random_data(variable_type = 'real'):
 
 
   # sample endogenous X variables
-  print(f'\t[INFO] Sampling endogenous X variables (d = {d})...') # (i.e., processDataAccordingToGraph)
+  print(f'\t[INFO] Sampling {n} endogenous X variables (d = {d})...') # (i.e., processDataAccordingToGraph)
   X = U.copy()
   X.loc[:] = np.nan # used later as an assertion to make sure parents are populated when computing children
   for node in causal_model_obj.getTopologicalOrdering():
