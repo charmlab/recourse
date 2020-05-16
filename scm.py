@@ -17,36 +17,37 @@ import networkx as nx
 
 class CausalModel(object):
 
-  # def __init__(self, exogenous_nodes, exogenous_nodes, exogenous_probs, structural_equations):
-
   def __init__(self, *args, **kwargs):
 
-    self.scm = StructuralCausalModel(*args)
-    self.cgm = self.scm.cgm
+    self.structural_equations = args[0]
+    self.noises_distributions = args[1]
+
+    self._scm = StructuralCausalModel(self.structural_equations) # may be redundant, can simply call CausalGraphicalModel...
+    self._cgm = self._scm.cgm
 
   def getTopologicalOrdering(self):
-    return nx.topological_sort(self.cgm.dag)
+    return nx.topological_sort(self._cgm.dag)
 
   def getChildrenForNode(self, node):
-    return set(self.cgm.dag.successors(node))
+    return set(self._cgm.dag.successors(node))
 
   def getDescendentsForNode(self, node):
-    return nx.descendants(self.cgm.dag, node)
+    return nx.descendants(self._cgm.dag, node)
 
   def getParentsForNode(self, node, return_sorted = True):
-    tmp = set(self.cgm.dag.predecessors(node))
+    tmp = set(self._cgm.dag.predecessors(node))
     return sorted(tmp) if return_sorted else tmp
 
   def getAncestorsForNode(self, node):
-    return nx.ancestors(self.cgm.dag, node)
+    return nx.ancestors(self._cgm.dag, node)
 
   def getNonDescendentsForNode(self, node):
-    return set(nx.topological_sort(self.cgm.dag)) \
+    return set(nx.topological_sort(self._cgm.dag)) \
       .difference(self.getDescendentsForNode(node)) \
       .symmetric_difference(set([node]))
 
   def getStructuralEquationForNode(self, node):
-    # self.scm.assignment[node]
+    # self._scm.assignment[node]
     raise NotImplementedError
 
   def visualizeGraph(self, experiment_folder_name = None):
@@ -56,7 +57,7 @@ class CausalModel(object):
     else:
       save_path = '_tmp/causal_graph'
       view_flag = True
-    self.cgm.draw().render(save_path, view=view_flag)
+    self._cgm.draw().render(save_path, view=view_flag)
 
 
 

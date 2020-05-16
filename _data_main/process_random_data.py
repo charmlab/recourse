@@ -1,6 +1,8 @@
 import copy
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
+from main import loadCausalModel
 
 from random import seed
 RANDOM_SEED = 54321
@@ -11,27 +13,55 @@ from debug import ipsh
 
 mu_x, sigma_x = 0, 1 # mean and standard deviation for data
 mu_w, sigma_w = 0, 1 # mean and standard deviation for weights
-n = 5000
-d = 3
+n = 1000
 
-w = np.random.normal(mu_w, sigma_w, (d, 1))
-# b = 0 # see below.
+def load_random_data(variable_type = 'real'):
 
-def load_random_data(variable_type = 'real', scm_class = 'sanity-add'):
+  causal_model_obj = loadCausalModel()
 
-  # X = np.concatenate(
-  #   (
-  #     1.0 * np.random.normal(mu_x, sigma_x, (n, 1)),
-  #     0.5 * np.random.normal(mu_x, sigma_x, (n, d-1))
-  #   ),
-  #   axis=1,
-  # )
-  X = np.random.normal(mu_x, sigma_x, (n, d))
-  X = processDataAccordingToGraph(X, scm_class)
+  d = len(causal_model_obj.structural_equations.keys())
+
+  print(f'\n\n[INFO] Creating dataset using scm class `???`...')
+
+  print(f'\t[INFO] Sampling exogenous U variables (d = {d})...')
+  U = np.concatenate(
+    [
+      np.array(
+        [causal_model_obj.noises_distributions[node]() for _ in range(n)]
+      ).reshape(-1,1)
+      for node in causal_model_obj.getTopologicalOrdering()
+    ],
+    axis = 1,
+  )
+  U = pd.DataFrame(U, columns=causal_model_obj.getTopologicalOrdering())
+  print(f'\t[INFO] done.')
+
+
+  # sample endogenous X variables
+  print(f'\t[INFO] Sampling endogenous X variables (d = {d})...') # (i.e., processDataAccordingToGraph)
+  X = U.copy()
+  X.loc[:] = np.nan # used later as an assertion to make sure parents are populated when computing children
+  for node in causal_model_obj.getTopologicalOrdering():
+    parents = causal_model_obj.getParentsForNode(node)
+    # assuming we're iterating in topological order, parents in X should already be occupied
+    assert not X.loc[:,list(parents)].isnull().values.any()
+    for row_idx, row in tqdm(X.iterrows(), total=X.shape[0]):
+      X.loc[row_idx, node] = causal_model_obj.structural_equations[node](
+        # causal_model_obj.noises_distributions[node](), # this is more elegant, but we also want to save the U's, so we do the above first
+        U.loc[row_idx, node],
+        *X.loc[row_idx, parents].to_numpy(),
+      )
+  X = X.to_numpy()
+  print(f'\t[INFO] done.')
+  print(f'[INFO] done.')
+
   if variable_type == 'integer':
     X = np.round(4 * X)
   np.random.shuffle(X)
+
   # to create a more balanced dataset, do not set b to 0.
+  w = np.random.normal(mu_w, sigma_w, (d, 1))
+  # b = 0 # see below.
   b = - np.mean(np.dot(X, w))
   y = (np.sign(np.sign(np.dot(X, w) + b) + 1e-6) + 1) / 2 # add 1e-3 to prevent label 0.5
 
@@ -50,82 +80,3 @@ def load_random_data(variable_type = 'real', scm_class = 'sanity-add'):
     columns=['label'] + [f'x{i}' for i in range(X.shape[1])]
   )
   return data_frame_non_hot.astype('float64')
-
-
-def processDataAccordingToGraph(data, scm_class = 'nonlinear'):
-  if scm_class == 'sanity-add':
-    data = copy.deepcopy(data)
-    data[:,0] *= np.sqrt(10)
-    data[:,1] += 2 * data[:,0]
-    data[:,2] += data[:,0] + data[:,1]
-  elif scm_class == 'sanity-mult':
-    data = copy.deepcopy(data)
-    data[:,0] *= np.sqrt(10)
-    data[:,1] += 2 * data[:,0]
-    data[:,2] += data[:,0] * data[:,1]
-  elif scm_class == 'linear':
-    # We assume the model below
-    # X_1 := U_1 \\
-    # X_2 := X_1 + 1 + U_2 \\
-    # X_3 := (X_1 - 1) / 4 + np.sqrt{3} * X_2 + U_3
-    # U_i ~ \forall ~ i \in [3] \sim \mathcal{N}(0,1)
-    data = copy.deepcopy(data)
-    data[:,0] = data[:,0]
-    data[:,1] += data[:,0] + np.ones((n))
-    data[:,2] += (data[:,0] - 1)/4 + np.sqrt(3) * data[:,1]
-  elif scm_class == 'nonlinear':
-    if d == 3:
-      data = copy.deepcopy(data)
-      data[:,0] = data[:,0]
-      data[:,1] += data[:,0] + np.ones((n))
-      data[:,2] += np.sqrt(3) * data[:,0] * np.power(data[:,1], 2)
-    elif d == 6:
-      # We assume the model below
-      data = copy.deepcopy(data)
-      data[:,0] = data[:,0]
-      data[:,1] += data[:,0] + np.ones((n))
-      data[:,2] += 5 * (data[:,0] + data[:,1])
-      data[:,3] += data[:,2]
-      data[:,4] += data[:,3]
-      data[:,5] += data[:,1]
-  return data
-
-
-
-
-# import numpy as np
-# import pandas as pd
-
-# import loadData
-
-# from random import seed
-# RANDOM_SEED = 54321
-# seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
-# np.random.seed(RANDOM_SEED)
-
-# from sklearn.linear_model import LogisticRegression
-# from sklearn.linear_model import LinearRegression
-# from sklearn.linear_model import Lasso
-
-# dataset_obj = loadData.loadDataset('random', return_one_hot = False, load_from_cache = False)
-# df = dataset_obj.data_frame_kurz
-
-# # See Figure 3 in paper
-
-# # node: x1     parents: {x0}
-# X_train = df[['x0']]
-# y_train = df[['x1']]
-# model_pretrain = LinearRegression()
-# # model_pretrain = Lasso()
-# model_trained = model_pretrain.fit(X_train, y_train)
-# print(model_trained.coef_)
-# print(model_trained.intercept_)
-
-# # node: x2     parents: {x1,  x2}
-# X_train = df[['x0', 'x1']]
-# y_train = df[['x2']]
-# model_pretrain = LinearRegression()
-# model_trained = model_pretrain.fit(X_train, y_train)
-# print(model_trained.coef_)
-# print(model_trained.intercept_)
-# #

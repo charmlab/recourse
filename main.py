@@ -35,10 +35,9 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
-SCM_CLASS = 'sanity-add'
-# SCM_CLASS = 'sanity-mult'
-# SCM_CLASS = 'linear' # small SNR
-# SCM_CLASS = 'nonlinear'
+# SCM_CLASS = 'sanity-add'
+SCM_CLASS = 'sanity-mult'
+
 DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
@@ -93,63 +92,46 @@ def loadDataset(dataset_class, increment_indices = True):
 
 
 @utils.Memoize
-def loadClassifier(dataset_class, model_class, experiment_folder_name):
-  return loadModel.loadModelForDataset(model_class, dataset_class, experiment_folder_name)
+def loadClassifier(dataset_class, classifier_class, experiment_folder_name):
+  return loadModel.loadModelForDataset(classifier_class, dataset_class, experiment_folder_name)
 
 
 @utils.Memoize
-def loadCausalModel(dataset_class, experiment_folder_name):
-
-  # structural_equations = {
-  #   'x1': lambda n1,       :                 n1,
-  #   'x2': lambda n2,     x1:        x1 + 1 + n2,
-  #   'x3': lambda n3, x1, x2: 5 * (x1 + x2) + n3,
-  # }
-  # noise_distributions = {
-  #   'x1': lambda n_samples: 1.00 * np.random.normal(size=n_samples),
-  #   'x2': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
-  #   'x3': lambda n_samples: 0.25 * np.random.normal(size=n_samples),
-  # }
-  # new_dict = dict(zip(
-  #   structural_equations.keys(),
-  #   [lambda parents, n_samples: structural_equations[node](0, *parents) + np.random.normal(size=n_samples) for node in structural_equations.keys()]
-  # ))
-  # scm = CausalModel(new_dict)
+def loadCausalModel(experiment_folder_name = None):
 
   if SCM_CLASS == 'sanity-add':
-    scm = CausalModel({
-      'x1': lambda         n_samples: np.sqrt(10) * np.random.normal(size=n_samples),
-      'x2': lambda     x1, n_samples:      2 * x1 + np.random.normal(size=n_samples),
-      'x3': lambda x1, x2, n_samples:     x1 + x2 + np.random.normal(size=n_samples),
-    })
-  elif SCM_CLASS == 'sanity-mult':
-    scm = CausalModel({
-      'x1': lambda         n_samples: np.sqrt(10) * np.random.normal(size=n_samples),
-      'x2': lambda     x1, n_samples:      2 * x1 + np.random.normal(size=n_samples),
-      'x3': lambda x1, x2, n_samples:     x1 * x2 + np.random.normal(size=n_samples),
-    })
-  elif SCM_CLASS == 'linear':
-    scm = CausalModel({
-      'x1': lambda         n_samples:                                  np.random.normal(size=n_samples),
-      'x2': lambda     x1, n_samples:                         x1 + 1 + np.random.normal(size=n_samples),
-      'x3': lambda x1, x2, n_samples: x1 / 4 + np.sqrt(3) * x2 - 1/4 + np.random.normal(size=n_samples),
-    })
-  elif SCM_CLASS == 'nonlinear':
-    scm = CausalModel({
-      'x1': lambda         n_samples:                               np.random.normal(size=n_samples),
-      'x2': lambda     x1, n_samples:                      x1 + 1 + np.random.normal(size=n_samples),
-      'x3': lambda x1, x2, n_samples: np.sqrt(3) * x1 * (x2 ** 2) + np.random.normal(size=n_samples),
-    })
 
-  # scm = CausalModel({
-  #   'x1': lambda         n_samples:                 1.00 * np.random.normal(size=n_samples),
-  #   'x2': lambda     x1, n_samples:        x1 + 1 + 0.25 * np.random.normal(size=n_samples),
-  #   'x3': lambda x1, x2, n_samples: 5 * (x1 + x2) + 0.25 * np.random.normal(size=n_samples),
-  #   'x4': lambda     x3, n_samples:            x3 + 0.25 * np.random.normal(size=n_samples),
-  #   'x5': lambda     x4, n_samples:            x4 + 0.25 * np.random.normal(size=n_samples),
-  #   'x6': lambda     x2, n_samples:            x2 + 0.25 * np.random.normal(size=n_samples),
-  # })
-  scm.visualizeGraph(experiment_folder_name)
+    structural_equations = {
+      'x1': lambda noise,        :           noise,
+      'x2': lambda noise, x1     :  2 * x1 + noise,
+      'x3': lambda noise, x1, x2 : x1 + x2 + noise,
+    }
+    noises_distributions = {
+      'x1': lambda: np.sqrt(10) * np.random.normal(),
+      'x2': lambda:               np.random.normal(),
+      'x3': lambda:               np.random.normal(),
+    }
+
+  elif SCM_CLASS == 'sanity-mult':
+
+    structural_equations = {
+      'x1': lambda noise,        :           noise,
+      'x2': lambda noise, x1     :  2 * x1 + noise,
+      'x3': lambda noise, x1, x2 : x1 * x2 + noise,
+    }
+    noises_distributions = {
+      'x1': lambda: np.sqrt(10) * np.random.normal(),
+      'x2': lambda:               np.random.normal(),
+      'x3': lambda:               np.random.normal(),
+    }
+
+  assert \
+    set(structural_equations.keys()) == set(noises_distributions.keys()), \
+    'structural_equations & noises_distributions should have identical keys.'
+
+  scm = CausalModel(structural_equations, noises_distributions)
+  if experiment_folder_name is not None:
+    scm.visualizeGraph(experiment_folder_name)
   return scm
 
 
@@ -158,55 +140,7 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
 
   if recourse_type == 'm0_true':
 
-    # # # TODO: use causal_model_obj to get this?
-    if SCM_CLASS == 'sanity-add':
-
-      if node == 'x1':
-        return lambda n1: n1
-      elif node == 'x2':
-        return lambda n2, x1: 2 * x1 + n2
-      elif node == 'x3':
-        return lambda n3, x1, x2: x1 + x2 + n3
-
-    elif SCM_CLASS == 'sanity-mult':
-
-      if node == 'x1':
-        return lambda n1: n1
-      elif node == 'x2':
-        return lambda n2, x1: 2 * x1 + n2
-      elif node == 'x3':
-        return lambda n3, x1, x2: x1 * x2 + n3
-
-    elif SCM_CLASS == 'linear':
-
-      if node == 'x1':
-        return lambda n1: n1
-      elif node == 'x2':
-        return lambda n2, x1: x1 + 1 + n2
-      elif node == 'x3':
-        return lambda n3, x1, x2: x1 / 4 + np.sqrt(3) * x2 - 1/4 + n3
-
-    elif SCM_CLASS == 'nonlinear':
-
-      if node == 'x1':
-        return lambda n1: n1
-      elif node == 'x2':
-        return lambda n2, x1: x1 + 1 + n2
-      elif node == 'x3':
-        return lambda n3, x1, x2: np.sqrt(3) * x1 * (x2 ** 2) + n3
-
-    # if node == 'x1':
-    #   return lambda n1: n1
-    # elif node == 'x2':
-    #   return lambda n2, x1: x1 + 1 + n2
-    # elif node == 'x3':
-    #   return lambda n3, x1, x2: 5 * (x1 + x2) + n3
-    # elif node == 'x4':
-    #   return lambda n4, x3: x3 + n4
-    # elif node == 'x5':
-    #   return lambda n5, x4: x4 + n5
-    # elif node == 'x6':
-    #   return lambda n6, x2: x2 + n6
+    return causal_model_obj.structural_equations[node]
 
   elif recourse_type in {'m1_alin', 'm1_akrr'}:
 
@@ -400,7 +334,7 @@ def trainGP(dataset_obj, node, parents):
   return kernel, X, model
 
 
-def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recourse_type):
+def sampleCVAE(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, parents, factual_instance, recourse_type):
   trained_cvae = trainCVAE(dataset_obj, node, parents)
   num_samples = samples_df.shape[0]
 
@@ -436,7 +370,7 @@ def sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recours
   return samples_df
 
 
-def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_type):
+def sampleGP(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, parents, factual_instance, recourse_type):
 
   def noise_post_mean(K, sigma, Y):
     N = K.shape[0]
@@ -492,6 +426,15 @@ def sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_
   return samples_df
 
 
+def sampleTrue(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, parents, factual_instance, recourse_type):
+  for row_idx, row in samples_df.iterrows():
+    samples_df.loc[row_idx, node] = causal_model_obj.structural_equations[node](
+      causal_model_obj.noises_distributions[node](),
+      *samples_df.loc[row_idx, parents].to_numpy(),
+    )
+  return samples_df
+
+
 def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
 
   if not bool(action_set): # if action_set is empty, CFE = F
@@ -523,7 +466,7 @@ def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj,
     # in the arugments a few lines down)
 
   # Step 3. prediction: compute counterfactual values starting from root node
-  # CANNOT USE THE COMMENTED CODE BELOW; BECAUSE CF VALUES FOR X_i DEPENDs ON CF
+  # CANNOT USE THE COMMENTED CODE BELOW; BECAUSE CF VALUES FOR X_i DEPENDS ON CF
   # VALUES OF PA_i, WHICH IS NOT DEFINED YET IN THE ONE-LINER
   # counterfactual_instance_new = dict(zip(factual_instance.keys(), [
   #   structural_equations_new[node](
@@ -574,43 +517,39 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
   for node in intervention_set:
     counterfactual_template[node] = action_set[node]
 
+  # this dataframe has populated columns set to intervention or conditioning values
+  # and has NaN columns that will be set accordingly.
   samples_df = pd.DataFrame(dict(zip(
     dataset_obj.getInputAttributeNames(),
     [num_samples * [counterfactual_template[node]] for node in dataset_obj.getInputAttributeNames()],
   )))
 
-
-  if recourse_type == 'm2_true':
-
-    scm_do = causal_model_obj.scm
-    preassigned_nodes = samples_df.columns[~samples_df.isnull().all()]
-    for node in samples_df.columns[~samples_df.isnull().all()]:
-      scm_do = scm_do.do(node)
-
-    samples_df = scm_do.sample(
-      n_samples = num_samples,
-      set_values = dict(zip(
-        preassigned_nodes,
-        samples_df[preassigned_nodes].T.to_numpy()
-      )),
-    )
-
-  else:
-
-    # Simply traverse the graph in order, and populate nodes as we go!
-    # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
-    for node in causal_model_obj.getTopologicalOrdering():
-      # if variable value is not yet set through intervention or conditioning
-      if samples_df[node].isnull().values.any():
-        parents = causal_model_obj.getParentsForNode(node)
-        # Confirm parents columns are present/have assigned values in samples_df
-        assert not samples_df.loc[:,list(parents)].isnull().values.any()
-        if DEBUG_FLAG:
-          print(f'Sampling `{recourse_type}` from p({node} | {", ".join(parents)})')
-        if recourse_type in {'m1_gaus', 'm2_gaus'}:
-          samples_df = sampleGP(dataset_obj, samples_df, node, parents, factual_instance, recourse_type)
-        elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
-          samples_df = sampleCVAE(dataset_obj, samples_df, node, parents, factual_instance, recourse_type)
+  # Simply traverse the graph in order, and populate nodes as we go!
+  # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
+  for node in causal_model_obj.getTopologicalOrdering():
+    # if variable value is not yet set through intervention or conditioning
+    if samples_df[node].isnull().values.any():
+      parents = causal_model_obj.getParentsForNode(node)
+      # Confirm parents columns are present/have assigned values in samples_df
+      assert not samples_df.loc[:,list(parents)].isnull().values.any()
+      if DEBUG_FLAG:
+        print(f'Sampling `{recourse_type}` from p({node} | {", ".join(parents)})')
+      if recourse_type == 'm2_true':
+        sampling_handle = sampleTrue
+      elif recourse_type in {'m1_gaus', 'm2_gaus'}:
+        sampling_handle = sampleGP
+      elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
+        sampling_handle = sampleCVAE
+      samples_df = sampling_handle(
+        dataset_obj,
+        classifier_obj,
+        causal_model_obj,
+        samples_df,
+        node,
+        parents,
+        factual_instance,
+        recourse_type,
+      )
 
   # IMPORTANT: if for whatever reason, the columns change order (e.g., as seen in
   # scm_do.sample), reorder them as they are to be used as inputs to the fixed classifier
@@ -1148,10 +1087,10 @@ if __name__ == "__main__":
     help = 'Name of dataset to train explanation model for: german, random, mortgage, twomoon')
 
   parser.add_argument(
-    '-m', '--model_class',
+    '-c', '--classifier_class',
     type = str,
     default = 'lr',
-      help = 'Model class that will learn data: lr, mlp')
+    help = 'Model class that will learn data: lr, mlp')
 
   parser.add_argument(
     '-p', '--process_id',
@@ -1162,23 +1101,23 @@ if __name__ == "__main__":
   # parsing the args
   args = parser.parse_args()
   dataset_class = args.dataset_class
-  model_class = args.model_class
+  classifier_class = args.classifier_class
 
   if not (dataset_class in {'random', 'mortgage', 'twomoon', 'german', 'credit', 'compass', 'adult'}):
     raise Exception(f'{dataset_class} not supported.')
 
-  if not (model_class in {'lr', 'mlp'}):
-    raise Exception(f'{model_class} not supported.')
+  if not (classifier_class in {'lr', 'mlp'}):
+    raise Exception(f'{classifier_class} not supported.')
 
   # create experiment folder
-  setup_name = f'{dataset_class}__{model_class}'
+  setup_name = f'{dataset_class}__{classifier_class}'
   experiment_folder_name = f"_experiments/{datetime.now().strftime('%Y.%m.%d_%H.%M.%S')}__{setup_name}"
   os.mkdir(f'{experiment_folder_name}')
 
   # only load once so shuffling order is the same
   dataset_obj = loadDataset(dataset_class)
-  classifier_obj = loadClassifier(dataset_class, model_class, experiment_folder_name)
-  causal_model_obj = loadCausalModel(dataset_class, experiment_folder_name)
+  classifier_obj = loadClassifier(dataset_class, classifier_class, experiment_folder_name)
+  causal_model_obj = loadCausalModel(experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
   # experiment1(dataset_obj, classifier_obj, causal_model_obj)
