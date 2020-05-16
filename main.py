@@ -20,6 +20,7 @@ from scm import CausalModel
 import utils
 import loadData
 import loadModel
+from distributions import *
 
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Ridge
@@ -35,21 +36,20 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
-# SCM_CLASS = 'sanity-add'
-SCM_CLASS = 'sanity-mult'
+SCM_CLASS = 'sanity-add'
+# SCM_CLASS = 'sanity-mult'
 
 DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
 GRID_SEARCH_BINS = 5
 NUM_TRAIN_SAMPLES = 500
-NUM_RECOURSE_SAMPLES = 3
+NUM_RECOURSE_SAMPLES = 5
 NUM_DISPLAY_SAMPLES = 10
 NUM_MONTE_CARLO_SAMPLES = 100
 
 ACCEPTABLE_POINT_RECOURSE = {'m0_true', 'm1_alin', 'm1_akrr'}
 ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cvae', 'm2_cvae_ps'}
-
 
 @utils.Memoize
 def loadDataset(dataset_class, increment_indices = True):
@@ -107,9 +107,9 @@ def loadCausalModel(experiment_folder_name = None):
       'x3': lambda noise, x1, x2 : x1 + x2 + noise,
     }
     noises_distributions = {
-      'x1': lambda: np.sqrt(10) * np.random.normal(),
-      'x2': lambda:               np.random.normal(),
-      'x3': lambda:               np.random.normal(),
+      'x1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+      'x2': Normal(0, 1),
+      'x3': Normal(0, 1),
     }
 
   elif SCM_CLASS == 'sanity-mult':
@@ -120,9 +120,9 @@ def loadCausalModel(experiment_folder_name = None):
       'x3': lambda noise, x1, x2 : x1 * x2 + noise,
     }
     noises_distributions = {
-      'x1': lambda: np.sqrt(10) * np.random.normal(),
-      'x2': lambda:               np.random.normal(),
-      'x3': lambda:               np.random.normal(),
+      'x1': Normal(0, 10),
+      'x2': Normal(0, 1),
+      'x3': Normal(0, 1),
     }
 
   assert \
@@ -424,7 +424,7 @@ def sampleGP(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, pa
 def sampleTrue(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, parents, factual_instance, recourse_type):
   for row_idx, row in samples_df.iterrows():
     samples_df.loc[row_idx, node] = causal_model_obj.structural_equations[node](
-      causal_model_obj.noises_distributions[node](),
+      causal_model_obj.noises_distributions[node].sample(),
       *samples_df.loc[row_idx, parents].to_numpy(),
     )
   return samples_df

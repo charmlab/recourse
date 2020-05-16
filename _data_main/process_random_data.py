@@ -27,7 +27,7 @@ def load_random_data(variable_type = 'real'):
   U = np.concatenate(
     [
       np.array(
-        [causal_model_obj.noises_distributions[node]() for _ in range(n)]
+        [causal_model_obj.noises_distributions[node].sample() for _ in range(n)]
       ).reshape(-1,1)
       for node in causal_model_obj.getTopologicalOrdering()
     ],
@@ -47,7 +47,7 @@ def load_random_data(variable_type = 'real'):
     assert not X.loc[:,list(parents)].isnull().values.any()
     for row_idx, row in tqdm(X.iterrows(), total=X.shape[0]):
       X.loc[row_idx, node] = causal_model_obj.structural_equations[node](
-        # causal_model_obj.noises_distributions[node](), # this is more elegant, but we also want to save the U's, so we do the above first
+        # causal_model_obj.noises_distributions[node].sample(), # this is more elegant, but we also want to save the U's, so we do the above first
         U.loc[row_idx, node],
         *X.loc[row_idx, parents].to_numpy(),
       )
