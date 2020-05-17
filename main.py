@@ -153,11 +153,21 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
     else:
 
       if recourse_type == 'm1_alin':
-        model = trainRidge(dataset_obj, node, parents)
+        trained_model = trainRidge(dataset_obj, node, parents)
       elif recourse_type == 'm1_akrr':
-        model = trainKernelRidge(dataset_obj, node, parents)
+        trained_model = trainKernelRidge(dataset_obj, node, parents)
 
-      return lambda noise, *parents: model.predict([[*parents]])[0][0] + noise
+      return lambda noise, *parents_values: sklearnPredictWrapper(dataset_obj, trained_model, node, parents, parents_values, noise)
+
+
+def sklearnPredictWrapper(dataset_obj, trained_model, node, parents, parent_values, noise):
+  tmp = dict(zip(parents, parent_values))
+  tmp = processDataFrameOrDict(dataset_obj, tmp, 'standardize')
+  tmp = list(tmp.values())
+  tmp = trained_model.predict([[*tmp]])[0][0]
+  tmp = {node: tmp}
+  tmp = deprocessDataFrameOrDict(dataset_obj, tmp, 'standardize')
+  return list(tmp.values())[0] + noise
 
 
 def measureActionSetCost(dataset_obj, factual_instance, action_set):
@@ -267,8 +277,7 @@ def lambdaWrapper(new_value):
 def trainRidge(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using Ridge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  # X_all = getStandardizedData()
-  X_all = getOriginalData()
+  X_all = getStandardizedData()
   param_grid = {"alpha": np.linspace(0,10,11)}
   model = GridSearchCV(Ridge(), param_grid=param_grid)
   model.fit(X_all[parents], X_all[[node]])
@@ -279,8 +288,7 @@ def trainRidge(dataset_obj, node, parents):
 def trainKernelRidge(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using KernelRidge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  # X_all = getStandardizedData()
-  X_all = getOriginalData()
+  X_all = getStandardizedData()
   param_grid = {
     "alpha": [1e0, 1e-1, 1e-2, 1e-3],
     "kernel": [
@@ -648,9 +656,9 @@ def getValidDiscretizedActionSets(dataset_obj):
       # in some repeated values
       possible_actions_per_node.append(tmp)
 
-    else: # TODO:
+    else:
 
-      raise NotImplementedError
+      raise NotImplementedError # TODO
 
   all_action_tuples = list(itertools.product(
     *possible_actions_per_node
@@ -697,7 +705,7 @@ def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factu
 
   elif optimization_approach == 'grad_descent':
 
-    raise NotImplementedError
+    raise NotImplementedError # TODO
     # for all possible intervention sets (without value)
     # for each child-parent that is missing
     #     get object: trained_cvae = trainCVAE(dataset_obj, node, parents)
@@ -1114,8 +1122,8 @@ if __name__ == "__main__":
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
   # experiment1(dataset_obj, classifier_obj, causal_model_obj)
-  # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)
