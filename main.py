@@ -278,7 +278,7 @@ def trainRidge(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using Ridge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
   X_all = getStandardizedData()
-  param_grid = {"alpha": np.linspace(0,10,11)}
+  param_grid = {'alpha': np.linspace(0,10,11)}
   model = GridSearchCV(Ridge(), param_grid=param_grid)
   model.fit(X_all[parents], X_all[[node]])
   return model
@@ -290,8 +290,8 @@ def trainKernelRidge(dataset_obj, node, parents):
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using KernelRidge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
   X_all = getStandardizedData()
   param_grid = {
-    "alpha": [1e0, 1e-1, 1e-2, 1e-3],
-    "kernel": [
+    'alpha': [1e0, 1e-1, 1e-2, 1e-3],
+    'kernel': [
       ExpSineSquared(l, p)
       for l in np.logspace(-2, 2, 5)
       for p in np.logspace(0, 2, 5)
@@ -362,9 +362,6 @@ def sampleCVAE(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, 
     x_factual=processDataFrameOrDict(dataset_obj, x_factual, 'standardize'),
     pa_factual=processDataFrameOrDict(dataset_obj, pa_factual, 'standardize'),
     pa_counter=processDataFrameOrDict(dataset_obj, pa_counter, 'standardize'),
-    # x_factual=x_factual,
-    # pa_factual=pa_factual,
-    # pa_counter=pa_counter,
     sample_from=sample_from,
   )
   new_samples = new_samples.rename(columns={0: node}) # bad code amir, this violates abstraction!
@@ -701,7 +698,7 @@ def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factu
           min_cost = cost_of_action_set
           min_cost_action_set = action_set
 
-    print(f'\t done.')
+    print(f'\t done (optimal action set: {str(tmp["optimal_action_set"])}).')
 
   elif optimization_approach == 'grad_descent':
 
@@ -718,8 +715,6 @@ def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factu
     #     see if you can pass gradients back to the intervention value of the nodes (possibly > 1) being intervened on
     #     then add the cost function
     #     and finally minimize everything together
-
-
 
   else:
     raise Exception(f'{optimization_approach} not recognized.')
@@ -835,7 +830,7 @@ def hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recours
       if len(parents): # if not a root node
         training_handle(dataset_obj, node, parents)
   end_time = time.time()
-  print(f'\ndone (total warm-up time: {end_time - start_time}.')
+  print(f'\n[INFO] Done (total warm-up time: {end_time - start_time}).')
   print(f'\n' + '='*60 + '\n')
 
 
@@ -976,9 +971,9 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
       tmp['scf_validity']  = isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm0_true')
-      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_true') # IMPORTANT: assume h(x^f) always 0
+      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_true')
       tmp['int_conf_true'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 3)
-      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_cvae') # IMPORTANT: assume h(x^f) always 0
+      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_cvae')
       tmp['int_conf_cvae'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 3)
       tmp['cost_all'] = measureActionSetCost(dataset_obj, factual_instance, tmp['optimal_action_set'])
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
@@ -1011,7 +1006,7 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   print(tmp_df)
   tmp_df.to_csv(f'{experiment_folder_name}/comparison.txt', sep='\t')
 
-  # FIX
+  # TODO: FIX
   # # Figure
   # if len(dataset_obj.getInputAttributeNames()) != 3:
   #   print('Cannot plot in more than 3 dimensions')
@@ -1122,8 +1117,8 @@ if __name__ == "__main__":
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
   # experiment1(dataset_obj, classifier_obj, causal_model_obj)
-  experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)
