@@ -2,6 +2,7 @@ import os
 import time
 import torch
 import argparse
+import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -73,6 +74,7 @@ def train_cvae(args):
 
     logs = defaultdict(list)
 
+    all_mse_losses = []
     for epoch in tqdm(range(args.epochs)):
 
         # tracker_epoch = defaultdict(lambda: defaultdict(dict))
@@ -120,7 +122,14 @@ def train_cvae(args):
             'sum': MSE + KLD,
         }, epoch)
 
-
+        moving_window_size = 10
+        all_mse_losses.append(MSE)
+        # if MSE has converged (NOT BOTH MSE and KLD), then stop training...
+        if \
+            epoch >= moving_window_size and \
+            np.abs(np.mean(all_mse_losses[-moving_window_size:]) / MSE) < 1.05:
+            print(f'Early stopping at epoch {epoch}')
+            break
 
     return vae
 
