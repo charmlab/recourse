@@ -23,6 +23,7 @@ def load_random_data(variable_type = 'real'):
 
   print(f'\n\n[INFO] Creating dataset using scm class `???`...')
 
+  # sample exogenous U variables
   print(f'\t[INFO] Sampling {n} exogenous U variables (d = {d})...')
   U = np.concatenate(
     [
@@ -35,7 +36,6 @@ def load_random_data(variable_type = 'real'):
   )
   U = pd.DataFrame(U, columns=causal_model_obj.getTopologicalOrdering())
   print(f'\t[INFO] done.')
-
 
   # sample endogenous X variables
   print(f'\t[INFO] Sampling {n} endogenous X variables (d = {d})...') # (i.e., processDataAccordingToGraph)
@@ -51,32 +51,19 @@ def load_random_data(variable_type = 'real'):
         U.loc[row_idx, node],
         *X.loc[row_idx, parents].to_numpy(),
       )
-  X = X.to_numpy()
   print(f'\t[INFO] done.')
   print(f'[INFO] done.')
 
   if variable_type == 'integer':
     X = np.round(4 * X)
-  np.random.shuffle(X)
 
   # to create a more balanced dataset, do not set b to 0.
   w = np.random.normal(mu_w, sigma_w, (d, 1))
   # b = 0 # see below.
   b = - np.mean(np.dot(X, w))
   y = (np.sign(np.sign(np.dot(X, w) + b) + 1e-6) + 1) / 2 # add 1e-3 to prevent label 0.5
+  y = pd.DataFrame(data=y, columns={'label'})
 
-  X_train = X[ : n // 2, :]
-  X_test = X[n // 2 : , :]
-  y_train = y[ : n // 2, :]
-  y_test = y[n // 2 : , :]
-
-  data_frame_non_hot = pd.DataFrame(
-      np.concatenate((
-        np.concatenate((y_train, X_train), axis = 1), # importantly, labels have to go first, else Dataset.__init__ messes up kurz column names
-        np.concatenate((y_test, X_test), axis = 1), # importantly, labels have to go first, else Dataset.__init__ messes up kurz column names
-      ),
-      axis = 0,
-    ),
-    columns=['label'] + [f'x{i}' for i in range(X.shape[1])]
-  )
+  U = U.rename(columns={'x1':'u1', 'x2':'u2', 'x3':'u3'}) # TODO: this should be automotized (and line 49-51 should not rely on old column names)
+  data_frame_non_hot = pd.concat([y,X,U], axis=1)
   return data_frame_non_hot.astype('float64')

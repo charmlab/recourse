@@ -48,7 +48,6 @@ def loadModelForDataset(model_class, dataset_string, experiment_folder_name = No
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   feature_names = dataset_obj.getInputAttributeNames('kurz') # easier to read (nothing to do with one-hot vs non-hit!)
 
-
   if model_class == 'tree':
     model_pretrain = DecisionTreeClassifier()
   elif model_class == 'forest':

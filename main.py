@@ -53,42 +53,7 @@ ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cva
 
 @utils.Memoize
 def loadDataset(dataset_class, increment_indices = True):
-
-  def incrementIndices(old_indices):
-    new_indices = ['x' + str(int(index[1:]) + 1) for index in old_indices]
-    return new_indices
-
-  dataset_obj = loadData.loadDataset(dataset_class, return_one_hot = True, load_from_cache = False)
-
-  if increment_indices:
-
-    # only change data_frame_kurz/attributes_kurz (data_frame_long/attributes_long
-    # may contain non-numeric columns)
-    replacement_dict = dict(zip(
-      dataset_obj.getInputAttributeNames(),
-      incrementIndices(dataset_obj.getInputAttributeNames()),
-    ))
-
-    # update data_frame_kurz
-    dataset_obj.data_frame_kurz = dataset_obj.data_frame_kurz.rename(columns=replacement_dict)
-
-    # update attributes_kurz
-    old_attributes_kurz = dataset_obj.attributes_kurz
-    new_attributes_kurz = {}
-
-    for old_key, old_value in old_attributes_kurz.items():
-      if old_key in replacement_dict.keys():
-        new_key = replacement_dict[old_key]
-        new_value = old_value
-        new_value.attr_name_kurz = replacement_dict[old_key]
-      else:
-        new_key = old_key
-        new_value = old_value
-      new_attributes_kurz[new_key] = new_value
-
-    dataset_obj.attributes_kurz = new_attributes_kurz
-
-  return dataset_obj
+  return loadData.loadDataset(dataset_class, return_one_hot = True, load_from_cache = False)
 
 
 @utils.Memoize
@@ -181,6 +146,7 @@ def measureActionSetCost(dataset_obj, factual_instance, action_set):
 
 
 def processDataFrameOrDict(dataset_obj, obj, processing_type):
+  # TODO: add support for categorical data
 
   X_all = getOriginalData()
 
@@ -205,6 +171,7 @@ def processDataFrameOrDict(dataset_obj, obj, processing_type):
 
 
 def deprocessDataFrameOrDict(dataset_obj, obj, processing_type):
+  # TODO: add support for categorical data
 
   X_all = getOriginalData()
 
@@ -230,6 +197,7 @@ def deprocessDataFrameOrDict(dataset_obj, obj, processing_type):
 
 @utils.Memoize
 def getOriginalData():
+  # X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit(with_meta = True)
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = X_train.append(X_test)
   X_all = X_all[:NUM_TRAIN_SAMPLES]
@@ -555,7 +523,7 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
 
   # IMPORTANT: if for whatever reason, the columns change order (e.g., as seen in
   # scm_do.sample), reorder them as they are to be used as inputs to the fixed classifier
-  samples_df = samples_df[dataset_obj.data_frame_kurz.columns[1:]]
+  samples_df = samples_df[dataset_obj.getInputAttributeNames()]
   return samples_df
 
 
@@ -698,7 +666,7 @@ def computeOptimalActionSet(dataset_obj, classifier_obj, causal_model_obj, factu
           min_cost = cost_of_action_set
           min_cost_action_set = action_set
 
-    print(f'\t done (optimal action set: {str(tmp["optimal_action_set"])}).')
+    print(f'\t done (optimal action set: {str(min_cost_action_set)}).')
 
   elif optimization_approach == 'grad_descent':
 
