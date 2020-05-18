@@ -37,8 +37,8 @@ seed(RANDOM_SEED) # set the random seed so that the random permutations can be r
 np.random.seed(RANDOM_SEED)
 
 # SCM_CLASS = 'sanity-add'
-# SCM_CLASS = 'sanity-mult'
-SCM_CLASS = 'sanity-power'
+SCM_CLASS = 'sanity-mult'
+# SCM_CLASS = 'sanity-power'
 
 DEBUG_FLAG = False
 NORM_TYPE = 2
@@ -61,7 +61,7 @@ ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cva
 
 
 @utils.Memoize
-def loadDataset(dataset_class, increment_indices = True):
+def loadDataset(dataset_class):
   return loadData.loadDataset(dataset_class, return_one_hot = True, load_from_cache = False)
 
 
@@ -466,16 +466,15 @@ def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj,
   tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
   noise_variables_true = XU_all.iloc[tmp_idx][causal_model_obj.getTopologicalOrdering('exogenous')].to_dict()
 
-  if SCM_CLASS != 'sanity-power':
-    assert np.all([
-      # can't use == because sometimes there is a 1e-16 difference
-      np.abs(noise_variables_pred[node] - noise_variables_true[node]) < 1e-5
-      for node in noise_variables_pred.keys()
-    ])
-
   # noise_variables_pred assume additive noise, and therefore only works with
   # models such as 'm1_alin' and 'm1_akrr' in general cases
   if recourse_type == 'm0_true':
+    if SCM_CLASS != 'sanity-power':
+      assert np.all([
+        # can't use == because sometimes there is a 1e-16 difference
+        np.abs(noise_variables_pred[node] - noise_variables_true[node]) < 1e-5
+        for node in noise_variables_pred.keys()
+      ])
     noise_variables = noise_variables_true
   else:
     noise_variables = noise_variables_pred
@@ -883,12 +882,17 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   print(f'Describe original data:\n{getOriginalData().describe()}')
 
-  action_sets = [ \
-    {'x1': +1.5}, \
-    {'x1': +0.5}, \
-    {'x1': -0.5}, \
-    {'x1': -1.5}, \
+  action_sets = [
+    {'x1': causal_model_obj.noises_distributions['u1'].sample()}
+    for _ in range(4)
   ]
+
+  # action_sets = [ \
+  #   {'x1': +1.5}, \
+  #   {'x1': +0.5}, \
+  #   {'x1': -0.5}, \
+  #   {'x1': -1.5}, \
+  # ]
   factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
 
   fig, axes = pyplot.subplots(int(np.sqrt(len(action_sets))), int(np.sqrt(len(action_sets))))
