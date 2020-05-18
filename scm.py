@@ -25,8 +25,14 @@ class CausalModel(object):
     self._scm = StructuralCausalModel(self.structural_equations) # may be redundant, can simply call CausalGraphicalModel...
     self._cgm = self._scm.cgm
 
-  def getTopologicalOrdering(self):
-    return nx.topological_sort(self._cgm.dag)
+  def getTopologicalOrdering(self, node_type = 'endogenous'):
+    tmp = nx.topological_sort(self._cgm.dag)
+    if node_type == 'endogenous':
+      return tmp
+    elif node_type == 'exogenous':
+      return ['u'+node[1:] for node in tmp]
+    else:
+      raise Exception(f'{node_type} not recognized.')
 
   def getChildrenForNode(self, node):
     return set(self._cgm.dag.successors(node))

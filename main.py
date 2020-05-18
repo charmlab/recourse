@@ -36,8 +36,9 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
-SCM_CLASS = 'sanity-add'
+# SCM_CLASS = 'sanity-add'
 # SCM_CLASS = 'sanity-mult'
+SCM_CLASS = 'sanity-power'
 
 DEBUG_FLAG = False
 NORM_TYPE = 2
@@ -50,6 +51,14 @@ NUM_MONTE_CARLO_SAMPLES = 100
 
 ACCEPTABLE_POINT_RECOURSE = {'m0_true', 'm1_alin', 'm1_akrr'}
 ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cvae', 'm2_cvae_ps'}
+
+# class Instance(object):
+#   def __init__(self, endogenous_dict, exogenous_dict):
+
+#     # assert()
+#     self.endogenous_dict = endogenous_dict
+#     self.exogenous_dict = exogenous_dict
+
 
 @utils.Memoize
 def loadDataset(dataset_class, increment_indices = True):
@@ -67,31 +76,45 @@ def loadCausalModel(experiment_folder_name = None):
   if SCM_CLASS == 'sanity-add':
 
     structural_equations = {
-      'x1': lambda noise,        :           noise,
-      'x2': lambda noise, x1     :  2 * x1 + noise,
-      'x3': lambda noise, x1, x2 : x1 + x2 + noise,
+      'x1': lambda n_samples,        :           n_samples,
+      'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
+      'x3': lambda n_samples, x1, x2 : x1 + x2 + n_samples,
     }
     noises_distributions = {
-      'x1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-      'x2': Normal(0, 1),
-      'x3': Normal(0, 1),
+      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+      'u2': Normal(0, 1),
+      'u3': Normal(0, 1),
     }
 
   elif SCM_CLASS == 'sanity-mult':
 
     structural_equations = {
-      'x1': lambda noise,        :           noise,
-      'x2': lambda noise, x1     :  2 * x1 + noise,
-      'x3': lambda noise, x1, x2 : x1 * x2 + noise,
+      'x1': lambda n_samples,        :           n_samples,
+      'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
+      'x3': lambda n_samples, x1, x2 : x1 * x2 + n_samples,
     }
     noises_distributions = {
-      'x1': Normal(0, 10),
-      'x2': Normal(0, 1),
-      'x3': Normal(0, 1),
+      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+      'u2': Normal(0, 1),
+      'u3': Normal(0, 1),
+    }
+
+  elif SCM_CLASS == 'sanity-power':
+
+    structural_equations = {
+      'x1': lambda n_samples,        :                  n_samples,
+      'x2': lambda n_samples, x1     :         2 * x1 + n_samples,
+      'x3': lambda n_samples, x1, x2 : (x1 + x2 + n_samples) ** 2,
+    }
+    noises_distributions = {
+      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+      'u2': Normal(0, 1),
+      'u3': Normal(0, 1),
     }
 
   assert \
-    set(structural_equations.keys()) == set(noises_distributions.keys()), \
+    set([getNoiseStringForNode(node) for node in structural_equations.keys()]) == \
+    set(noises_distributions.keys()), \
     'structural_equations & noises_distributions should have identical keys.'
 
   scm = CausalModel(structural_equations, noises_distributions)
@@ -110,18 +133,13 @@ def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, r
   elif recourse_type in {'m1_alin', 'm1_akrr'}:
 
     parents = causal_model_obj.getParentsForNode(node)
-
     if len(parents) == 0: # if root node
-
       return lambda noise: noise
-
     else:
-
       if recourse_type == 'm1_alin':
         trained_model = trainRidge(dataset_obj, node, parents)
       elif recourse_type == 'm1_akrr':
         trained_model = trainKernelRidge(dataset_obj, node, parents)
-
       return lambda noise, *parents_values: sklearnPredictWrapper(dataset_obj, trained_model, node, parents, parents_values, noise)
 
 
@@ -143,6 +161,18 @@ def measureActionSetCost(dataset_obj, factual_instance, action_set):
   for key in action_set.keys():
     deltas.append((action_set[key] - factual_instance[key]) / ranges[key])
   return np.linalg.norm(deltas, NORM_TYPE)
+
+
+def getIndexOfFactualInstanceInDataFrame(factual_instance, data_frame):
+  # data_frame may include X and U, whereas factual_instance only includes X
+  assert set(factual_instance.keys()).issubset(set(data_frame.columns))
+  for enumeration_idx, (factual_instance_idx, row) in enumerate(data_frame.iterrows()):
+    if np.all([
+      factual_instance[key] == row[key]
+      for key in factual_instance.keys()
+    ]):
+      break
+  return enumeration_idx
 
 
 def processDataFrameOrDict(dataset_obj, obj, processing_type):
@@ -196,12 +226,19 @@ def deprocessDataFrameOrDict(dataset_obj, obj, processing_type):
 
 
 @utils.Memoize
-def getOriginalData():
-  # X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit(with_meta = True)
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = X_train.append(X_test)
-  X_all = X_all[:NUM_TRAIN_SAMPLES]
-  return X_all
+def getOriginalData(with_meta = False):
+  if with_meta:
+    X_train, X_test, U_train, U_test, y_train, y_test = dataset_obj.getTrainTestSplit(with_meta = True)
+    return pd.concat(
+      [
+        pd.concat([X_train, U_train], axis = 1),
+        pd.concat([X_test, U_test], axis = 1),
+      ],
+      axis = 0
+    )[:NUM_TRAIN_SAMPLES]
+  else:
+    X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+    return pd.concat([X_train, X_test], axis = 0)[:NUM_TRAIN_SAMPLES]
 
 
 @utils.Memoize
@@ -370,17 +407,11 @@ def sampleGP(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, pa
 
   # IMPORTANT: Find index of factual instance in dataframe used for training GP
   #            (earlier, the factual instance was appended as the last instance)
-  assert set(factual_instance.keys()) == set(getOriginalData().columns)
-  for enumeration_idx, (factual_instance_idx, row) in enumerate(getOriginalData().iterrows()):
-    if np.all([
-      factual_instance[key] == row[key]
-      for key in factual_instance.keys()
-    ]):
-      break
+  tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, getOriginalData())
 
   if recourse_type == 'm1_gaus': # counterfactual distribution for node
-    new_means = pred_means + noise_post_means[enumeration_idx]
-    new_vars = pred_vars + noise_post_vars[enumeration_idx]
+    new_means = pred_means + noise_post_means[tmp_idx]
+    new_vars = pred_vars + noise_post_vars[tmp_idx]
   elif recourse_type == 'm2_gaus': # interventional distribution for node
     new_means = pred_means + 0
     new_vars = pred_vars + sigma_noise
@@ -397,10 +428,15 @@ def sampleGP(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, pa
 def sampleTrue(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, parents, factual_instance, recourse_type):
   for row_idx, row in samples_df.iterrows():
     samples_df.loc[row_idx, node] = causal_model_obj.structural_equations[node](
-      causal_model_obj.noises_distributions[node].sample(),
+      causal_model_obj.noises_distributions[getNoiseStringForNode(node)].sample(),
       *samples_df.loc[row_idx, parents].to_numpy(),
     )
   return samples_df
+
+
+def getNoiseStringForNode(node):
+  assert node[0] == 'x'
+  return 'u' + node[1:]
 
 
 def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
@@ -408,49 +444,61 @@ def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj,
   if not bool(action_set): # if action_set is empty, CFE = F
     return factual_instance
 
-  structural_equations_new = dict(zip(factual_instance.keys(), [
+  structural_equations = dict(zip(factual_instance.keys(), [
     getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, recourse_type)
     for node in factual_instance.keys()
   ]))
 
   # Step 1. abduction: get value of noise variables
   # tip: pass in n* = 0 to structural_equations (lambda functions)
-  noise_variables_new = dict(zip(factual_instance.keys(), [
-    factual_instance[node] - structural_equations_new[node](
-      0,
-      *[factual_instance[node] for node in causal_model_obj.getParentsForNode(node)],
-    )
-    for node in factual_instance.keys()
-  ]))
+  noise_variables_pred = dict(zip(
+    [getNoiseStringForNode(node) for node in factual_instance.keys()],
+    [
+      factual_instance[node] - structural_equations[node](
+        0,
+        *[factual_instance[node] for node in causal_model_obj.getParentsForNode(node)],
+      )
+      for node in factual_instance.keys()
+    ]
+  ))
+
+  XU_all = getOriginalData(True)
+  tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
+  noise_variables_true = XU_all.iloc[tmp_idx][causal_model_obj.getTopologicalOrdering('exogenous')].to_dict()
+
+  if SCM_CLASS != 'sanity-power':
+    assert np.all([
+      # can't use == because sometimes there is a 1e-16 difference
+      np.abs(noise_variables_pred[node] - noise_variables_true[node]) < 1e-5
+      for node in noise_variables_pred.keys()
+    ])
+
+  # noise_variables_pred assume additive noise, and therefore only works with
+  # models such as 'm1_alin' and 'm1_akrr' in general cases
+  if recourse_type == 'm0_true':
+    noise_variables = noise_variables_true
+  else:
+    noise_variables = noise_variables_pred
 
   # Step 2. action: update structural equations
   for key, value in action_set.items():
     node = key
     intervention_value = value
-    structural_equations_new[node] = lambdaWrapper(intervention_value)
+    structural_equations[node] = lambdaWrapper(intervention_value)
     # *args is used to allow for ignoring arguments that may be passed into this
     # function (consider, for example, an intervention on x2 which then requires
     # no inputs to call the second structural equation function, but we still pass
     # in the arugments a few lines down)
 
   # Step 3. prediction: compute counterfactual values starting from root node
-  # CANNOT USE THE COMMENTED CODE BELOW; BECAUSE CF VALUES FOR X_i DEPENDS ON CF
-  # VALUES OF PA_i, WHICH IS NOT DEFINED YET IN THE ONE-LINER
-  # counterfactual_instance_new = dict(zip(factual_instance.keys(), [
-  #   structural_equations_new[node](
-  #     *[counterfactual_instance_new[node] for node in causal_model_obj.getParentsForNode(node)],
-  #     noise_variables_new[node],
-  #   )
-  #   for node in factual_instance.keys()
-  # ]))
-  counterfactual_instance_new = {}
+  counterfactual_instance = {}
   for node in factual_instance.keys():
-    counterfactual_instance_new[node] = structural_equations_new[node](
-      noise_variables_new[node],
-      *[counterfactual_instance_new[node] for node in causal_model_obj.getParentsForNode(node)],
+    counterfactual_instance[node] = structural_equations[node](
+      noise_variables[getNoiseStringForNode(node)],
+      *[counterfactual_instance[node] for node in causal_model_obj.getParentsForNode(node)],
     )
 
-  return counterfactual_instance_new
+  return counterfactual_instance
 
 
 def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples):
@@ -1085,8 +1133,8 @@ if __name__ == "__main__":
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
   # experiment1(dataset_obj, classifier_obj, causal_model_obj)
-  # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)
