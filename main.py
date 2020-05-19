@@ -36,8 +36,8 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
-# SCM_CLASS = 'sanity-add'
-SCM_CLASS = 'sanity-mult'
+SCM_CLASS = 'sanity-add'
+# SCM_CLASS = 'sanity-mult'
 # SCM_CLASS = 'sanity-power'
 
 DEBUG_FLAG = False
@@ -123,36 +123,6 @@ def loadCausalModel(experiment_folder_name = None):
   return scm
 
 
-@utils.Memoize
-def getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, recourse_type):
-
-  if recourse_type == 'm0_true':
-
-    return causal_model_obj.structural_equations[node]
-
-  elif recourse_type in {'m1_alin', 'm1_akrr'}:
-
-    parents = causal_model_obj.getParentsForNode(node)
-    if len(parents) == 0: # if root node
-      return lambda noise: noise
-    else:
-      if recourse_type == 'm1_alin':
-        trained_model = trainRidge(dataset_obj, node, parents)
-      elif recourse_type == 'm1_akrr':
-        trained_model = trainKernelRidge(dataset_obj, node, parents)
-      return lambda noise, *parents_values: sklearnPredictWrapper(dataset_obj, trained_model, node, parents, parents_values, noise)
-
-
-def sklearnPredictWrapper(dataset_obj, trained_model, node, parents, parent_values, noise):
-  tmp = dict(zip(parents, parent_values))
-  tmp = processDataFrameOrDict(dataset_obj, tmp, 'standardize')
-  tmp = list(tmp.values())
-  tmp = trained_model.predict([[*tmp]])[0][0]
-  tmp = {node: tmp}
-  tmp = deprocessDataFrameOrDict(dataset_obj, tmp, 'standardize')
-  return list(tmp.values())[0] + noise
-
-
 def measureActionSetCost(dataset_obj, factual_instance, action_set):
   # TODO: the cost should be measured in normalized space over all features
   #       pass in dataset_obj to get..
@@ -165,13 +135,17 @@ def measureActionSetCost(dataset_obj, factual_instance, action_set):
 
 def getIndexOfFactualInstanceInDataFrame(factual_instance, data_frame):
   # data_frame may include X and U, whereas factual_instance only includes X
+  found_flag = False
   assert set(factual_instance.keys()).issubset(set(data_frame.columns))
   for enumeration_idx, (factual_instance_idx, row) in enumerate(data_frame.iterrows()):
     if np.all([
       factual_instance[key] == row[key]
       for key in factual_instance.keys()
     ]):
+      found_flag = True
       break
+  if not found_flag:
+    raise Exception(f'Was not able to find instance in dataset.')
   return enumeration_idx
 
 
@@ -187,6 +161,9 @@ def processDataFrameOrDict(dataset_obj, obj, processing_type):
 
   obj = obj.copy() # so as not to change the underlying object
   for node in iterate_over:
+    if 'u' in node:
+      print(f'[WARNING] Skipping over processing of noise variable {node}.')
+      continue
     node_min = float(min(X_all[node]))
     node_max = float(max(X_all[node]))
     node_mean = float(np.mean(X_all[node]))
@@ -212,6 +189,9 @@ def deprocessDataFrameOrDict(dataset_obj, obj, processing_type):
 
   obj = obj.copy() # so as not to change the underlying object
   for node in iterate_over:
+    if 'u' in node:
+      print(f'[WARNING] Skipping over processing of noise variable {node}.')
+      continue
     node_min = float(min(X_all[node]))
     node_max = float(max(X_all[node]))
     node_mean = float(np.mean(X_all[node]))
@@ -248,6 +228,11 @@ def getStandardizedData():
   return X_all
 
 
+def getNoiseStringForNode(node):
+  assert node[0] == 'x'
+  return 'u' + node[1:]
+
+
 def prettyPrintDict(my_dict):
   my_dict = my_dict.copy()
   for key, value in my_dict.items():
@@ -271,11 +256,6 @@ def didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, cou
   return \
     getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) != \
     getPrediction(dataset_obj, classifier_obj, causal_model_obj, counterfactual_instance)
-
-
-# See https://stackoverflow.com/a/25670697
-def lambdaWrapper(new_value):
-  return lambda *args: new_value
 
 
 @utils.Memoize
@@ -342,7 +322,95 @@ def trainGP(dataset_obj, node, parents):
   return kernel, X, model
 
 
-def sampleCVAE(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, parents, factual_instance, recourse_type):
+def _getAbductionNoise(dataset_obj, classifier_obj, causal_model_obj, node, parents, factual_instance, structural_equation):
+  # only applies for ANM models
+  return factual_instance[node] - structural_equation(
+    0,
+    *[factual_instance[parent] for parent in parents],
+  )
+
+
+def sampleTrue(dataset_obj, classifier_obj, causal_model_obj, samples_df, factual_instance, node, parents, recourse_type):
+  # Step 1. [abduction]: compute noise or load from dataset using factual_instance
+  # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
+  # Step 3. [prediction]: run through structural equation using noise and parents from samples_df
+  structural_equation = causal_model_obj.structural_equations[node]
+
+  if recourse_type == 'm0_true':
+
+    noise_pred = _getAbductionNoise(dataset_obj, classifier_obj, causal_model_obj, node, parents, factual_instance, structural_equation)
+    XU_all = getOriginalData(with_meta = True)
+    tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
+    noise_true = XU_all.iloc[tmp_idx][getNoiseStringForNode(node)]
+    print(f'noise_pred: {noise_pred:.8f} \t noise_true: {noise_true:.8f} \t difference: {np.abs(noise_pred - noise_true):.8f}')
+
+    # noise_pred assume additive noise, and therefore only works with
+    # models such as 'm1_alin' and 'm1_akrr' in general cases
+    if recourse_type == 'm0_true':
+      if SCM_CLASS != 'sanity-power':
+        assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
+      noise = noise_true
+    else:
+      noise = noise_pred
+
+    for row_idx, row in samples_df.iterrows():
+      noise = noise
+      samples_df.loc[row_idx, node] = structural_equation(
+        noise,
+        *samples_df.loc[row_idx, parents].to_numpy(),
+      )
+
+  elif recourse_type == 'm2_true':
+
+    for row_idx, row in samples_df.iterrows():
+      noise = causal_model_obj.noises_distributions[getNoiseStringForNode(node)].sample(),
+      samples_df.loc[row_idx, node] = structural_equation(
+        noise,
+        *samples_df.loc[row_idx, parents].to_numpy(),
+      )
+
+  return samples_df
+
+
+def _sampleRidgeKernelRidge(dataset_obj, classifier_obj, causal_model_obj, samples_df, factual_instance, node, parents, recourse_type, train_handle):
+  # XU_all = getOriginalData(with_meta = True)
+  # tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
+  # noise_true = XU_all.iloc[tmp_idx][getNoiseStringForNode(node)]
+
+  # All samplers EXCEPT FOR sampleTrue have been trained (and should be sampled) on standardized data
+  samples_df = processDataFrameOrDict(dataset_obj, samples_df.copy(), 'standardize')
+  factual_instance = processDataFrameOrDict(dataset_obj, factual_instance.copy(), 'standardize')
+
+  # Step 1. [abduction]: compute noise or load from dataset using factual_instance
+  # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
+  # Step 3. [prediction]: run through structural equation using noise and parents from samples_df
+  trained_model = train_handle(dataset_obj, node, parents)
+  structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
+  noise_pred = _getAbductionNoise(dataset_obj, classifier_obj, causal_model_obj, node, parents, factual_instance, structural_equation)
+  # print(f'noise_pred: {noise_pred:.8f} \t noise_true: {noise_true:.8f} \t difference: {np.abs(noise_pred - noise_true):.8f}') # TODO: check this out... why differnce?
+  for row_idx, row in samples_df.iterrows():
+    noise = _getAbductionNoise(dataset_obj, classifier_obj, causal_model_obj, node, parents, factual_instance, structural_equation),
+    samples_df.loc[row_idx, node] = structural_equation(
+      noise,
+      *samples_df.loc[row_idx, parents].to_numpy(),
+    )
+  samples_df = deprocessDataFrameOrDict(dataset_obj, samples_df, 'standardize')
+  return samples_df
+
+
+def sampleRidge(dataset_obj, classifier_obj, causal_model_obj, samples_df, factual_instance, node, parents, recourse_type):
+  return _sampleRidgeKernelRidge(dataset_obj, classifier_obj, causal_model_obj, samples_df, factual_instance, node, parents, recourse_type, trainRidge)
+
+
+def sampleKernelRidge(dataset_obj, classifier_obj, causal_model_obj, samples_df, factual_instance, node, parents, recourse_type):
+  return _sampleRidgeKernelRidge(dataset_obj, classifier_obj, causal_model_obj, samples_df, factual_instance, node, parents, recourse_type, trainKernelRidge)
+
+
+def sampleCVAE(dataset_obj, classifier_obj, causal_model_obj, samples_df, factual_instance, node, parents, recourse_type):
+  # All samplers EXCEPT FOR sampleTrue have been trained (and should be sampled) on standardized data
+  samples_df = processDataFrameOrDict(dataset_obj, samples_df.copy(), 'standardize')
+  factual_instance = processDataFrameOrDict(dataset_obj, factual_instance.copy(), 'standardize')
+
   trained_cvae = trainCVAE(dataset_obj, node, parents)
   num_samples = samples_df.shape[0]
 
@@ -364,18 +432,21 @@ def sampleCVAE(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, 
     sample_from = 'reweighted_prior'
 
   new_samples = trained_cvae.reconstruct(
-    x_factual=processDataFrameOrDict(dataset_obj, x_factual, 'standardize'),
-    pa_factual=processDataFrameOrDict(dataset_obj, pa_factual, 'standardize'),
-    pa_counter=processDataFrameOrDict(dataset_obj, pa_counter, 'standardize'),
+    x_factual=x_factual,
+    pa_factual=pa_factual,
+    pa_counter=pa_counter,
     sample_from=sample_from,
   )
   new_samples = new_samples.rename(columns={0: node}) # bad code amir, this violates abstraction!
   samples_df[node] = new_samples
-  samples_df[node] = deprocessDataFrameOrDict(dataset_obj, samples_df[[node]], 'standardize')
+  samples_df = deprocessDataFrameOrDict(dataset_obj, samples_df, 'standardize')
   return samples_df
 
 
-def sampleGP(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, parents, factual_instance, recourse_type):
+def sampleGP(dataset_obj, classifier_obj, causal_model_obj, samples_df, factual_instance, node, parents, recourse_type):
+  # All samplers EXCEPT FOR sampleTrue have been trained (and should be sampled) on standardized data
+  samples_df = processDataFrameOrDict(dataset_obj, samples_df.copy(), 'standardize')
+  factual_instance = processDataFrameOrDict(dataset_obj, factual_instance.copy(), 'standardize')
 
   def noise_post_mean(K, sigma, Y):
     N = K.shape[0]
@@ -401,13 +472,11 @@ def sampleGP(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, pa
 
   # GP posterior for node at new (intervened & conditioned) input given parents
   # pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
-  pred_means, pred_vars = model.predict_noiseless(
-    processDataFrameOrDict(dataset_obj, samples_df[parents], 'standardize').to_numpy()
-  )
+  pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
 
   # IMPORTANT: Find index of factual instance in dataframe used for training GP
   #            (earlier, the factual instance was appended as the last instance)
-  tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, getOriginalData())
+  tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, getStandardizedData())
 
   if recourse_type == 'm1_gaus': # counterfactual distribution for node
     new_means = pred_means + noise_post_means[tmp_idx]
@@ -421,92 +490,11 @@ def sampleGP(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, pa
   new_samples = new_means + np.sqrt(new_vars) * new_noise
 
   samples_df[node] = new_samples
-  samples_df[node] = deprocessDataFrameOrDict(dataset_obj, samples_df[[node]], 'standardize')
+  samples_df = deprocessDataFrameOrDict(dataset_obj, samples_df, 'standardize')
   return samples_df
 
 
-def sampleTrue(dataset_obj, classifier_obj, causal_model_obj, samples_df, node, parents, factual_instance, recourse_type):
-  for row_idx, row in samples_df.iterrows():
-    samples_df.loc[row_idx, node] = causal_model_obj.structural_equations[node](
-      causal_model_obj.noises_distributions[getNoiseStringForNode(node)].sample(),
-      *samples_df.loc[row_idx, parents].to_numpy(),
-    )
-  return samples_df
-
-
-def getNoiseStringForNode(node):
-  assert node[0] == 'x'
-  return 'u' + node[1:]
-
-
-def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
-
-  if not bool(action_set): # if action_set is empty, CFE = F
-    return factual_instance
-
-  structural_equations = dict(zip(factual_instance.keys(), [
-    getStructuralEquation(dataset_obj, classifier_obj, causal_model_obj, node, recourse_type)
-    for node in factual_instance.keys()
-  ]))
-
-  # Step 1. abduction: get value of noise variables
-  # tip: pass in n* = 0 to structural_equations (lambda functions)
-  noise_variables_pred = dict(zip(
-    [getNoiseStringForNode(node) for node in factual_instance.keys()],
-    [
-      factual_instance[node] - structural_equations[node](
-        0,
-        *[factual_instance[node] for node in causal_model_obj.getParentsForNode(node)],
-      )
-      for node in factual_instance.keys()
-    ]
-  ))
-
-  XU_all = getOriginalData(True)
-  tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
-  noise_variables_true = XU_all.iloc[tmp_idx][causal_model_obj.getTopologicalOrdering('exogenous')].to_dict()
-
-  # noise_variables_pred assume additive noise, and therefore only works with
-  # models such as 'm1_alin' and 'm1_akrr' in general cases
-  if recourse_type == 'm0_true':
-    if SCM_CLASS != 'sanity-power':
-      assert np.all([
-        # can't use == because sometimes there is a 1e-16 difference
-        np.abs(noise_variables_pred[node] - noise_variables_true[node]) < 1e-5
-        for node in noise_variables_pred.keys()
-      ])
-    noise_variables = noise_variables_true
-  else:
-    noise_variables = noise_variables_pred
-
-  # Step 2. action: update structural equations
-  for key, value in action_set.items():
-    node = key
-    intervention_value = value
-    structural_equations[node] = lambdaWrapper(intervention_value)
-    # *args is used to allow for ignoring arguments that may be passed into this
-    # function (consider, for example, an intervention on x2 which then requires
-    # no inputs to call the second structural equation function, but we still pass
-    # in the arugments a few lines down)
-
-  # Step 3. prediction: compute counterfactual values starting from root node
-  counterfactual_instance = {}
-  for node in factual_instance.keys():
-    counterfactual_instance[node] = structural_equations[node](
-      noise_variables[getNoiseStringForNode(node)],
-      *[counterfactual_instance[node] for node in causal_model_obj.getParentsForNode(node)],
-    )
-
-  return counterfactual_instance
-
-
-def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples):
-
-  if not bool(action_set): # if action_set is empty, CFE = F
-    return pd.DataFrame(dict(zip(
-      dataset_obj.getInputAttributeNames(),
-      [num_samples * [factual_instance[node]] for node in dataset_obj.getInputAttributeNames()],
-    )))
+def _samplingInnerLoop(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples):
 
   counterfactual_template = dict.fromkeys(
     dataset_obj.getInputAttributeNames(),
@@ -542,15 +530,19 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
   # Simply traverse the graph in order, and populate nodes as we go!
   # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
   for node in causal_model_obj.getTopologicalOrdering():
-    # if variable value is not yet set through intervention or conditioning
+    # set variable if value not yet set through intervention or conditioning
     if samples_df[node].isnull().values.any():
       parents = causal_model_obj.getParentsForNode(node)
       # Confirm parents columns are present/have assigned values in samples_df
       assert not samples_df.loc[:,list(parents)].isnull().values.any()
       if DEBUG_FLAG:
         print(f'Sampling `{recourse_type}` from p({node} | {", ".join(parents)})')
-      if recourse_type == 'm2_true':
+      if recourse_type in {'m0_true', 'm2_true'}:
         sampling_handle = sampleTrue
+      elif recourse_type == 'm1_alin':
+        sampling_handle = sampleRidge
+      elif recourse_type == 'm1_akrr':
+        sampling_handle = sampleKernelRidge
       elif recourse_type in {'m1_gaus', 'm2_gaus'}:
         sampling_handle = sampleGP
       elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
@@ -562,16 +554,43 @@ def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj,
         classifier_obj,
         causal_model_obj,
         samples_df,
+        factual_instance,
         node,
         parents,
-        factual_instance,
         recourse_type,
       )
-
-  # IMPORTANT: if for whatever reason, the columns change order (e.g., as seen in
-  # scm_do.sample), reorder them as they are to be used as inputs to the fixed classifier
-  samples_df = samples_df[dataset_obj.getInputAttributeNames()]
+  assert \
+    np.all(list(samples_df.columns) == dataset_obj.getInputAttributeNames()), \
+    'Ordering of column names in samples_df has change unexpectedly'
+  # samples_df = samples_df[dataset_obj.getInputAttributeNames()]
   return samples_df
+
+
+def computeCounterfactualInstance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
+
+  assert recourse_type in ACCEPTABLE_POINT_RECOURSE
+
+  if not bool(action_set): # if action_set is empty, CFE = F
+    return factual_instance
+
+  samples_df = _samplingInnerLoop(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, 1)
+
+  return samples_df.loc[0].to_dict() # return the first instance
+
+
+def getRecourseDistributionSample(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples):
+
+  assert recourse_type in ACCEPTABLE_DISTR_RECOURSE
+
+  if not bool(action_set): # if action_set is empty, CFE = F
+    return pd.DataFrame(dict(zip(
+      dataset_obj.getInputAttributeNames(),
+      [num_samples * [factual_instance[node]] for node in dataset_obj.getInputAttributeNames()],
+    )))
+
+  samples_df = _samplingInnerLoop(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type, num_samples)
+
+  return samples_df # return the entire data frame
 
 
 def isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
@@ -591,7 +610,11 @@ def isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, fa
   )
 
 
-def getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
+def isDistrConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
+  return computeLowerConfidenceBound() >= 0.5
+
+
+def computeLowerConfidenceBound(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
   monte_carlo_samples_df = getRecourseDistributionSample(
     dataset_obj,
     classifier_obj,
@@ -611,29 +634,17 @@ def getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factua
   expectation = np.mean(monte_carlo_predictions)
   variance = np.sum(np.power(monte_carlo_predictions - expectation, 2)) / (len(monte_carlo_predictions) - 1)
 
-  return expectation, variance
-
-
-def isDistrConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
-
-  expectation, variance = getExpectationVariance(
-    dataset_obj,
-    classifier_obj,
-    causal_model_obj,
-    factual_instance,
-    action_set,
-    recourse_type,
-  )
+  # return expectation, variance
 
   # IMPORTANT... WE ARE CONSIDERING {0,1} LABELS AND FACTUAL SAMPLES MAY BE OF
   # EITHER CLASS. THEREFORE, THE CONSTRAINT IS SATISFIED WHEN SIGNIFICANTLY
   # > 0.5 OR < 0.5 FOR A FACTUAL SAMPLE WITH Y = 0 OR Y = 1, RESPECTIVELY.
 
   if getPrediction(dataset_obj, classifier_obj, causal_model_obj, factual_instance) == 0:
-    return expectation - LAMBDA_LCB * np.sqrt(variance) > 0.5 # NOTE DIFFERNCE IN SIGN OF STD
+    return expectation - LAMBDA_LCB * np.sqrt(variance) # NOTE DIFFERNCE IN SIGN OF STD
   else: # factual_prediction == 1
     raise Exception(f'Should only be considering negatively predicted individuals...')
-    # return expectation + LAMBDA_LCB * np.sqrt(variance) < 0.5 # NOTE DIFFERNCE IN SIGN OF STD
+    # return expectation + LAMBDA_LCB * np.sqrt(variance) # NOTE DIFFERNCE IN SIGN OF STD
 
 
 def getValidDiscretizedActionSets(dataset_obj):
@@ -887,12 +898,6 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
     for _ in range(4)
   ]
 
-  # action_sets = [ \
-  #   {'x1': +1.5}, \
-  #   {'x1': +0.5}, \
-  #   {'x1': -0.5}, \
-  #   {'x1': -1.5}, \
-  # ]
   factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
 
   fig, axes = pyplot.subplots(int(np.sqrt(len(action_sets))), int(np.sqrt(len(action_sets))))
@@ -991,10 +996,8 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
       tmp['scf_validity']  = isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm0_true')
-      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_true')
-      tmp['int_conf_true'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 3)
-      exp, var = getExpectationVariance(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_cvae')
-      tmp['int_conf_cvae'] = np.around(exp - LAMBDA_LCB * np.sqrt(var), 3)
+      tmp['int_conf_true'] = np.around(computeLowerConfidenceBound(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
+      tmp['int_conf_cvae'] = np.around(computeLowerConfidenceBound(dataset_obj, classifier_obj, causal_model_obj, factual_instance, tmp['optimal_action_set'], 'm2_cvae'), 3)
       tmp['cost_all'] = measureActionSetCost(dataset_obj, factual_instance, tmp['optimal_action_set'])
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
 
