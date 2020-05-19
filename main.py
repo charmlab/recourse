@@ -263,7 +263,7 @@ def trainRidge(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using Ridge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
   X_all = getStandardizedData()
-  param_grid = {'alpha': np.linspace(0,10,11)}
+  param_grid = {'alpha': np.logspace(-2, 1, 10)}
   model = GridSearchCV(Ridge(), param_grid=param_grid)
   model.fit(X_all[parents], X_all[[node]])
   return model
