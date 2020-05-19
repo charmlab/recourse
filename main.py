@@ -152,8 +152,6 @@ def getIndexOfFactualInstanceInDataFrame(factual_instance, data_frame):
 def processDataFrameOrDict(dataset_obj, obj, processing_type):
   # TODO: add support for categorical data
 
-  X_all = getOriginalData()
-
   if isinstance(obj, dict):
     iterate_over = obj.keys()
   elif isinstance(obj, pd.DataFrame):
@@ -164,10 +162,13 @@ def processDataFrameOrDict(dataset_obj, obj, processing_type):
     if 'u' in node:
       print(f'[WARNING] Skipping over processing of noise variable {node}.')
       continue
-    node_min = float(min(X_all[node]))
-    node_max = float(max(X_all[node]))
-    node_mean = float(np.mean(X_all[node]))
-    node_std = float(np.std(X_all[node]))
+    # use dataset_obj stats, not X_train (in case you use more samples later,
+    # e.g., validation set for cvae
+    tmp = dataset_obj.data_frame_kurz.describe()[node]
+    node_min = tmp['min']
+    node_max = tmp['max']
+    node_mean = tmp['mean']
+    node_std = tmp['std']
     if processing_type == 'normalize':
       obj[node] = (obj[node] - node_min) / (node_max - node_min)
     elif processing_type == 'standardize':
@@ -180,8 +181,6 @@ def processDataFrameOrDict(dataset_obj, obj, processing_type):
 def deprocessDataFrameOrDict(dataset_obj, obj, processing_type):
   # TODO: add support for categorical data
 
-  X_all = getOriginalData()
-
   if isinstance(obj, dict):
     iterate_over = obj.keys()
   elif isinstance(obj, pd.DataFrame):
@@ -192,10 +191,13 @@ def deprocessDataFrameOrDict(dataset_obj, obj, processing_type):
     if 'u' in node:
       print(f'[WARNING] Skipping over processing of noise variable {node}.')
       continue
-    node_min = float(min(X_all[node]))
-    node_max = float(max(X_all[node]))
-    node_mean = float(np.mean(X_all[node]))
-    node_std = float(np.std(X_all[node]))
+    # use dataset_obj stats, not X_train (in case you use more samples later,
+    # e.g., validation set for cvae
+    tmp = dataset_obj.data_frame_kurz.describe()[node]
+    node_min = tmp['min']
+    node_max = tmp['max']
+    node_mean = tmp['mean']
+    node_std = tmp['std']
     if processing_type == 'normalize':
       obj[node] = obj[node] * (node_max - node_min) + node_min
     elif processing_type == 'standardize':
@@ -206,7 +208,7 @@ def deprocessDataFrameOrDict(dataset_obj, obj, processing_type):
 
 
 @utils.Memoize
-def getOriginalData(with_meta = False):
+def getOriginalData(num_samples = NUM_TRAIN_SAMPLES, with_meta = False):
   if with_meta:
     X_train, X_test, U_train, U_test, y_train, y_test = dataset_obj.getTrainTestSplit(with_meta = True)
     return pd.concat(
@@ -215,15 +217,15 @@ def getOriginalData(with_meta = False):
         pd.concat([X_test, U_test], axis = 1),
       ],
       axis = 0
-    )[:NUM_TRAIN_SAMPLES]
+    )[:num_samples]
   else:
     X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-    return pd.concat([X_train, X_test], axis = 0)[:NUM_TRAIN_SAMPLES]
+    return pd.concat([X_train, X_test], axis = 0)[:num_samples]
 
 
 @utils.Memoize
-def getStandardizedData():
-  X_all = getOriginalData()
+def getStandardizedData(num_samples = NUM_TRAIN_SAMPLES):
+  X_all = getOriginalData(num_samples)
   X_all = processDataFrameOrDict(dataset_obj, X_all, 'standardize')
   return X_all
 
@@ -291,11 +293,13 @@ def trainKernelRidge(dataset_obj, node, parents):
 def trainCVAE(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using CVAE on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_all = getStandardizedData()
+  X_all = getStandardizedData(num_samples = NUM_TRAIN_SAMPLES * 2)
   return train_cvae(AttrDict({
     'name': f'p({node} | {", ".join(parents)})',
-    'node': X_all[[node]],
-    'parents': X_all[parents],
+    'node_train': X_all[[node]].iloc[:NUM_TRAIN_SAMPLES],
+    'parents_train': X_all[parents].iloc[:NUM_TRAIN_SAMPLES],
+    'node_valid': X_all[[node]].iloc[NUM_TRAIN_SAMPLES:],
+    'parents_valid': X_all[parents].iloc[NUM_TRAIN_SAMPLES:],
     'seed': 0,
     'epochs': 100,
     'batch_size': 64,
@@ -342,7 +346,7 @@ def sampleTrue(dataset_obj, classifier_obj, causal_model_obj, samples_df, factua
     XU_all = getOriginalData(with_meta = True)
     tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
     noise_true = XU_all.iloc[tmp_idx][getNoiseStringForNode(node)]
-    print(f'noise_pred: {noise_pred:.8f} \t noise_true: {noise_true:.8f} \t difference: {np.abs(noise_pred - noise_true):.8f}')
+    # print(f'noise_pred: {noise_pred:.8f} \t noise_true: {noise_true:.8f} \t difference: {np.abs(noise_pred - noise_true):.8f}')
 
     # noise_pred assume additive noise, and therefore only works with
     # models such as 'm1_alin' and 'm1_akrr' in general cases
@@ -826,6 +830,13 @@ def scatterRecourse(dataset_obj, classifier_obj, causal_model_obj, factual_insta
 
 
 def getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_obj):
+  # Samples for which we seek recourse are chosen from the joint of X_train/test.
+  # This is OK because the tasks of conditional density estimation and recourse
+  # generation are distinct. Given the same data splicing used here and in trainGP,
+  # it is guaranteed that we the factual sample for which we seek recourse is in
+  # training set for GP, and hence a posterior over noise for it is computed
+  # (i.e., we can cache).
+
   # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
   X_all = getOriginalData()
   factual_instances_dict = {}
@@ -842,7 +853,7 @@ def getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_ob
 
 def hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types):
   start_time = time.time()
-  print(f'\n' + '='*60 + '\n')
+  print(f'\n' + '='*80 + '\n')
   print(f'[INFO] Hot-training ALIN, AKRR, GAUS, CVAE so they do not affect runtime...')
   training_handles = []
   if any(['alin' in elem for elem in recourse_types]): training_handles.append(trainRidge)
@@ -857,7 +868,7 @@ def hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recours
         training_handle(dataset_obj, node, parents)
   end_time = time.time()
   print(f'\n[INFO] Done (total warm-up time: {end_time - start_time}).')
-  print(f'\n' + '='*60 + '\n')
+  print(f'\n' + '='*80 + '\n')
 
 
 # DEPRECATED def experiment1
@@ -942,13 +953,6 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
 def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
   ''' optimal action set: figure + table '''
-
-  # Samples for which we seek recourse are chosen from the joint of X_train/test.
-  # This is OK because the tasks of conditional density estimation and recourse
-  # generation are distinct. Given the same data splicing used here and in trainGP,
-  # it is guaranteed that we the factual sample for which we seek recourse is in
-  # training set for GP, and hence a posterior over noise for it is computed
-  # (i.e., we can cache).
 
   factual_instances_dict = getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_obj)
 
@@ -1077,6 +1081,165 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   # pyplot.savefig(f'{experiment_folder_name}/comparison.pdf')
 
 
+def experiment7(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
+  ''' optimal action set: figure + table '''
+
+  factual_instances_dict = getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_obj)
+
+  experimental_setups = [
+    ('m0_true', '*'), \
+    ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
+    ('m1_gaus', 'D'), \
+    ('m1_cvae', 'x'), \
+    ('m2_true', 'o'), \
+    ('m2_gaus', 's'), \
+    ('m2_cvae', '+'), \
+    # ('m2_cvae_ps', 'P'), \
+  ]
+  recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
+
+  hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
+
+  per_instance_results = {}
+  for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
+    factual_instance_idx = f'sample_{key}'
+    factual_instance = value
+
+    print(f'\n\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
+
+    per_instance_results[factual_instance_idx] = {}
+
+    for recourse_type in recourse_types:
+
+      per_instance_results[factual_instance_idx][recourse_type] = {}
+      per_instance_results[factual_instance_idx][recourse_type]['pred_x2_on_true_x1'] = []
+      per_instance_results[factual_instance_idx][recourse_type]['pred_x3_on_true_x1_pred_x2'] = []
+      per_instance_results[factual_instance_idx][recourse_type]['pred_x3_on_true_x1_true_x2'] = []
+
+      num_samples = NUM_MONTE_CARLO_SAMPLES
+      testing_template = {
+        'x1': factual_instance['x1'],
+        'x2': np.NaN,
+        'x3': np.NaN,
+      }
+      # this dataframe has populated columns set to intervention or conditioning values
+      # and has NaN columns that will be set accordingly.
+      samples_df = pd.DataFrame(dict(zip(
+        dataset_obj.getInputAttributeNames(),
+        [num_samples * [testing_template[node]] for node in dataset_obj.getInputAttributeNames()],
+      )))
+      samples_df = tmpp(dataset_obj, classifier_obj, causal_model_obj, factual_instance, recourse_type, samples_df)
+      per_instance_results[factual_instance_idx][recourse_type]['pred_x2_on_true_x1'] = list(samples_df['x2'])
+      per_instance_results[factual_instance_idx][recourse_type]['pred_x3_on_true_x1_pred_x2'] = list(samples_df['x3'])
+
+      num_samples = NUM_MONTE_CARLO_SAMPLES
+      testing_template = {
+        'x1': factual_instance['x1'],
+        'x2': factual_instance['x2'],
+        'x3': np.NaN,
+      }
+      # this dataframe has populated columns set to intervention or conditioning values
+      # and has NaN columns that will be set accordingly.
+      samples_df = pd.DataFrame(dict(zip(
+        dataset_obj.getInputAttributeNames(),
+        [num_samples * [testing_template[node]] for node in dataset_obj.getInputAttributeNames()],
+      )))
+      samples_df = tmpp(dataset_obj, classifier_obj, causal_model_obj, factual_instance, recourse_type, samples_df)
+      per_instance_results[factual_instance_idx][recourse_type]['pred_x3_on_true_x1_true_x2'] = list(samples_df['x3'])
+
+
+  fig, axes = pyplot.subplots(3, len(recourse_types), sharey=True, tight_layout=True)
+  fig.suptitle(f'Comparison of recon error (2-rorm) for all regressor/conditionals', fontsize='x-small')
+
+  for idx_1, (node, node_string) in enumerate([
+    ('x2','pred_x2_on_true_x1'),
+    ('x3','pred_x3_on_true_x1_true_x2'),
+    ('x3','pred_x3_on_true_x1_pred_x2'),
+  ]):
+    for idx_2, recourse_type in enumerate(recourse_types):
+      mse_list_for_recourse_type = [
+        np.linalg.norm([sample - factual_instance[node]], 2)
+        for sample in per_instance_results[factual_instance_idx][recourse_type][node_string]
+        for factual_instance_idx in per_instance_results.keys()
+      ]
+      tmp_idx = idx_1 * len(recourse_types) + idx_2
+      axes.flatten()[tmp_idx].hist(mse_list_for_recourse_type, bins=30)
+      if tmp_idx % len(recourse_types) == 0: # if first subplot of row
+        axes.flatten()[tmp_idx].set_ylabel(node_string, fontsize='xx-small')
+      axes.flatten()[tmp_idx].tick_params(axis='both', which='major', labelsize=6)
+      axes.flatten()[tmp_idx].tick_params(axis='both', which='minor', labelsize=4)
+      axes.flatten()[tmp_idx].set_title(f'{recourse_type}', fontsize='xx-small')
+
+  fig.tight_layout()
+  pyplot.savefig(f'{experiment_folder_name}/_sanity_1.pdf')
+
+  fig, axes = pyplot.subplots(3, 3, sharex=True, sharey=True, tight_layout=True)
+  fig.suptitle(f'Comparison of M2 smaples', fontsize='x-small')
+
+  for idx_1, (node, node_string) in enumerate([
+    ('x2','pred_x2_on_true_x1'),
+    ('x3','pred_x3_on_true_x1_true_x2'),
+    ('x3','pred_x3_on_true_x1_pred_x2'),
+  ]):
+    for idx_2, recourse_type in enumerate([elem for elem in recourse_types if 'm2' in elem]):
+      m2_samples_for_recourse_type = [
+        sample
+        for sample in per_instance_results[factual_instance_idx][recourse_type][node_string]
+        for factual_instance_idx in per_instance_results.keys()
+      ]
+      # print(f'\n{recourse_type}', m2_samples_for_recourse_type)
+      tmp_idx = idx_1 + idx_2 * 3
+      axes.flatten()[tmp_idx].hist(m2_samples_for_recourse_type, bins=30)
+      if tmp_idx % 3 == 0: # if first subplot of row
+        axes.flatten()[tmp_idx].set_ylabel(recourse_type, fontsize='xx-small')
+      if tmp_idx >= 6: # if last subplot of col
+        axes.flatten()[tmp_idx].set_xlabel(node_string, fontsize='xx-small')
+      axes.flatten()[tmp_idx].tick_params(axis='both', which='major', labelsize=6)
+      axes.flatten()[tmp_idx].tick_params(axis='both', which='minor', labelsize=4)
+      # axes.flatten()[tmp_idx].set_title(f'{recourse_type}', fontsize='xx-small')
+
+  fig.tight_layout()
+  pyplot.savefig(f'{experiment_folder_name}/_sanity_2.pdf')
+
+
+
+def tmpp(dataset_obj, classifier_obj, causal_model_obj, factual_instance, recourse_type, samples_df):
+  # Simply traverse the graph in order, and populate nodes as we go!
+  # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
+  for node in causal_model_obj.getTopologicalOrdering():
+    # set variable if value not yet set through intervention or conditioning
+    if samples_df[node].isnull().values.any():
+      parents = causal_model_obj.getParentsForNode(node)
+      # Confirm parents columns are present/have assigned values in samples_df
+      assert not samples_df.loc[:,list(parents)].isnull().values.any()
+      if DEBUG_FLAG:
+        print(f'Sampling `{recourse_type}` from p({node} | {", ".join(parents)})')
+      if recourse_type in {'m0_true', 'm2_true'}:
+        sampling_handle = sampleTrue
+      elif recourse_type == 'm1_alin':
+        sampling_handle = sampleRidge
+      elif recourse_type == 'm1_akrr':
+        sampling_handle = sampleKernelRidge
+      elif recourse_type in {'m1_gaus', 'm2_gaus'}:
+        sampling_handle = sampleGP
+      elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
+        sampling_handle = sampleCVAE
+      else:
+        raise Exception(f'{recourse_type} not recognized.')
+      samples_df = sampling_handle(
+        dataset_obj,
+        classifier_obj,
+        causal_model_obj,
+        samples_df,
+        factual_instance,
+        node,
+        parents,
+        recourse_type,
+      )
+  return samples_df
+
+
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):
 
   fig = pyplot.figure()
@@ -1139,9 +1302,9 @@ if __name__ == "__main__":
   causal_model_obj = loadCausalModel(experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
-  # experiment1(dataset_obj, classifier_obj, causal_model_obj)
-  experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
   # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  experiment7(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)

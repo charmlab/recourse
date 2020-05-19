@@ -48,7 +48,7 @@ def train_cvae(args):
 
     ts = time.time()
 
-    dataset = Dataset(args.node, args.parents) # order is important: x=node, pa=parents (the class the cvae is conditioned on)
+    dataset = Dataset(args.node_train, args.parents_train) # order is important: x=node, pa=parents (the class the cvae is conditioned on)
     data_loader = DataLoader(
         dataset=dataset, batch_size=args.batch_size, shuffle=True)
 
@@ -61,20 +61,20 @@ def train_cvae(args):
         # return (BCE + KLD) / x.size(0)
         # return (10 * MSE + KLD) / x.size(0)
         # return (MSE + KLD) / x.size(0)
-        return MSE + KLD
+        return MSE + KLD * mean.size(1)
 
     vae = VAE(
         encoder_layer_sizes=list(args.encoder_layer_sizes), # bug in AttrDict package: https://github.com/bcj/AttrDict/issues/34#issuecomment-202920540
         latent_size=args.latent_size,
         decoder_layer_sizes=list(args.decoder_layer_sizes), # bug in AttrDict package: https://github.com/bcj/AttrDict/issues/34#issuecomment-202920540
         conditional=args.conditional,
-        num_labels=args.parents.shape[1] if args.conditional else 0).to(device)
+        num_labels=args.parents_train.shape[1] if args.conditional else 0).to(device)
 
     optimizer = torch.optim.Adam(vae.parameters(), lr=args.learning_rate)
 
     logs = defaultdict(list)
 
-    all_mse_losses = []
+    all_mse_valid_losses = []
     for epoch in tqdm(range(args.epochs)):
 
         # tracker_epoch = defaultdict(lambda: defaultdict(dict))
@@ -108,26 +108,42 @@ def train_cvae(args):
                         epoch, args.epochs, iteration, len(data_loader)-1, loss.item()))
 
 
-        x = torch.tensor(args.node.to_numpy()).float()
-        pa = torch.tensor(args.parents.to_numpy()).float()
+
+        # train set
+        x = torch.tensor(args.node_train.to_numpy()).float()
+        pa = torch.tensor(args.parents_train.to_numpy()).float()
         recon_x, mean, log_var, z = vae(x, pa)
         recon_x = recon_x.detach()
         mean = mean.detach()
         log_var = log_var.detach()
-        MSE = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
-        KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
+        MSE_train = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
+        KLD_train = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
+
+        # valid set
+        x = torch.tensor(args.node_valid.to_numpy()).float()
+        pa = torch.tensor(args.parents_valid.to_numpy()).float()
+        recon_x, mean, log_var, z = vae(x, pa)
+        recon_x = recon_x.detach()
+        mean = mean.detach()
+        log_var = log_var.detach()
+        MSE_valid = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
+        KLD_valid = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
+
         writer.add_scalars(f'loss/{args.name}', {
-            'MSE': MSE,
-            'KLD': KLD,
-            'sum': MSE + KLD,
+            'MSE_train': MSE_train,
+            'KLD_train': KLD_train,
+            'sum_train': MSE_train + KLD_train,
+            'MSE_valid': MSE_valid,
+            'KLD_valid': KLD_valid,
+            'sum_valid': MSE_valid + KLD_valid,
         }, epoch)
 
-        moving_window_size = 10
-        all_mse_losses.append(MSE)
-        # if MSE has converged (NOT BOTH MSE and KLD), then stop training...
+        moving_window_size = 20
+        all_mse_valid_losses.append(MSE_valid)
+        # if MSE_valid has converged (NOT BOTH MSE_valid and KLD_valid), then stop training...
         if \
             epoch >= moving_window_size and \
-            np.abs(np.mean(all_mse_losses[-moving_window_size:]) / MSE) < 1.05:
+            np.abs(np.mean(all_mse_valid_losses[-moving_window_size:]) / MSE_valid) < 1.05:
             print(f'Early stopping at epoch {epoch}')
             break
 
