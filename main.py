@@ -315,7 +315,7 @@ def trainGP(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using GP on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
   X_all = getStandardizedData()
-  kernel = GPy.kern.RBF(input_dim=len(parents), variance=1., lengthscale=1.)
+  kernel = GPy.kern.RBF(input_dim=len(parents), ARD=True)
   model = GPy.models.GPRegression(X_all[parents], X_all[[node]], kernel)
   model.optimize_restarts(parallel=True, num_restarts=5, verbose=False)
   X = X_all[parents].to_numpy()
