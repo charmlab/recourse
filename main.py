@@ -25,7 +25,7 @@ from distributions import *
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Ridge
 from sklearn.kernel_ridge import KernelRidge
-from sklearn.gaussian_process.kernels import WhiteKernel, ExpSineSquared
+from sklearn.gaussian_process.kernels import WhiteKernel, RBF
 
 from _cvae.train import *
 
@@ -275,11 +275,10 @@ def trainKernelRidge(dataset_obj, node, parents):
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using KernelRidge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
   X_all = getStandardizedData()
   param_grid = {
-    'alpha': [1e0, 1e-1, 1e-2, 1e-3],
+    'alpha': np.logspace(-2, 1, 5),
     'kernel': [
-      ExpSineSquared(l, p)
-      for l in np.logspace(-2, 2, 5)
-      for p in np.logspace(0, 2, 5)
+      RBF(lengthscale)
+      for lengthscale in np.logspace(-2, 1, 5)
     ]
   }
   model = GridSearchCV(KernelRidge(), param_grid=param_grid)
