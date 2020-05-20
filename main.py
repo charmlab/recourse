@@ -152,6 +152,9 @@ def getIndexOfFactualInstanceInDataFrame(factual_instance, data_frame):
 def processDataFrameOrDict(dataset_obj, obj, processing_type):
   # TODO: add support for categorical data
 
+  if processing_type == 'raw':
+    return obj
+
   if isinstance(obj, dict):
     iterate_over = obj.keys()
   elif isinstance(obj, pd.DataFrame):
@@ -180,6 +183,9 @@ def processDataFrameOrDict(dataset_obj, obj, processing_type):
 
 def deprocessDataFrameOrDict(dataset_obj, obj, processing_type):
   # TODO: add support for categorical data
+
+  if processing_type == 'raw':
+    return obj
 
   if isinstance(obj, dict):
     iterate_over = obj.keys()
