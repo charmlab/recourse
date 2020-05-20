@@ -428,9 +428,9 @@ def sampleCVAE(dataset_obj, classifier_obj, causal_model_obj, samples_df, factua
   pa_counter = samples_df[parents]
 
   if recourse_type == 'm1_cvae':
-    sample_from = 'prior'
-  elif recourse_type == 'm2_cvae':
     sample_from = 'posterior'
+  elif recourse_type == 'm2_cvae':
+    sample_from = 'prior'
   elif recourse_type == 'm2_cvae_ps':
     sample_from = 'reweighted_prior'
 
