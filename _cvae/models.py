@@ -55,7 +55,6 @@ class VAE(nn.Module):
 
             batch_size = x_factual.size(0)
 
-
             samples_pz = torch.randn([batch_size, self.latent_size])
             means, log_vars = self.encoder(x_factual, pa_factual) # noise is computed in factual world
             stds = torch.exp(0.5 * log_vars)
@@ -98,6 +97,13 @@ class VAE(nn.Module):
             return pd.DataFrame(recon_x.detach().numpy())
 
 
+def init_weights(m):
+    if type(m) == nn.Linear:
+        torch.nn.init.xavier_uniform(m.weight)
+        m.bias.data.fill_(0.01)
+
+
+
 class Encoder(nn.Module):
 
     def __init__(self, layer_sizes, latent_size, conditional, num_labels):
@@ -117,6 +123,10 @@ class Encoder(nn.Module):
 
         self.linear_means = nn.Linear(layer_sizes[-1], latent_size)
         self.linear_log_vars = nn.Linear(layer_sizes[-1], latent_size)
+
+        self.MLP.apply(init_weights)
+        self.linear_means.apply(init_weights)
+        self.linear_log_vars.apply(init_weights)
 
     def forward(self, x, pa):
 
@@ -153,6 +163,8 @@ class Decoder(nn.Module):
             # TODO: add back for binary / categorical variables
             # else:
             #     self.MLP.add_module(name="sigmoid", module=nn.Sigmoid())
+
+        self.MLP.apply(init_weights)
 
     def forward(self, z, pa):
 

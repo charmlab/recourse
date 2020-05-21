@@ -8,6 +8,7 @@ import itertools
 import subprocess
 import numpy as np
 import pandas as pd
+import seaborn as sns
 
 from tqdm import tqdm
 from pprint import pprint
@@ -36,18 +37,25 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
+
 SCM_CLASS = 'sanity-add'
+# SCM_CLASS = 'sanity-sigmoid'
+# SCM_CLASS = 'sanity-pow-add'
 # SCM_CLASS = 'sanity-mult'
-# SCM_CLASS = 'sanity-power'
+# SCM_CLASS = 'sanity-add-pow'
+
+# SCM_CLASS = 'sanity-add-3'
+# SCM_CLASS = 'sanity-mult-3'
+# SCM_CLASS = 'sanity-power-3'
 
 DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
 GRID_SEARCH_BINS = 5
-NUM_TRAIN_SAMPLES = 500
-NUM_RECOURSE_SAMPLES = 5
+NUM_TRAIN_SAMPLES = 1000
+NUM_RECOURSE_SAMPLES = 1
 NUM_DISPLAY_SAMPLES = 10
-NUM_MONTE_CARLO_SAMPLES = 100
+NUM_MONTE_CARLO_SAMPLES = 1000
 
 ACCEPTABLE_POINT_RECOURSE = {'m0_true', 'm1_alin', 'm1_akrr'}
 ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cvae', 'm2_cvae_ps'}
@@ -78,39 +86,95 @@ def loadCausalModel(experiment_folder_name = None):
     structural_equations = {
       'x1': lambda n_samples,        :           n_samples,
       'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
-      'x3': lambda n_samples, x1, x2 : x1 + x2 + n_samples,
     }
     noises_distributions = {
       'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
       'u2': Normal(0, 1),
-      'u3': Normal(0, 1),
+    }
+
+  elif SCM_CLASS == 'sanity-sigmoid':
+
+    structural_equations = {
+      'x1': lambda n_samples,        :                          n_samples,
+      'x2': lambda n_samples, x1     :  5 / (1 + np.exp(-x1)) + n_samples,
+    }
+    noises_distributions = {
+      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+      'u2': Normal(0, 1),
+    }
+
+  elif SCM_CLASS == 'sanity-pow-add':
+
+    structural_equations = {
+      'x1': lambda n_samples,        :            n_samples,
+      'x2': lambda n_samples, x1     :  x1 ** 2 + n_samples,
+    }
+    noises_distributions = {
+      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+      'u2': Normal(0, 1),
     }
 
   elif SCM_CLASS == 'sanity-mult':
 
     structural_equations = {
-      'x1': lambda n_samples,        :           n_samples,
-      'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
-      'x3': lambda n_samples, x1, x2 : x1 * x2 + n_samples,
+      'x1': lambda n_samples,        :                 n_samples,
+      'x2': lambda n_samples, x1     :  np.array(x1) * n_samples,
     }
     noises_distributions = {
       'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
       'u2': Normal(0, 1),
-      'u3': Normal(0, 1),
     }
 
-  elif SCM_CLASS == 'sanity-power':
+  elif SCM_CLASS == 'sanity-add-pow':
 
     structural_equations = {
-      'x1': lambda n_samples,        :                  n_samples,
-      'x2': lambda n_samples, x1     :         2 * x1 + n_samples,
-      'x3': lambda n_samples, x1, x2 : (x1 + x2 + n_samples) ** 2,
+      'x1': lambda n_samples,        :              n_samples,
+      'x2': lambda n_samples, x1     :  (x1 + n_samples) ** 2,
     }
     noises_distributions = {
       'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
       'u2': Normal(0, 1),
-      'u3': Normal(0, 1),
     }
+
+
+  # if SCM_CLASS == 'sanity-add-3':
+
+  #   structural_equations = {
+  #     'x1': lambda n_samples,        :           n_samples,
+  #     'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
+  #     'x3': lambda n_samples, x1, x2 : x1 + x2 + n_samples,
+  #   }
+  #   noises_distributions = {
+  #     'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+  #     'u2': Normal(0, 1),
+  #     'u3': Normal(0, 1),
+  #   }
+
+  # elif SCM_CLASS == 'sanity-mult-3':
+
+  #   structural_equations = {
+  #     'x1': lambda n_samples,        :           n_samples,
+  #     'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
+  #     'x3': lambda n_samples, x1, x2 : x1 * x2 + n_samples,
+  #   }
+  #   noises_distributions = {
+  #     'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+  #     'u2': Normal(0, 1),
+  #     'u3': Normal(0, 1),
+  #   }
+
+  # elif SCM_CLASS == 'sanity-power-3':
+
+  #   structural_equations = {
+  #     'x1': lambda n_samples,        :                  n_samples,
+  #     'x2': lambda n_samples, x1     :         2 * x1 + n_samples,
+  #     'x3': lambda n_samples, x1, x2 : (x1 + x2 + n_samples) ** 2,
+  #   }
+  #   noises_distributions = {
+  #     'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+  #     'u2': Normal(0, 1),
+  #     'u3': Normal(0, 1),
+  #   }
 
   assert \
     set([getNoiseStringForNode(node) for node in structural_equations.keys()]) == \
@@ -214,7 +278,7 @@ def deprocessDataFrameOrDict(dataset_obj, obj, processing_type):
 
 
 @utils.Memoize
-def getOriginalData(num_samples = NUM_TRAIN_SAMPLES, with_meta = False):
+def getOriginalDataFrame(num_samples = NUM_TRAIN_SAMPLES, with_meta = False):
   if with_meta:
     X_train, X_test, U_train, U_test, y_train, y_test = dataset_obj.getTrainTestSplit(with_meta = True)
     return pd.concat(
@@ -227,13 +291,6 @@ def getOriginalData(num_samples = NUM_TRAIN_SAMPLES, with_meta = False):
   else:
     X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
     return pd.concat([X_train, X_test], axis = 0)[:num_samples]
-
-
-@utils.Memoize
-def getStandardizedData(num_samples = NUM_TRAIN_SAMPLES):
-  X_all = getOriginalData(num_samples)
-  X_all = processDataFrameOrDict(dataset_obj, X_all, 'standardize')
-  return X_all
 
 
 def getNoiseStringForNode(node):
@@ -270,7 +327,7 @@ def didFlip(dataset_obj, classifier_obj, causal_model_obj, factual_instance, cou
 def trainRidge(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using Ridge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_all = getStandardizedData()
+  X_all = processDataFrameOrDict(dataset_obj, getOriginalDataFrame(), 'standardize')
   param_grid = {'alpha': np.logspace(-2, 1, 10)}
   model = GridSearchCV(Ridge(), param_grid=param_grid)
   model.fit(X_all[parents], X_all[[node]])
@@ -281,7 +338,7 @@ def trainRidge(dataset_obj, node, parents):
 def trainKernelRidge(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using KernelRidge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_all = getStandardizedData()
+  X_all = processDataFrameOrDict(dataset_obj, getOriginalDataFrame(), 'standardize')
   param_grid = {
     'alpha': np.logspace(-2, 1, 5),
     'kernel': [
@@ -298,7 +355,59 @@ def trainKernelRidge(dataset_obj, node, parents):
 def trainCVAE(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using CVAE on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_all = getStandardizedData(num_samples = NUM_TRAIN_SAMPLES * 2)
+  X_all = processDataFrameOrDict(dataset_obj, getOriginalDataFrame(num_samples = int(NUM_TRAIN_SAMPLES * 1.2)), 'raw')
+  print(X_all)
+
+  # if SCM_CLASS == 'sanity-add':
+  #   if NUM_TRAIN_SAMPLES == 5000:
+  #     lambda_kld = 0.1
+  #     encoder_layer_sizes = [1, 3, 3]
+  #     decoder_layer_sizes = [2, 2, 1]
+  #   elif NUM_TRAIN_SAMPLES == 1000:
+  #     lambda_kld = 0.5
+  #     encoder_layer_sizes = [1, 3, 3]
+  #     decoder_layer_sizes = [2, 1]
+  # elif SCM_CLASS == 'sanity-sigmoid':
+  #   if NUM_TRAIN_SAMPLES == 5000:
+  #     lambda_kld = 0.1
+  #     encoder_layer_sizes = [1, 3, 3]
+  #     decoder_layer_sizes = [2, 2, 1]
+  #   elif NUM_TRAIN_SAMPLES == 1000:
+  #     lambda_kld = 0.5
+  #     encoder_layer_sizes = [1, 3, 3]
+  #     decoder_layer_sizes = [2, 1]
+  # elif SCM_CLASS ==  'sanity-pow-add':
+  #   if NUM_TRAIN_SAMPLES == 5000:
+  #     lambda_kld = 0.5
+  #     encoder_layer_sizes = [1, 3, 3]
+  #     decoder_layer_sizes = [2, 2, 1]
+  #   elif NUM_TRAIN_SAMPLES == 1000:
+  #     lambda_kld = 0.5
+  #     encoder_layer_sizes = [1, 3, 3]
+  #     decoder_layer_sizes = [2, 1]
+  # elif SCM_CLASS ==  'sanity-mult':
+  #   # if NUM_TRAIN_SAMPLES == 5000:
+  #   #   lambda_kld = 0.1
+  #   #   encoder_layer_sizes = [1, 3, 3]
+  #   #   decoder_layer_sizes = [2, 2, 1]
+  #   if NUM_TRAIN_SAMPLES == 1000:
+  #     lambda_kld = 0.5
+  #     encoder_layer_sizes = [1, 3, 3]
+  #     decoder_layer_sizes = [2, 1]
+  # elif SCM_CLASS ==  'sanity-add-pow':
+  #   # if NUM_TRAIN_SAMPLES == 5000:
+  #   #   lambda_kld = 0.5
+  #   #   encoder_layer_sizes = [1, 3, 3]
+  #   #   decoder_layer_sizes = [2, 2, 1]
+  #   if NUM_TRAIN_SAMPLES == 1000:
+  #     lambda_kld = 0.5
+  #     encoder_layer_sizes = [1, 3, 3]
+  #     decoder_layer_sizes = [2, 1]
+
+  lambda_kld = 0.5
+  encoder_layer_sizes = [1, 3, 3]
+  decoder_layer_sizes = [2, 1]
+
   return train_cvae(AttrDict({
     'name': f'p({node} | {", ".join(parents)})',
     'node_train': X_all[[node]].iloc[:NUM_TRAIN_SAMPLES],
@@ -307,14 +416,13 @@ def trainCVAE(dataset_obj, node, parents):
     'parents_valid': X_all[parents].iloc[NUM_TRAIN_SAMPLES:],
     'seed': 0,
     'epochs': 100,
-    'batch_size': 64,
-    'learning_rate': 0.001,
-    'encoder_layer_sizes': [1, 10, 10], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
-    'decoder_layer_sizes': [10, 10, 1], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
-    'latent_size': 2, # TODO: should this be 1 to be interpreted as noise?
+    'batch_size': 128,
+    'learning_rate': 0.05,
+    'lambda_kld': lambda_kld,
+    'encoder_layer_sizes': encoder_layer_sizes, # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
+    'decoder_layer_sizes': decoder_layer_sizes, # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
+    'latent_size': 1,
     'conditional': True,
-    'print_every': 1000,
-    'debug_flag': DEBUG_FLAG,
     'debug_folder': experiment_folder_name,
   }))
 
@@ -323,7 +431,7 @@ def trainCVAE(dataset_obj, node, parents):
 def trainGP(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using GP on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_all = getStandardizedData()
+  X_all = processDataFrameOrDict(dataset_obj, getOriginalDataFrame(), 'raw')
   kernel = GPy.kern.RBF(input_dim=len(parents), ARD=True)
   model = GPy.models.GPRegression(X_all[parents], X_all[[node]], kernel)
   model.optimize_restarts(parallel=True, num_restarts=5, verbose=False)
@@ -348,19 +456,20 @@ def sampleTrue(dataset_obj, classifier_obj, causal_model_obj, samples_df, factua
   if recourse_type == 'm0_true':
 
     noise_pred = _getAbductionNoise(dataset_obj, classifier_obj, causal_model_obj, node, parents, factual_instance, structural_equation)
-    XU_all = getOriginalData(with_meta = True)
-    tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
-    noise_true = XU_all.iloc[tmp_idx][getNoiseStringForNode(node)]
-    # print(f'noise_pred: {noise_pred:.8f} \t noise_true: {noise_true:.8f} \t difference: {np.abs(noise_pred - noise_true):.8f}')
+    # XU_all = getOriginalDataFrame(with_meta = True)
+    # tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
+    # noise_true = XU_all.iloc[tmp_idx][getNoiseStringForNode(node)]
+    # # print(f'noise_pred: {noise_pred:.8f} \t noise_true: {noise_true:.8f} \t difference: {np.abs(noise_pred - noise_true):.8f}')
 
-    # noise_pred assume additive noise, and therefore only works with
-    # models such as 'm1_alin' and 'm1_akrr' in general cases
-    if recourse_type == 'm0_true':
-      if SCM_CLASS != 'sanity-power':
-        assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
-      noise = noise_true
-    else:
-      noise = noise_pred
+    # # noise_pred assume additive noise, and therefore only works with
+    # # models such as 'm1_alin' and 'm1_akrr' in general cases
+    # if recourse_type == 'm0_true':
+    #   if SCM_CLASS != 'sanity-power':
+    #     assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
+    #   noise = noise_true
+    # else:
+    #   noise = noise_pred
+    noise = noise_pred
 
     for row_idx, row in samples_df.iterrows():
       noise = noise
@@ -382,7 +491,7 @@ def sampleTrue(dataset_obj, classifier_obj, causal_model_obj, samples_df, factua
 
 
 def _sampleRidgeKernelRidge(dataset_obj, classifier_obj, causal_model_obj, samples_df, factual_instance, node, parents, recourse_type, train_handle):
-  # XU_all = getOriginalData(with_meta = True)
+  # XU_all = getOriginalDataFrame(with_meta = True)
   # tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
   # noise_true = XU_all.iloc[tmp_idx][getNoiseStringForNode(node)]
 
@@ -417,8 +526,8 @@ def sampleKernelRidge(dataset_obj, classifier_obj, causal_model_obj, samples_df,
 
 def sampleCVAE(dataset_obj, classifier_obj, causal_model_obj, samples_df, factual_instance, node, parents, recourse_type):
   # All samplers EXCEPT FOR sampleTrue have been trained (and should be sampled) on standardized data
-  samples_df = processDataFrameOrDict(dataset_obj, samples_df.copy(), 'standardize')
-  factual_instance = processDataFrameOrDict(dataset_obj, factual_instance.copy(), 'standardize')
+  samples_df = processDataFrameOrDict(dataset_obj, samples_df.copy(), 'raw')
+  factual_instance = processDataFrameOrDict(dataset_obj, factual_instance.copy(), 'raw')
 
   trained_cvae = trainCVAE(dataset_obj, node, parents)
   num_samples = samples_df.shape[0]
@@ -448,14 +557,14 @@ def sampleCVAE(dataset_obj, classifier_obj, causal_model_obj, samples_df, factua
   )
   new_samples = new_samples.rename(columns={0: node}) # bad code amir, this violates abstraction!
   samples_df[node] = new_samples
-  samples_df = deprocessDataFrameOrDict(dataset_obj, samples_df, 'standardize')
+  samples_df = deprocessDataFrameOrDict(dataset_obj, samples_df, 'raw')
   return samples_df
 
 
 def sampleGP(dataset_obj, classifier_obj, causal_model_obj, samples_df, factual_instance, node, parents, recourse_type):
-  # All samplers EXCEPT FOR sampleTrue have been trained (and should be sampled) on standardized data
-  samples_df = processDataFrameOrDict(dataset_obj, samples_df.copy(), 'standardize')
-  factual_instance = processDataFrameOrDict(dataset_obj, factual_instance.copy(), 'standardize')
+  # # All samplers EXCEPT FOR sampleTrue have been trained (and should be sampled) on standardized data
+  samples_df = processDataFrameOrDict(dataset_obj, samples_df.copy(), 'raw')
+  factual_instance = processDataFrameOrDict(dataset_obj, factual_instance.copy(), 'raw')
 
   def noise_post_mean(K, sigma, Y):
     N = K.shape[0]
@@ -483,11 +592,13 @@ def sampleGP(dataset_obj, classifier_obj, causal_model_obj, samples_df, factual_
   # pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
   pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
 
-  # IMPORTANT: Find index of factual instance in dataframe used for training GP
-  #            (earlier, the factual instance was appended as the last instance)
-  tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, getStandardizedData())
-
   if recourse_type == 'm1_gaus': # counterfactual distribution for node
+    # IMPORTANT: Find index of factual instance in dataframe used for training GP
+    #            (earlier, the factual instance was appended as the last instance)
+    tmp_idx = getIndexOfFactualInstanceInDataFrame(
+      factual_instance,
+      processDataFrameOrDict(dataset_obj, getOriginalDataFrame(), 'raw'),
+    )
     new_means = pred_means + noise_post_means[tmp_idx]
     new_vars = pred_vars + noise_post_vars[tmp_idx]
   elif recourse_type == 'm2_gaus': # interventional distribution for node
@@ -499,7 +610,7 @@ def sampleGP(dataset_obj, classifier_obj, causal_model_obj, samples_df, factual_
   new_samples = new_means + np.sqrt(new_vars) * new_noise
 
   samples_df[node] = new_samples
-  samples_df = deprocessDataFrameOrDict(dataset_obj, samples_df, 'standardize')
+  samples_df = deprocessDataFrameOrDict(dataset_obj, samples_df, 'raw')
   return samples_df
 
 
@@ -843,7 +954,7 @@ def getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_ob
   # (i.e., we can cache).
 
   # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
-  X_all = getOriginalData()
+  X_all = getOriginalDataFrame()
   factual_instances_dict = {}
   tmp_counter = 1
   for factual_instance_idx, row in X_all.iterrows():
@@ -894,8 +1005,8 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   experimental_setups = [
     ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
     ('m1_gaus', 'D'), \
     ('m1_cvae', 'x'), \
     ('m2_true', 'o'), \
@@ -907,7 +1018,7 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
 
-  print(f'Describe original data:\n{getOriginalData().describe()}')
+  print(f'Describe original data:\n{getOriginalDataFrame().describe()}')
 
   action_sets = [
     {'x1': causal_model_obj.noises_distributions['u1'].sample()}
@@ -1090,15 +1201,18 @@ def experiment7(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   ''' optimal action set: figure + table '''
 
   factual_instances_dict = getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_obj)
+  # tmp = {}
+  # tmp[1126] = factual_instances_dict[1126]
+  # factual_instances_dict = tmp
 
   experimental_setups = [
     ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
-    ('m1_gaus', 'D'), \
-    ('m1_cvae', 'x'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
+    # ('m1_gaus', 'D'), \
+    # ('m1_cvae', 'x'), \
     ('m2_true', 'o'), \
-    ('m2_gaus', 's'), \
+    # ('m2_gaus', 's'), \
     ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
@@ -1153,15 +1267,19 @@ def experiment7(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
       samples_df = tmpp(dataset_obj, classifier_obj, causal_model_obj, factual_instance, recourse_type, samples_df)
       per_instance_results[factual_instance_idx][recourse_type]['pred_x3_on_true_x1_true_x2'] = list(samples_df['x3'])
 
-
-  fig, axes = pyplot.subplots(3, len(recourse_types), sharey=True, tight_layout=True)
-  fig.suptitle(f'Comparison of recon error (2-rorm) for all regressor/conditionals', fontsize='x-small')
-
-  for idx_1, (node, node_string) in enumerate([
+  tmp_setups = [
     ('x2','pred_x2_on_true_x1'),
     ('x3','pred_x3_on_true_x1_true_x2'),
     ('x3','pred_x3_on_true_x1_pred_x2'),
-  ]):
+  ]
+
+  # ============================================================================
+  # SANITY 1
+  # ============================================================================
+  fig, axes = pyplot.subplots(len(tmp_setups), len(recourse_types), sharex='row', sharey=True, tight_layout=True)
+  fig.suptitle(f'Comparison of recon error (2-rorm) for all regressor/conditionals', fontsize='x-small')
+
+  for idx_1, (node, node_string) in enumerate(tmp_setups):
     for idx_2, recourse_type in enumerate(recourse_types):
       mse_list_for_recourse_type = [
         np.linalg.norm([sample - factual_instance[node]], 2)
@@ -1179,26 +1297,27 @@ def experiment7(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   fig.tight_layout()
   pyplot.savefig(f'{experiment_folder_name}/_sanity_1.pdf')
 
-  fig, axes = pyplot.subplots(3, 3, sharex=True, sharey=True, tight_layout=True)
+  # ============================================================================
+  # SANITY 2
+  # ============================================================================
+  tmp_recourse_types = [elem for elem in recourse_types if 'm2' in elem]
+
+  fig, axes = pyplot.subplots(len(tmp_recourse_types), len(tmp_setups), sharex='col', sharey=True, tight_layout=True)
   fig.suptitle(f'Comparison of M2 smaples', fontsize='x-small')
 
-  for idx_1, (node, node_string) in enumerate([
-    ('x2','pred_x2_on_true_x1'),
-    ('x3','pred_x3_on_true_x1_true_x2'),
-    ('x3','pred_x3_on_true_x1_pred_x2'),
-  ]):
-    for idx_2, recourse_type in enumerate([elem for elem in recourse_types if 'm2' in elem]):
+  for idx_1, (node, node_string) in enumerate(tmp_setups):
+    for idx_2, recourse_type in enumerate(tmp_recourse_types):
       m2_samples_for_recourse_type = [
         sample
         for sample in per_instance_results[factual_instance_idx][recourse_type][node_string]
         for factual_instance_idx in per_instance_results.keys()
       ]
       # print(f'\n{recourse_type}', m2_samples_for_recourse_type)
-      tmp_idx = idx_1 + idx_2 * 3
+      tmp_idx = idx_1 + idx_2 * len(tmp_setups)
       axes.flatten()[tmp_idx].hist(m2_samples_for_recourse_type, bins=30)
-      if tmp_idx % 3 == 0: # if first subplot of row
+      if tmp_idx % len(tmp_setups) == 0: # if first subplot of row
         axes.flatten()[tmp_idx].set_ylabel(recourse_type, fontsize='xx-small')
-      if tmp_idx >= 6: # if last subplot of col
+      if tmp_idx >= (len(tmp_recourse_types)-1) * len(tmp_setups): # if last subplot of col
         axes.flatten()[tmp_idx].set_xlabel(node_string, fontsize='xx-small')
       axes.flatten()[tmp_idx].tick_params(axis='both', which='major', labelsize=6)
       axes.flatten()[tmp_idx].tick_params(axis='both', which='minor', labelsize=4)
@@ -1206,7 +1325,6 @@ def experiment7(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
   fig.tight_layout()
   pyplot.savefig(f'{experiment_folder_name}/_sanity_2.pdf')
-
 
 
 def tmpp(dataset_obj, classifier_obj, causal_model_obj, factual_instance, recourse_type, samples_df):
@@ -1243,6 +1361,80 @@ def tmpp(dataset_obj, classifier_obj, causal_model_obj, factual_instance, recour
         recourse_type,
       )
   return samples_df
+
+
+def experiment8(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
+  ''' optimal action set: figure + table '''
+
+  factual_instances_dict = getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_obj)
+  # tmp = {}
+  # tmp[1126] = factual_instances_dict[1126]
+  # factual_instances_dict = tmp
+
+  experimental_setups = [
+    # ('m0_true', '*'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
+    # ('m1_gaus', 'D'), \
+    # ('m1_cvae', 'x'), \
+    ('m2_true', 'o'), \
+    ('m2_gaus', 's'), \
+    ('m2_cvae', '+'), \
+    # ('m2_cvae_ps', 'P'), \
+  ]
+  recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
+
+  hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
+
+  per_value_x1_results = {}
+
+  X_all = processDataFrameOrDict(dataset_obj, getOriginalDataFrame(num_samples = NUM_TRAIN_SAMPLES * 2), 'raw')
+
+  range_x1 = dataset_obj.data_frame_kurz.describe()['x1']
+  for value_x1 in np.linspace(range_x1['min'], range_x1['max'], 10):
+  # for value_x1 in np.linspace(range_x1['25%'], range_x1['75%'], 5):
+    value_x1 = np.around(value_x1, 2)
+
+    per_value_x1_results[value_x1] = {}
+
+    factual_instance = {'x1': value_x1, 'x2': -1} # TODO: this -1 should not matter
+
+    print(f'\n\n\n[INFO] Processing factual instance `{prettyPrintDict(factual_instance)}`...')
+
+    for recourse_type in recourse_types:
+
+      per_value_x1_results[value_x1][recourse_type] = []
+
+      num_samples = NUM_MONTE_CARLO_SAMPLES
+      testing_template = {
+        'x1': factual_instance['x1'],
+        'x2': np.NaN,
+      }
+
+      # this dataframe has populated columns set to intervention or conditioning values
+      # and has NaN columns that will be set accordingly.
+      samples_df = pd.DataFrame(dict(zip(
+        dataset_obj.getInputAttributeNames(),
+        [num_samples * [testing_template[node]] for node in dataset_obj.getInputAttributeNames()],
+      )))
+      samples_df = tmpp(dataset_obj, classifier_obj, causal_model_obj, factual_instance, recourse_type, samples_df)
+      per_value_x1_results[value_x1][recourse_type] = list(samples_df['x2'])
+
+  tmp = {}
+  tmp['recourse_type'] = []
+  tmp['value_x1'] = []
+  tmp['sample_x2'] = []
+  for k1,v1 in per_value_x1_results.items():
+    for k2,v2 in v1.items():
+      for elem in v2:
+        tmp['recourse_type'].append(k2)
+        tmp['value_x1'].append(k1)
+        tmp['sample_x2'].append(elem)
+  tmp = pd.DataFrame.from_dict(tmp)
+  ax = sns.boxplot(x="value_x1", y="sample_x2", hue="recourse_type", data=tmp, palette="Set3", showmeans=True)
+  # ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
+  # pyplot.show()
+  pyplot.savefig(f'{experiment_folder_name}/_sanity_3.pdf')
 
 
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj):
@@ -1307,9 +1499,10 @@ if __name__ == "__main__":
   causal_model_obj = loadCausalModel(experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
-  # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
   # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  experiment7(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # experiment7(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # experiment8(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)

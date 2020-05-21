@@ -13,7 +13,7 @@ from debug import ipsh
 
 mu_x, sigma_x = 0, 1 # mean and standard deviation for data
 mu_w, sigma_w = 0, 1 # mean and standard deviation for weights
-n = 1200
+n = 2500
 
 def load_random_data(variable_type = 'real'):
 

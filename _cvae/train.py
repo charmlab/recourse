@@ -39,9 +39,9 @@ class Dataset(torch.utils.data.Dataset):
 
 def train_cvae(args):
 
-    # torch.manual_seed(args.seed)
-    # if torch.cuda.is_available():
-    #     torch.cuda.manual_seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(args.seed)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     writer = SummaryWriter(log_dir = args.debug_folder)
@@ -52,16 +52,32 @@ def train_cvae(args):
     data_loader = DataLoader(
         dataset=dataset, batch_size=args.batch_size, shuffle=True)
 
-    def loss_fn(recon_x, x, mean, log_var):
+    # lambda_loss = torch.tensor(args.lambda_kld, requires_grad = True)
+    # lambda_loss = torch.tensor(0.1, requires_grad = True)
+    lambda_loss = torch.tensor(2., requires_grad = True)
+
+    def loss_fn(recon_x, x, mean, log_var, lambda_loss):
         # TODO: add back for binary / categorical variables
         # BCE = torch.nn.functional.binary_cross_entropy(recon_x, x, reduction='sum')
-        MSE = torch.nn.functional.mse_loss(recon_x, x, reduction='sum')
-        KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
+        MSE = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
+        KLD = -0.5 * torch.mean(torch.sum(1 + log_var - mean.pow(2) - log_var.exp(), axis=1))
+        # print(recon_x)
+        # ipsh()
+        # ipsh()
         # print(f'MSE: {MSE} \t KLD: {KLD}')
         # return (BCE + KLD) / x.size(0)
         # return (10 * MSE + KLD) / x.size(0)
         # return (MSE + KLD) / x.size(0)
-        return MSE + KLD * mean.size(1)
+        # return MSE + KLD * mean.size(1)
+        # return MSE / (2 / (4.58**2))  + KLD
+        # return MSE / 2 + KLD
+        # return MSE + KLD * lambda_loss.detach() + lambda_loss * KLD.detach()
+        # return MSE + KLD * lambda_loss.detach() + MSE.detach() / lambda_loss
+        # return MSE / lambda_loss.detach() + KLD - MSE.detach() / lambda_loss
+        # return MSE + KLD + lambda_loss.detach() * torch.norm(MSE - KLD, p = 2) - lambda_loss * torch.norm(MSE - KLD, p = 2).detach()
+
+        # return MSE * lambda_loss.detach() + KLD # - MSE.detach() * lambda_loss
+        return MSE / args.lambda_kld + KLD
 
     vae = VAE(
         encoder_layer_sizes=list(args.encoder_layer_sizes), # bug in AttrDict package: https://github.com/bcj/AttrDict/issues/34#issuecomment-202920540
@@ -70,7 +86,7 @@ def train_cvae(args):
         conditional=args.conditional,
         num_labels=args.parents_train.shape[1] if args.conditional else 0).to(device)
 
-    optimizer = torch.optim.Adam(vae.parameters(), lr=args.learning_rate)
+    optimizer = torch.optim.Adam(list(vae.parameters()) + [lambda_loss], lr=args.learning_rate)
 
     logs = defaultdict(list)
 
@@ -94,7 +110,7 @@ def train_cvae(args):
             #     tracker_epoch[id]['y'] = z[i, 1].item()
             #     tracker_epoch[id]['label'] = yi.item()
 
-            loss = loss_fn(recon_x, x, mean, log_var)
+            loss = loss_fn(recon_x, x, mean, log_var, lambda_loss)
 
             optimizer.zero_grad()
             loss.backward()
@@ -102,12 +118,10 @@ def train_cvae(args):
 
             logs['loss'].append(loss.item())
 
-            if args.debug_flag:
-                if iteration % args.print_every == 0 or iteration == len(data_loader)-1:
-                    print("Epoch {:02d}/{:02d} Batch {:04d}/{:d}, Loss {:9.4f}".format(
-                        epoch, args.epochs, iteration, len(data_loader)-1, loss.item()))
-
-
+            # if args.debug_flag:
+            #     if iteration % args.print_every == 0 or iteration == len(data_loader)-1:
+            #         print("Epoch {:02d}/{:02d} Batch {:04d}/{:d}, Loss {:9.4f}".format(
+            #             epoch, args.epochs, iteration, len(data_loader)-1, loss.item()))
 
         # train set
         x = torch.tensor(args.node_train.to_numpy()).float()
@@ -117,7 +131,7 @@ def train_cvae(args):
         mean = mean.detach()
         log_var = log_var.detach()
         MSE_train = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
-        KLD_train = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
+        KLD_train = -0.5 * torch.mean(torch.sum(1 + log_var - mean.pow(2) - log_var.exp(), axis=1))
 
         # valid set
         x = torch.tensor(args.node_valid.to_numpy()).float()
@@ -127,15 +141,15 @@ def train_cvae(args):
         mean = mean.detach()
         log_var = log_var.detach()
         MSE_valid = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
-        KLD_valid = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
+        KLD_valid = -0.5 * torch.mean(torch.sum(1 + log_var - mean.pow(2) - log_var.exp(), axis=1))
 
         writer.add_scalars(f'loss/{args.name}', {
             'MSE_train': MSE_train,
             'KLD_train': KLD_train,
-            'sum_train': MSE_train + KLD_train,
+            # 'sum_train': MSE_train + KLD_train,
             'MSE_valid': MSE_valid,
             'KLD_valid': KLD_valid,
-            'sum_valid': MSE_valid + KLD_valid,
+            # 'sum_valid': MSE_valid + KLD_valid,
         }, epoch)
 
         moving_window_size = 20
@@ -146,6 +160,8 @@ def train_cvae(args):
             np.abs(np.mean(all_mse_valid_losses[-moving_window_size:]) / MSE_valid) < 1.05:
             print(f'Early stopping at epoch {epoch}')
             break
+
+    print(f'Final lambda_loss value: {lambda_loss:.6f}')
 
     return vae
 
