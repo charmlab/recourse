@@ -2,7 +2,8 @@ import copy
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from main import loadCausalModel, getNoiseStringForNode
+
+import loadSCM
 
 from random import seed
 RANDOM_SEED = 54321
@@ -15,13 +16,18 @@ mu_x, sigma_x = 0, 1 # mean and standard deviation for data
 mu_w, sigma_w = 0, 1 # mean and standard deviation for weights
 n = 2500
 
-def load_random_data(variable_type = 'real'):
+# from main import getNoiseStringForNode $ TODO: should be from ../main??
+def getNoiseStringForNode(node):
+  assert node[0] == 'x'
+  return 'u' + node[1:]
 
-  causal_model_obj = loadCausalModel()
+def load_random_data(scm_class, variable_type = 'real'):
+
+  causal_model_obj = loadSCM.loadSCM(scm_class)
 
   d = len(causal_model_obj.structural_equations.keys())
 
-  print(f'\n\n[INFO] Creating dataset using scm class `???`...')
+  print(f'\n\n[INFO] Creating dataset using scm class `{scm_class}`...')
 
   # sample exogenous U variables
   print(f'\t[INFO] Sampling {n} exogenous U variables (d = {d})...')

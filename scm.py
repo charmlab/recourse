@@ -19,8 +19,9 @@ class CausalModel(object):
 
   def __init__(self, *args, **kwargs):
 
-    self.structural_equations = args[0]
-    self.noises_distributions = args[1]
+    self.scm_class = args[0]
+    self.structural_equations = args[1]
+    self.noises_distributions = args[2]
 
     self._scm = StructuralCausalModel(self.structural_equations) # may be redundant, can simply call CausalGraphicalModel...
     self._cgm = self._scm.cgm
@@ -64,6 +65,9 @@ class CausalModel(object):
       save_path = '_tmp/causal_graph'
       view_flag = True
     self._cgm.draw().render(save_path, view=view_flag)
+
+  def printSCM(self):
+    raise NotImplementedError
 
 
 

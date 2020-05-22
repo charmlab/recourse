@@ -588,7 +588,7 @@ class DatasetAttribute(object):
     self.upper_bound = upper_bound
 
 
-def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_flag = True):
+def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_flag = True, meta_param = None):
 
   def getInputOutputColumns(data_frame):
     all_data_frame_cols = data_frame.columns.values
@@ -914,7 +914,9 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
     variable_type = 'real'
     # variable_type = 'integer'
 
-    data_frame_non_hot = load_random_data(variable_type)
+    scm_class = meta_param
+
+    data_frame_non_hot = load_random_data(scm_class, variable_type)
     data_frame_non_hot = data_frame_non_hot.reset_index(drop=True)
     attributes_non_hot = {}
 

@@ -19,9 +19,9 @@ from attrdict import AttrDict
 import GPy
 from scm import CausalModel
 import utils
+import loadSCM
 import loadData
 import loadModel
-from distributions import *
 
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Ridge
@@ -37,28 +37,11 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
-
-SCM_CLASS = 'sanity-add'
-# SCM_CLASS = 'sanity-mult'
-
-# SCM_CLASS = 'sanity-add-sig'
-# SCM_CLASS = 'sanity-add-pow'
-
-# SCM_CLASS = 'sanity-sig-add'
-# SCM_CLASS = 'sanity-pow-add'
-
-# SCM_CLASS = 'sanity-sin-add'
-# SCM_CLASS = 'sanity-cos-exp-add'
-
-# SCM_CLASS = 'sanity-add-3'
-# SCM_CLASS = 'sanity-mult-3'
-# SCM_CLASS = 'sanity-power-3'
-
 DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
 GRID_SEARCH_BINS = 5
-NUM_TRAIN_SAMPLES = 100
+NUM_TRAIN_SAMPLES = 1000
 NUM_RECOURSE_SAMPLES = 30
 NUM_DISPLAY_SAMPLES = 15
 NUM_MONTE_CARLO_SAMPLES = 100
@@ -75,93 +58,18 @@ ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cva
 
 
 @utils.Memoize
-def loadDataset(dataset_class):
-  return loadData.loadDataset(dataset_class, return_one_hot = True, load_from_cache = False)
+def loadCausalModel(scm_class, experiment_folder_name = None):
+  return loadSCM.loadSCM(scm_class, experiment_folder_name)
+
+
+@utils.Memoize
+def loadDataset(scm_class, dataset_class):
+  return loadData.loadDataset(dataset_class, return_one_hot = True, load_from_cache = False, meta_param = scm_class)
 
 
 @utils.Memoize
 def loadClassifier(dataset_class, classifier_class, experiment_folder_name):
   return loadModel.loadModelForDataset(classifier_class, dataset_class, experiment_folder_name)
-
-
-@utils.Memoize
-def loadCausalModel(experiment_folder_name = None):
-
-  structural_equations = {
-    'x1': lambda n_samples, : n_samples,
-    # 'x2': TBD
-  }
-  noises_distributions = {
-    'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-    'u2': Normal(0, 1),
-  }
-
-  if SCM_CLASS == 'sanity-add':
-    structural_equations['x2'] = lambda n_samples, x1 : 2 * x1 + n_samples
-  elif SCM_CLASS == 'sanity-mult':
-    structural_equations['x2'] = lambda n_samples, x1 : np.array(x1) * n_samples
-  elif SCM_CLASS == 'sanity-add-sig':
-    structural_equations['x2'] = lambda n_samples, x1 : (x1 + n_samples) ** 2
-  elif SCM_CLASS == 'sanity-add-pow':
-    structural_equations['x2'] = lambda n_samples, x1 : 5 / (1 + np.exp(- x1 - n_samples))
-  elif SCM_CLASS == 'sanity-sig-add':
-    structural_equations['x2'] = lambda n_samples, x1 : 5 / (1 + np.exp(-x1)) + n_samples
-  elif SCM_CLASS == 'sanity-pow-add':
-    structural_equations['x2'] = lambda n_samples, x1 : x1 ** 2 + n_samples
-  elif SCM_CLASS == 'sanity-sin-add':
-    structural_equations['x2'] = lambda n_samples, x1 : np.sin(x1 + 2 * x2) + n_samples
-  elif SCM_CLASS == 'sanity-cos-exp-add':
-    structural_equations['x2'] = lambda n_samples, x1 : 2 * np.cos(3 * x1) * np.exp(-0.3 * x1**2) + n_samples
-
-
-  if SCM_CLASS == 'sanity-add-3':
-
-    structural_equations = {
-      'x1': lambda n_samples,        :           n_samples,
-      'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
-      'x3': lambda n_samples, x1, x2 : x1 + x2 + n_samples,
-    }
-    noises_distributions = {
-      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-      'u2': Normal(0, 1),
-      'u3': Normal(0, 1),
-    }
-
-  elif SCM_CLASS == 'sanity-mult-3':
-
-    structural_equations = {
-      'x1': lambda n_samples,        :           n_samples,
-      'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
-      'x3': lambda n_samples, x1, x2 : x1 * x2 + n_samples,
-    }
-    noises_distributions = {
-      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-      'u2': Normal(0, 1),
-      'u3': Normal(0, 1),
-    }
-
-  elif SCM_CLASS == 'sanity-power-3':
-
-    structural_equations = {
-      'x1': lambda n_samples,        :                  n_samples,
-      'x2': lambda n_samples, x1     :         2 * x1 + n_samples,
-      'x3': lambda n_samples, x1, x2 : (x1 + x2 + n_samples) ** 2,
-    }
-    noises_distributions = {
-      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-      'u2': Normal(0, 1),
-      'u3': Normal(0, 1),
-    }
-
-  assert \
-    set([getNoiseStringForNode(node) for node in structural_equations.keys()]) == \
-    set(noises_distributions.keys()), \
-    'structural_equations & noises_distributions should have identical keys.'
-
-  scm = CausalModel(structural_equations, noises_distributions)
-  if experiment_folder_name is not None:
-    scm.visualizeGraph(experiment_folder_name)
-  return scm
 
 
 def measureActionSetCost(dataset_obj, factual_instance, action_set):
@@ -333,7 +241,7 @@ def trainCVAE(dataset_obj, node, parents):
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using CVAE on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(dataset_obj, getOriginalDataFrame(num_samples = int(NUM_TRAIN_SAMPLES * 1.2)), 'raw')
 
-  # if SCM_CLASS == 'sanity-add':
+  # if causal_model_obj.scm_class == 'sanity-2-add':
   #   if NUM_TRAIN_SAMPLES == 5000:
   #     lambda_kld = 0.1
   #     encoder_layer_sizes = [1, 3, 3]
@@ -342,7 +250,7 @@ def trainCVAE(dataset_obj, node, parents):
   #     lambda_kld = 0.5
   #     encoder_layer_sizes = [1, 3, 3]
   #     decoder_layer_sizes = [2, 1]
-  # elif SCM_CLASS == 'sanity-sig-add':
+  # elif causal_model_obj.scm_class == 'sanity-2-sig-add':
   #   if NUM_TRAIN_SAMPLES == 5000:
   #     lambda_kld = 0.1
   #     encoder_layer_sizes = [1, 3, 3]
@@ -351,7 +259,7 @@ def trainCVAE(dataset_obj, node, parents):
   #     lambda_kld = 0.5
   #     encoder_layer_sizes = [1, 3, 3]
   #     decoder_layer_sizes = [2, 1]
-  # elif SCM_CLASS ==  'sanity-pow-add':
+  # elif causal_model_obj.scm_class ==  'sanity-2-pow-add':
   #   if NUM_TRAIN_SAMPLES == 5000:
   #     lambda_kld = 0.5
   #     encoder_layer_sizes = [1, 3, 3]
@@ -360,7 +268,7 @@ def trainCVAE(dataset_obj, node, parents):
   #     lambda_kld = 0.5
   #     encoder_layer_sizes = [1, 3, 3]
   #     decoder_layer_sizes = [2, 1]
-  # elif SCM_CLASS ==  'sanity-mult':
+  # elif causal_model_obj.scm_class ==  'sanity-2-mult':
   #   # if NUM_TRAIN_SAMPLES == 5000:
   #   #   lambda_kld = 0.1
   #   #   encoder_layer_sizes = [1, 3, 3]
@@ -369,7 +277,7 @@ def trainCVAE(dataset_obj, node, parents):
   #     lambda_kld = 0.5
   #     encoder_layer_sizes = [1, 3, 3]
   #     decoder_layer_sizes = [2, 1]
-  # elif SCM_CLASS ==  'sanity-add-pow':
+  # elif causal_model_obj.scm_class ==  'sanity-2-add-pow':
   #   # if NUM_TRAIN_SAMPLES == 5000:
   #   #   lambda_kld = 0.5
   #   #   encoder_layer_sizes = [1, 3, 3]
@@ -439,7 +347,7 @@ def sampleTrue(dataset_obj, classifier_obj, causal_model_obj, samples_df, factua
     # # noise_pred assume additive noise, and therefore only works with
     # # models such as 'm1_alin' and 'm1_akrr' in general cases
     # if recourse_type == 'm0_true':
-    #   if SCM_CLASS != 'sanity-power':
+    #   if causal_model_obj.scm_class != 'sanity-power':
     #     assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
     #   noise = noise_true
     # else:
@@ -1394,6 +1302,12 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser()
 
   parser.add_argument(
+    '-s', '--scm_class',
+    type = str,
+    default = 'sanity-2-add',
+    help = 'Name of SCM to generate data using (see loadSCM.py)')
+
+  parser.add_argument(
     '-d', '--dataset_class',
     type = str,
     default = 'random',
@@ -1413,6 +1327,7 @@ if __name__ == "__main__":
 
   # parsing the args
   args = parser.parse_args()
+  scm_class = args.scm_class
   dataset_class = args.dataset_class
   classifier_class = args.classifier_class
 
@@ -1428,9 +1343,9 @@ if __name__ == "__main__":
   os.mkdir(f'{experiment_folder_name}')
 
   # only load once so shuffling order is the same
-  dataset_obj = loadDataset(dataset_class)
+  causal_model_obj = loadCausalModel(scm_class, experiment_folder_name)
+  dataset_obj = loadDataset(scm_class, dataset_class)
   classifier_obj = loadClassifier(dataset_class, classifier_class, experiment_folder_name)
-  causal_model_obj = loadCausalModel(experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
   # setup
