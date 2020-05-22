@@ -1,10 +1,20 @@
+import os
 import sys
+import copy
+import pickle
 import numpy as np
+import pandas as pd
+from tqdm import tqdm
+from pprint import pprint
+from sklearn.model_selection import train_test_split
 
 import utils
-from scm import CausalModel
 from distributions import *
 from main import getNoiseStringForNode
+
+from causalgraphicalmodels import CausalGraphicalModel
+from causalgraphicalmodels import StructuralCausalModel
+import networkx as nx
 
 from debug import ipsh
 
@@ -12,6 +22,62 @@ from random import seed
 RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
+
+
+class CausalModel(object):
+
+  def __init__(self, *args, **kwargs):
+
+    self.scm_class = args[0]
+    self.structural_equations = args[1]
+    self.noises_distributions = args[2]
+
+    self._scm = StructuralCausalModel(self.structural_equations) # may be redundant, can simply call CausalGraphicalModel...
+    self._cgm = self._scm.cgm
+
+  def getTopologicalOrdering(self, node_type = 'endogenous'):
+    tmp = nx.topological_sort(self._cgm.dag)
+    if node_type == 'endogenous':
+      return tmp
+    elif node_type == 'exogenous':
+      return ['u'+node[1:] for node in tmp]
+    else:
+      raise Exception(f'{node_type} not recognized.')
+
+  def getChildrenForNode(self, node):
+    return set(self._cgm.dag.successors(node))
+
+  def getDescendentsForNode(self, node):
+    return nx.descendants(self._cgm.dag, node)
+
+  def getParentsForNode(self, node, return_sorted = True):
+    tmp = set(self._cgm.dag.predecessors(node))
+    return sorted(tmp) if return_sorted else tmp
+
+  def getAncestorsForNode(self, node):
+    return nx.ancestors(self._cgm.dag, node)
+
+  def getNonDescendentsForNode(self, node):
+    return set(nx.topological_sort(self._cgm.dag)) \
+      .difference(self.getDescendentsForNode(node)) \
+      .symmetric_difference(set([node]))
+
+  def getStructuralEquationForNode(self, node):
+    # self._scm.assignment[node]
+    raise NotImplementedError
+
+  def visualizeGraph(self, experiment_folder_name = None):
+    if experiment_folder_name:
+      save_path = f'{experiment_folder_name}/causal_graph'
+      view_flag = False
+    else:
+      save_path = '_tmp/causal_graph'
+      view_flag = True
+    self._cgm.draw().render(save_path, view=view_flag)
+
+  def printSCM(self):
+    raise NotImplementedError
+
 
 
 @utils.Memoize

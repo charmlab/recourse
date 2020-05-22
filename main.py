@@ -17,7 +17,6 @@ from datetime import datetime
 from attrdict import AttrDict
 
 import GPy
-from scm import CausalModel
 import utils
 import loadSCM
 import loadData
