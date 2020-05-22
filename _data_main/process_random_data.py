@@ -23,9 +23,9 @@ def getNoiseStringForNode(node):
 
 def load_random_data(scm_class, variable_type = 'real'):
 
-  causal_model_obj = loadSCM.loadSCM(scm_class)
+  scm_obj = loadSCM.loadSCM(scm_class)
 
-  d = len(causal_model_obj.structural_equations.keys())
+  d = len(scm_obj.structural_equations.keys())
 
   print(f'\n\n[INFO] Creating dataset using scm class `{scm_class}`...')
 
@@ -34,30 +34,30 @@ def load_random_data(scm_class, variable_type = 'real'):
   U = np.concatenate(
     [
       np.array(
-        [causal_model_obj.noises_distributions[node].sample() for _ in range(n)]
+        [scm_obj.noises_distributions[node].sample() for _ in range(n)]
       ).reshape(-1,1)
-      for node in causal_model_obj.getTopologicalOrdering('exogenous')
+      for node in scm_obj.getTopologicalOrdering('exogenous')
     ],
     axis = 1,
   )
-  U = pd.DataFrame(U, columns=causal_model_obj.getTopologicalOrdering('exogenous'))
+  U = pd.DataFrame(U, columns=scm_obj.getTopologicalOrdering('exogenous'))
   print(f'\t[INFO] done.')
 
   # sample endogenous X variables
   print(f'\t[INFO] Sampling {n} endogenous X variables (d = {d})...') # (i.e., processDataAccordingToGraph)
   X = U.copy()
   X = X.rename(columns=dict(zip(
-    causal_model_obj.getTopologicalOrdering('exogenous'),
-    causal_model_obj.getTopologicalOrdering('endogenous')
+    scm_obj.getTopologicalOrdering('exogenous'),
+    scm_obj.getTopologicalOrdering('endogenous')
   )))
   X.loc[:] = np.nan # used later as an assertion to make sure parents are populated when computing children
-  for node in causal_model_obj.getTopologicalOrdering('endogenous'):
-    parents = causal_model_obj.getParentsForNode(node)
+  for node in scm_obj.getTopologicalOrdering('endogenous'):
+    parents = scm_obj.getParentsForNode(node)
     # assuming we're iterating in topological order, parents in X should already be occupied
     assert not X.loc[:,list(parents)].isnull().values.any()
     for row_idx, row in tqdm(X.iterrows(), total=X.shape[0]):
-      X.loc[row_idx, node] = causal_model_obj.structural_equations[node](
-        # causal_model_obj.noises_distributions[node].sample(), # this is more elegant, but we also want to save the U's, so we do the above first
+      X.loc[row_idx, node] = scm_obj.structural_equations[node](
+        # scm_obj.noises_distributions[node].sample(), # this is more elegant, but we also want to save the U's, so we do the above first
         U.loc[row_idx, getNoiseStringForNode(node)],
         *X.loc[row_idx, parents].to_numpy(),
       )
