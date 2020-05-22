@@ -39,10 +39,16 @@ np.random.seed(RANDOM_SEED)
 
 
 SCM_CLASS = 'sanity-add'
-# SCM_CLASS = 'sanity-sigmoid'
-# SCM_CLASS = 'sanity-pow-add'
 # SCM_CLASS = 'sanity-mult'
+
+# SCM_CLASS = 'sanity-add-sig'
 # SCM_CLASS = 'sanity-add-pow'
+
+# SCM_CLASS = 'sanity-sig-add'
+# SCM_CLASS = 'sanity-pow-add'
+
+# SCM_CLASS = 'sanity-sin-add'
+# SCM_CLASS = 'sanity-cos-exp-add'
 
 # SCM_CLASS = 'sanity-add-3'
 # SCM_CLASS = 'sanity-mult-3'
@@ -52,10 +58,10 @@ DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
 GRID_SEARCH_BINS = 5
-NUM_TRAIN_SAMPLES = 1000
-NUM_RECOURSE_SAMPLES = 1
-NUM_DISPLAY_SAMPLES = 10
-NUM_MONTE_CARLO_SAMPLES = 1000
+NUM_TRAIN_SAMPLES = 100
+NUM_RECOURSE_SAMPLES = 30
+NUM_DISPLAY_SAMPLES = 15
+NUM_MONTE_CARLO_SAMPLES = 100
 
 ACCEPTABLE_POINT_RECOURSE = {'m0_true', 'm1_alin', 'm1_akrr'}
 ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cvae', 'm2_cvae_ps'}
@@ -81,100 +87,71 @@ def loadClassifier(dataset_class, classifier_class, experiment_folder_name):
 @utils.Memoize
 def loadCausalModel(experiment_folder_name = None):
 
+  structural_equations = {
+    'x1': lambda n_samples, : n_samples,
+    # 'x2': TBD
+  }
+  noises_distributions = {
+    'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+    'u2': Normal(0, 1),
+  }
+
   if SCM_CLASS == 'sanity-add':
+    structural_equations['x2'] = lambda n_samples, x1 : 2 * x1 + n_samples
+  elif SCM_CLASS == 'sanity-mult':
+    structural_equations['x2'] = lambda n_samples, x1 : np.array(x1) * n_samples
+  elif SCM_CLASS == 'sanity-add-sig':
+    structural_equations['x2'] = lambda n_samples, x1 : (x1 + n_samples) ** 2
+  elif SCM_CLASS == 'sanity-add-pow':
+    structural_equations['x2'] = lambda n_samples, x1 : 5 / (1 + np.exp(- x1 - n_samples))
+  elif SCM_CLASS == 'sanity-sig-add':
+    structural_equations['x2'] = lambda n_samples, x1 : 5 / (1 + np.exp(-x1)) + n_samples
+  elif SCM_CLASS == 'sanity-pow-add':
+    structural_equations['x2'] = lambda n_samples, x1 : x1 ** 2 + n_samples
+  elif SCM_CLASS == 'sanity-sin-add':
+    structural_equations['x2'] = lambda n_samples, x1 : np.sin(x1 + 2 * x2) + n_samples
+  elif SCM_CLASS == 'sanity-cos-exp-add':
+    structural_equations['x2'] = lambda n_samples, x1 : 2 * np.cos(3 * x1) * np.exp(-0.3 * x1**2) + n_samples
+
+
+  if SCM_CLASS == 'sanity-add-3':
 
     structural_equations = {
       'x1': lambda n_samples,        :           n_samples,
       'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
+      'x3': lambda n_samples, x1, x2 : x1 + x2 + n_samples,
     }
     noises_distributions = {
       'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
       'u2': Normal(0, 1),
+      'u3': Normal(0, 1),
     }
 
-  elif SCM_CLASS == 'sanity-sigmoid':
+  elif SCM_CLASS == 'sanity-mult-3':
 
     structural_equations = {
-      'x1': lambda n_samples,        :                          n_samples,
-      'x2': lambda n_samples, x1     :  5 / (1 + np.exp(-x1)) + n_samples,
+      'x1': lambda n_samples,        :           n_samples,
+      'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
+      'x3': lambda n_samples, x1, x2 : x1 * x2 + n_samples,
     }
     noises_distributions = {
       'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
       'u2': Normal(0, 1),
+      'u3': Normal(0, 1),
     }
 
-  elif SCM_CLASS == 'sanity-pow-add':
+  elif SCM_CLASS == 'sanity-power-3':
 
     structural_equations = {
-      'x1': lambda n_samples,        :            n_samples,
-      'x2': lambda n_samples, x1     :  x1 ** 2 + n_samples,
+      'x1': lambda n_samples,        :                  n_samples,
+      'x2': lambda n_samples, x1     :         2 * x1 + n_samples,
+      'x3': lambda n_samples, x1, x2 : (x1 + x2 + n_samples) ** 2,
     }
     noises_distributions = {
       'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
       'u2': Normal(0, 1),
+      'u3': Normal(0, 1),
     }
-
-  elif SCM_CLASS == 'sanity-mult':
-
-    structural_equations = {
-      'x1': lambda n_samples,        :                 n_samples,
-      'x2': lambda n_samples, x1     :  np.array(x1) * n_samples,
-    }
-    noises_distributions = {
-      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-      'u2': Normal(0, 1),
-    }
-
-  elif SCM_CLASS == 'sanity-add-pow':
-
-    structural_equations = {
-      'x1': lambda n_samples,        :              n_samples,
-      'x2': lambda n_samples, x1     :  (x1 + n_samples) ** 2,
-    }
-    noises_distributions = {
-      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-      'u2': Normal(0, 1),
-    }
-
-
-  # if SCM_CLASS == 'sanity-add-3':
-
-  #   structural_equations = {
-  #     'x1': lambda n_samples,        :           n_samples,
-  #     'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
-  #     'x3': lambda n_samples, x1, x2 : x1 + x2 + n_samples,
-  #   }
-  #   noises_distributions = {
-  #     'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-  #     'u2': Normal(0, 1),
-  #     'u3': Normal(0, 1),
-  #   }
-
-  # elif SCM_CLASS == 'sanity-mult-3':
-
-  #   structural_equations = {
-  #     'x1': lambda n_samples,        :           n_samples,
-  #     'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
-  #     'x3': lambda n_samples, x1, x2 : x1 * x2 + n_samples,
-  #   }
-  #   noises_distributions = {
-  #     'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-  #     'u2': Normal(0, 1),
-  #     'u3': Normal(0, 1),
-  #   }
-
-  # elif SCM_CLASS == 'sanity-power-3':
-
-  #   structural_equations = {
-  #     'x1': lambda n_samples,        :                  n_samples,
-  #     'x2': lambda n_samples, x1     :         2 * x1 + n_samples,
-  #     'x3': lambda n_samples, x1, x2 : (x1 + x2 + n_samples) ** 2,
-  #   }
-  #   noises_distributions = {
-  #     'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-  #     'u2': Normal(0, 1),
-  #     'u3': Normal(0, 1),
-  #   }
 
   assert \
     set([getNoiseStringForNode(node) for node in structural_equations.keys()]) == \
@@ -188,8 +165,7 @@ def loadCausalModel(experiment_folder_name = None):
 
 
 def measureActionSetCost(dataset_obj, factual_instance, action_set):
-  # TODO: the cost should be measured in normalized space over all features
-  #       pass in dataset_obj to get..
+  # TODO: add support for categorical data + measured in normalized space over all features
   deltas = []
   ranges = dataset_obj.getVariableRanges()
   for key in action_set.keys():
@@ -356,7 +332,6 @@ def trainCVAE(dataset_obj, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using CVAE on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(dataset_obj, getOriginalDataFrame(num_samples = int(NUM_TRAIN_SAMPLES * 1.2)), 'raw')
-  print(X_all)
 
   # if SCM_CLASS == 'sanity-add':
   #   if NUM_TRAIN_SAMPLES == 5000:
@@ -367,7 +342,7 @@ def trainCVAE(dataset_obj, node, parents):
   #     lambda_kld = 0.5
   #     encoder_layer_sizes = [1, 3, 3]
   #     decoder_layer_sizes = [2, 1]
-  # elif SCM_CLASS == 'sanity-sigmoid':
+  # elif SCM_CLASS == 'sanity-sig-add':
   #   if NUM_TRAIN_SAMPLES == 5000:
   #     lambda_kld = 0.1
   #     encoder_layer_sizes = [1, 3, 3]
@@ -419,8 +394,8 @@ def trainCVAE(dataset_obj, node, parents):
     'batch_size': 128,
     'learning_rate': 0.05,
     'lambda_kld': lambda_kld,
-    'encoder_layer_sizes': encoder_layer_sizes, # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
-    'decoder_layer_sizes': decoder_layer_sizes, # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: will change for categorical variables
+    'encoder_layer_sizes': encoder_layer_sizes, # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
+    'decoder_layer_sizes': decoder_layer_sizes, # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
     'latent_size': 1,
     'conditional': True,
     'debug_folder': experiment_folder_name,
@@ -731,7 +706,7 @@ def isPointConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, fa
 
 
 def isDistrConstraintSatisfied(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
-  return computeLowerConfidenceBound() >= 0.5
+  return computeLowerConfidenceBound(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type) >= 0.5
 
 
 def computeLowerConfidenceBound(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, recourse_type):
@@ -801,7 +776,7 @@ def getValidDiscretizedActionSets(dataset_obj):
 
     else:
 
-      raise NotImplementedError # TODO
+      raise NotImplementedError # TODO: add support for categorical variables
 
   all_action_tuples = list(itertools.product(
     *possible_actions_per_node
@@ -999,35 +974,32 @@ def hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recours
 # DEPRECATED def experiment4
 
 
-def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
+def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' fixed action set: assert {m1, m2} x {gaus, cvae} working '''
-  factual_instances_dict = getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_obj)
 
-  experimental_setups = [
-    ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
-    ('m1_gaus', 'D'), \
-    ('m1_cvae', 'x'), \
-    ('m2_true', 'o'), \
-    ('m2_gaus', 's'), \
-    ('m2_cvae', '+'), \
-    # ('m2_cvae_ps', 'P'), \
-  ]
-  recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
-
-  hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
+  assert len(dataset_obj.getInputAttributeNames()) == 3, 'Exp 5 is only designed for 3-variable SCMs'
 
   print(f'Describe original data:\n{getOriginalDataFrame().describe()}')
 
+  # action_sets = [
+  #   {'x1': causal_model_obj.noises_distributions['u1'].sample()}
+  #   for _ in range(4)
+  # ]
+  range_x1 = dataset_obj.data_frame_kurz.describe()['x1']
   action_sets = [
-    {'x1': causal_model_obj.noises_distributions['u1'].sample()}
-    for _ in range(4)
+    {'x1': value_x1}
+    for value_x1 in np.linspace(range_x1['min'], range_x1['max'], 9)
   ]
 
   factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
 
-  fig, axes = pyplot.subplots(int(np.sqrt(len(action_sets))), int(np.sqrt(len(action_sets))))
+  fig, axes = pyplot.subplots(
+    int(np.sqrt(len(action_sets))),
+    int(np.sqrt(len(action_sets))),
+    # tight_layout=True,
+    # sharex='row',
+    # sharey='row',
+  )
   fig.suptitle(f'FC: {prettyPrintDict(factual_instance)}', fontsize='x-small')
   if len(action_sets) == 1:
     axes = np.array(axes) # weird hack we need to use so to later use flatten()
@@ -1054,38 +1026,35 @@ def experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
 
     axes.flatten()[idx].set_xlabel('$x2$', fontsize='x-small')
     axes.flatten()[idx].set_ylabel('$x3$', fontsize='x-small')
-    # axes.flatten()[idx].set_xlim(-10, 10)
-    # axes.flatten()[idx].set_ylim(-10, 10)
     axes.flatten()[idx].tick_params(axis='both', which='major', labelsize=6)
     axes.flatten()[idx].tick_params(axis='both', which='minor', labelsize=4)
-    axes.flatten()[idx].set_title(f'action_set: {str(action_set)}', fontsize='x-small')
+    axes.flatten()[idx].set_title(f'action_set: {str(prettyPrintDict(action_set))}', fontsize='x-small')
 
-  for ax in axes.flatten():
-    ax.legend(fontsize='xx-small')
+  # for ax in axes.flatten():
+  #   ax.legend(fontsize='xx-small')
+
+  # handles, labels = axes.flatten()[-1].get_legend_handles_labels()
+  # # https://stackoverflow.com/a/43439132/2759976
+  # fig.legend(handles, labels, bbox_to_anchor=(1.04, 0.5), loc='center left', fontsize='x-small')
+
+  # https://riptutorial.com/matplotlib/example/10473/single-legend-shared-across-multiple-subplots
+  handles, labels = axes.flatten()[-1].get_legend_handles_labels()
+  fig.legend(
+    handles=handles,
+    labels=labels,        # The labels for each line
+    loc="center right",   # Position of legend
+    borderaxespad=0.1,    # Small spacing around legend box
+    # title="Legend Title", # Title for the legend
+    fontsize='xx-small',
+  )
   fig.tight_layout()
+  plt.subplots_adjust(right=0.85)
   # pyplot.show()
   pyplot.savefig(f'{experiment_folder_name}/comparison.pdf')
 
 
-def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
+def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' optimal action set: figure + table '''
-
-  factual_instances_dict = getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_obj)
-
-  experimental_setups = [
-    ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
-    ('m1_gaus', 'D'), \
-    ('m1_cvae', 'x'), \
-    ('m2_true', 'o'), \
-    ('m2_gaus', 's'), \
-    ('m2_cvae', '+'), \
-    # ('m2_cvae_ps', 'P'), \
-  ]
-  recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
-
-  hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
 
   per_instance_results = {}
   for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
@@ -1197,28 +1166,8 @@ def experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
   # pyplot.savefig(f'{experiment_folder_name}/comparison.pdf')
 
 
-def experiment7(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
+def experiment7(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' optimal action set: figure + table '''
-
-  factual_instances_dict = getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_obj)
-  # tmp = {}
-  # tmp[1126] = factual_instances_dict[1126]
-  # factual_instances_dict = tmp
-
-  experimental_setups = [
-    ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
-    # ('m1_gaus', 'D'), \
-    # ('m1_cvae', 'x'), \
-    ('m2_true', 'o'), \
-    # ('m2_gaus', 's'), \
-    ('m2_cvae', '+'), \
-    # ('m2_cvae_ps', 'P'), \
-  ]
-  recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
-
-  hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
 
   per_instance_results = {}
   for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
@@ -1363,28 +1312,11 @@ def tmpp(dataset_obj, classifier_obj, causal_model_obj, factual_instance, recour
   return samples_df
 
 
-def experiment8(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name):
+def experiment8(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' optimal action set: figure + table '''
 
-  factual_instances_dict = getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_obj)
-  # tmp = {}
-  # tmp[1126] = factual_instances_dict[1126]
-  # factual_instances_dict = tmp
-
-  experimental_setups = [
-    # ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
-    # ('m1_gaus', 'D'), \
-    # ('m1_cvae', 'x'), \
-    ('m2_true', 'o'), \
-    ('m2_gaus', 's'), \
-    ('m2_cvae', '+'), \
-    # ('m2_cvae_ps', 'P'), \
-  ]
-  recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
-
-  hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
+  assert len(dataset_obj.getInputAttributeNames()) == 2, 'Exp 8 is only designed for 2-variable SCMs'
+  assert np.all(['m2' in elem for elem in recourse_types]), 'Exp 8 is only designed for m2 recourse_types'
 
   per_value_x1_results = {}
 
@@ -1431,7 +1363,9 @@ def experiment8(dataset_obj, classifier_obj, causal_model_obj, experiment_folder
         tmp['value_x1'].append(k1)
         tmp['sample_x2'].append(elem)
   tmp = pd.DataFrame.from_dict(tmp)
+  # ipsh()
   ax = sns.boxplot(x="value_x1", y="sample_x2", hue="recourse_type", data=tmp, palette="Set3", showmeans=True)
+  # TODO: average over high dens pdf, and show a separate plot/table for the average over things...
   # ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
   # pyplot.show()
   pyplot.savefig(f'{experiment_folder_name}/_sanity_3.pdf')
@@ -1499,10 +1433,26 @@ if __name__ == "__main__":
   causal_model_obj = loadCausalModel(experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(causal_model_obj.getTopologicalOrdering())
 
-  experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  # experiment7(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
-  # experiment8(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name)
+  # setup
+  factual_instances_dict = getNegativelyPredictedInstances(dataset_obj, classifier_obj, causal_model_obj)
+  experimental_setups = [
+    # ('m0_true', '*'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
+    # ('m1_gaus', 'D'), \
+    # ('m1_cvae', 'x'), \
+    ('m2_true', 'o'), \
+    ('m2_gaus', 's'), \
+    ('m2_cvae', '+'), \
+    # ('m2_cvae_ps', 'P'), \
+  ]
+  recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
+  hotTrainRecourseTypes(dataset_obj, classifier_obj, causal_model_obj, recourse_types)
+
+  # experiment5(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+  # experiment6(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+  # experiment7(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+  experiment8(dataset_obj, classifier_obj, causal_model_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
 
   # sanity check
   # visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, causal_model_obj)
@@ -1512,7 +1462,12 @@ if __name__ == "__main__":
 
 
 
-
+# TODO:
+# merge exp5,6,8
+# to confirm training correct -->for each child/parent, save m2 comparison (regression, no intervention) + report MSE/VAR between m2 methods (good choice of hyperparms)
+# (=? intervention on parent node given value of sweep?)
+# show 9 interventions on parent
+# show table
 
 
 
