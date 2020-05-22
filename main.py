@@ -290,6 +290,7 @@ def trainCVAE(dataset_obj, node, parents):
   lambda_kld = 0.5
   encoder_layer_sizes = [1, 3, 3]
   decoder_layer_sizes = [2, 1]
+  # decoder_layer_sizes = [1 + len(parents), 1]
 
   return train_cvae(AttrDict({
     'name': f'p({node} | {", ".join(parents)})',
@@ -1224,13 +1225,14 @@ def experiment8(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
 
   assert len(dataset_obj.getInputAttributeNames()) == 2, 'Exp 8 is only designed for 2-variable SCMs'
   assert np.all(['m2' in elem for elem in recourse_types]), 'Exp 8 is only designed for m2 recourse_types'
+  # TODO: don't throw error... just filter to the m2 recourse_types
 
   per_value_x1_results = {}
 
   X_all = processDataFrameOrDict(dataset_obj, getOriginalDataFrame(num_samples = NUM_TRAIN_SAMPLES * 2), 'raw')
 
   range_x1 = dataset_obj.data_frame_kurz.describe()['x1']
-  for value_x1 in np.linspace(range_x1['min'], range_x1['max'], 10):
+  for value_x1 in np.linspace(range_x1['min'], range_x1['max'], 8):
   # for value_x1 in np.linspace(range_x1['25%'], range_x1['75%'], 5):
     value_x1 = np.around(value_x1, 2)
 
@@ -1350,11 +1352,11 @@ if __name__ == "__main__":
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(scm_obj, dataset_obj, classifier_obj)
   experimental_setups = [
-    # ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
-    # ('m1_gaus', 'D'), \
-    # ('m1_cvae', 'x'), \
+    ('m0_true', '*'), \
+    ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
+    ('m1_gaus', 'D'), \
+    ('m1_cvae', 'x'), \
     ('m2_true', 'o'), \
     ('m2_gaus', 's'), \
     ('m2_cvae', '+'), \
@@ -1363,10 +1365,10 @@ if __name__ == "__main__":
   recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
   hotTrainRecourseTypes(scm_obj, dataset_obj, classifier_obj, recourse_types)
 
-  # experiment5(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+  experiment5(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   # experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   # experiment7(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
-  experiment8(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+  # experiment8(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
 
   # sanity check
   # visualizeDatasetAndFixedModel(scm_obj, dataset_obj, classifier_obj)

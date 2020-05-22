@@ -39,7 +39,7 @@ def loadSCM(scm_class, experiment_folder_name = None):
   elif scm_class == 'sanity-2-pow-add':
     structural_equations['x2'] = lambda n_samples, x1 : x1 ** 2 + n_samples
   elif scm_class == 'sanity-2-sin-add':
-    structural_equations['x2'] = lambda n_samples, x1 : np.sin(x1 + 2 * x2) + n_samples
+    structural_equations['x2'] = lambda n_samples, x1 : np.sin(x1) + n_samples
   elif scm_class == 'sanity-2-cos-exp-add':
     structural_equations['x2'] = lambda n_samples, x1 : 2 * np.cos(3 * x1) * np.exp(-0.3 * x1**2) + n_samples
 
