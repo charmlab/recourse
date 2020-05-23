@@ -1223,8 +1223,14 @@ def experiment8(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
   ''' optimal action set: figure + table '''
 
   assert len(dataset_obj.getInputAttributeNames()) == 2, 'Exp 8 is only designed for 2-variable SCMs'
-  assert np.all(['m2' in elem for elem in recourse_types]), 'Exp 8 is only designed for m2 recourse_types'
-  # TODO: don't throw error... just filter to the m2 recourse_types
+  if not np.all(['m2' in elem for elem in recourse_types]):
+    print('[INFO] Exp 8 is only designed for m2 recourse_types; filtering to those')
+    experimental_setups = [
+      elem
+      for elem in experimental_setups
+      if 'm2' in elem[0]
+    ]
+    recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
 
   per_value_x1_results = {}
 
