@@ -41,7 +41,7 @@ NORM_TYPE = 2
 LAMBDA_LCB = 1
 GRID_SEARCH_BINS = 5
 NUM_TRAIN_SAMPLES = 500
-NUM_RECOURSE_SAMPLES = 30
+NUM_RECOURSE_SAMPLES = 5
 NUM_DISPLAY_SAMPLES = 15
 NUM_MONTE_CARLO_SAMPLES = 100
 
@@ -883,11 +883,7 @@ def hotTrainRecourseTypes(scm_obj, dataset_obj, classifier_obj, recourse_types):
 
 
 def experiment5(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
-  ''' fixed action set: assert {m1, m2} x {gaus, cvae} working '''
-
-  assert len(dataset_obj.getInputAttributeNames()) == 3, 'Exp 5 is only designed for 3-variable SCMs'
-
-  print(f'Describe original data:\n{getOriginalDataFrame().describe()}')
+  ''' sub-plot sanity '''
 
   # action_sets = [
   #   {'x1': scm_obj.noises_distributions['u1'].sample()}
@@ -958,7 +954,7 @@ def experiment5(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
   fig.tight_layout()
   plt.subplots_adjust(right=0.85)
   # pyplot.show()
-  pyplot.savefig(f'{experiment_folder_name}/comparison.pdf')
+  pyplot.savefig(f'{experiment_folder_name}/_comparison.pdf')
 
 
 def experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
@@ -980,6 +976,7 @@ def experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
       start_time = time.time()
       tmp['optimal_action_set'] = computeOptimalActionSet(
         scm_obj,
+        dataset_obj,
         classifier_obj,
         factual_instance,
         recourse_type,
@@ -1023,7 +1020,7 @@ def experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
       )
   tmp_df = pd.DataFrame(metrics_summary, recourse_types)
   print(tmp_df)
-  tmp_df.to_csv(f'{experiment_folder_name}/comparison.txt', sep='\t')
+  tmp_df.to_csv(f'{experiment_folder_name}/_comparison.txt', sep='\t')
 
   # TODO: FIX
   # # Figure
@@ -1220,51 +1217,46 @@ def tmpp(scm_obj, dataset_obj, classifier_obj, factual_instance, recourse_type, 
 
 
 def experiment8(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
-  ''' optimal action set: figure + table '''
+  ''' box-plot sanity '''
 
-  assert len(dataset_obj.getInputAttributeNames()) == 2, 'Exp 8 is only designed for 2-variable SCMs'
-  if not np.all(['m2' in elem for elem in recourse_types]):
-    print('[INFO] Exp 8 is only designed for m2 recourse_types; filtering to those')
-    experimental_setups = [
-      elem
-      for elem in experimental_setups
-      if 'm2' in elem[0]
-    ]
-    recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
-
-  per_value_x1_results = {}
-
-  X_all = processDataFrameOrDict(dataset_obj, getOriginalDataFrame(num_samples = NUM_TRAIN_SAMPLES * 2), 'raw')
-
+  # action_sets = [
+  #   {'x1': scm_obj.noises_distributions['u1'].sample()}
+  #   for _ in range(4)
+  # ]
   range_x1 = dataset_obj.data_frame_kurz.describe()['x1']
-  for value_x1 in np.linspace(range_x1['min'], range_x1['max'], 8):
-  # for value_x1 in np.linspace(range_x1['25%'], range_x1['75%'], 5):
-    value_x1 = np.around(value_x1, 2)
+  action_sets = [
+    {'x1': value_x1}
+    for value_x1 in np.linspace(range_x1['min'], range_x1['max'], 9)
+  ]
+
+  factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
+
+  per_value_x1_results = {} # TODO: deprecate this and just merge into one big dataframe (and perhaps do the same for exp 5?)
+
+  for idx, action_set in enumerate(action_sets):
+
+    print(f'\n\n[INFO] ACTION SET: {str(action_set)}' + ' =' * 40)
+    value_x1 = action_set['x1']
 
     per_value_x1_results[value_x1] = {}
 
-    factual_instance = {'x1': value_x1, 'x2': -1} # TODO: this -1 should not matter
-
-    print(f'\n\n\n[INFO] Processing factual instance `{prettyPrintDict(factual_instance)}`...')
-
-    for recourse_type in recourse_types:
+    for experimental_setup in experimental_setups:
+      recourse_type, marker = experimental_setup[0], experimental_setup[1]
 
       per_value_x1_results[value_x1][recourse_type] = []
 
-      num_samples = NUM_MONTE_CARLO_SAMPLES
-      testing_template = {
-        'x1': factual_instance['x1'],
-        'x2': np.NaN,
-      }
+      if recourse_type in ACCEPTABLE_POINT_RECOURSE:
+        sample = computeCounterfactualInstance(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type)
+        # print(f'{recourse_type}:\t{prettyPrintDict(sample)}')
+        # axes.flatten()[idx].plot(sample['x2'], sample['x3'], marker, alpha=1.0, markersize = 7, label=recourse_type)
+      elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
+        samples = getRecourseDistributionSample(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type, NUM_DISPLAY_SAMPLES)
+        # print(f'{recourse_type}:\n{samples.head()}')
+        # axes.flatten()[idx].plot(samples['x2'], samples['x3'], marker, alpha=0.3, markersize = 4, label=recourse_type)
+      else:
+        raise Exception(f'{recourse_type} not supported.')
 
-      # this dataframe has populated columns set to intervention or conditioning values
-      # and has NaN columns that will be set accordingly.
-      samples_df = pd.DataFrame(dict(zip(
-        dataset_obj.getInputAttributeNames(),
-        [num_samples * [testing_template[node]] for node in dataset_obj.getInputAttributeNames()],
-      )))
-      samples_df = tmpp(scm_obj, dataset_obj, classifier_obj, factual_instance, recourse_type, samples_df)
-      per_value_x1_results[value_x1][recourse_type] = list(samples_df['x2'])
+      per_value_x1_results[value_x1][recourse_type] = list(samples['x2'])
 
   tmp = {}
   tmp['recourse_type'] = []
@@ -1280,7 +1272,7 @@ def experiment8(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
   # ipsh()
   ax = sns.boxplot(x="value_x1", y="sample_x2", hue="recourse_type", data=tmp, palette="Set3", showmeans=True)
   # TODO: average over high dens pdf, and show a separate plot/table for the average over things...
-  # ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
+  ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
   # pyplot.show()
   pyplot.savefig(f'{experiment_folder_name}/_sanity_3.pdf')
 
@@ -1326,6 +1318,12 @@ if __name__ == "__main__":
     help = 'Model class that will learn data: lr, mlp')
 
   parser.add_argument(
+    '-e', '--experiment',
+    type = int,
+    default = 8,
+    help = 'Which experiment to run (5,8 = sanity; 6 = table)')
+
+  parser.add_argument(
     '-p', '--process_id',
     type = str,
     default = '0',
@@ -1337,7 +1335,7 @@ if __name__ == "__main__":
   dataset_class = args.dataset_class
   classifier_class = args.classifier_class
 
-  if not (dataset_class in {'random', 'mortgage', 'twomoon', 'german', 'credit', 'compass', 'adult'}):
+  if not (dataset_class in {'random'}):
     raise Exception(f'{dataset_class} not supported.')
 
   if not (classifier_class in {'lr', 'mlp'}):
@@ -1354,6 +1352,8 @@ if __name__ == "__main__":
   classifier_obj = loadClassifier(dataset_class, classifier_class, experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(scm_obj.getTopologicalOrdering())
 
+  print(f'Describe original data:\n{getOriginalDataFrame().describe()}')
+
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(scm_obj, dataset_obj, classifier_obj)
   experimental_setups = [
@@ -1367,10 +1367,37 @@ if __name__ == "__main__":
     ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
+
+  if args.experiment == 5:
+
+    assert len(dataset_obj.getInputAttributeNames()) == 3, 'Exp 5 is only designed for 3-variable SCMs'
+
+  elif args.experiment == 6:
+
+    assert len(dataset_obj.getInputAttributeNames()) >= 3, 'Exp 6 is only designed for 3+-variable SCMs'
+
+  elif args.experiment == 8:
+
+    assert len(dataset_obj.getInputAttributeNames()) == 2, 'Exp 8 is only designed for 2-variable SCMs'
+    if not np.all(['m2' in elem[0] for elem in experimental_setups]):
+      print('[INFO] Exp 8 is only designed for m2 recourse_types; filtering to those')
+      experimental_setups = [
+        elem
+        for elem in experimental_setups
+        if 'm2' in elem[0]
+      ]
+
   recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
   hotTrainRecourseTypes(scm_obj, dataset_obj, classifier_obj, recourse_types)
 
-  experiment5(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+
+  if args.experiment == 5:
+    experiment5(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+  elif args.experiment == 6:
+    experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+  elif args.experiment == 8:
+    experiment8(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+  # experiment5(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   # experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   # experiment7(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   # experiment8(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
@@ -1426,3 +1453,4 @@ if __name__ == "__main__":
 
 
 
+''
