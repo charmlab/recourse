@@ -109,7 +109,7 @@ def loadSCM(scm_class, experiment_folder_name = None):
   elif scm_class == 'sanity-2-cos-exp-add':
     structural_equations['x2'] = lambda n_samples, x1 : 2 * np.cos(3 * x1) * np.exp(-0.3 * x1**2) + n_samples
 
-  if scm_class == 'sanity-3-add':
+  if scm_class == 'sanity-3-lin':
 
     structural_equations = {
       'x1': lambda n_samples,        :           n_samples,
@@ -122,12 +122,25 @@ def loadSCM(scm_class, experiment_folder_name = None):
       'u3': Normal(0, 5),
     }
 
-  elif scm_class == 'sanity-3-mult':
+  elif scm_class == 'sanity-3-anm':
 
     structural_equations = {
       'x1': lambda n_samples,        :           n_samples,
       'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
       'x3': lambda n_samples, x1, x2 : x1 * x2 + n_samples,
+    }
+    noises_distributions = {
+      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+      'u2': Normal(0, 1),
+      'u3': Normal(0, 5),
+    }
+
+  elif scm_class == 'sanity-3-gen':
+
+    structural_equations = {
+      'x1': lambda n_samples,        :                          n_samples,
+      'x2': lambda n_samples, x1     : 2 / (1 + np.exp(- x1 - n_samples)),
+      'x3': lambda n_samples, x1, x2 :        np.sin(x1 + x2 + n_samples),
     }
     noises_distributions = {
       'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
