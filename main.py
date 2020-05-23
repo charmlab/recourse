@@ -36,15 +36,6 @@ RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
 np.random.seed(RANDOM_SEED)
 
-DEBUG_FLAG = False
-NORM_TYPE = 2
-LAMBDA_LCB = 1
-GRID_SEARCH_BINS = 5
-NUM_TRAIN_SAMPLES = 1000
-NUM_RECOURSE_SAMPLES = 30
-NUM_DISPLAY_SAMPLES = 15
-NUM_MONTE_CARLO_SAMPLES = 100
-
 ACCEPTABLE_POINT_RECOURSE = {'m0_true', 'm1_alin', 'm1_akrr'}
 ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cvae', 'm2_cvae_ps'}
 
@@ -57,27 +48,28 @@ ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cva
 
 
 @utils.Memoize
-def loadCausalModel(scm_class, experiment_folder_name = None):
-  return loadSCM.loadSCM(scm_class, experiment_folder_name)
+def loadCausalModel(args, experiment_folder_name):
+  return loadSCM.loadSCM(args.scm_class, experiment_folder_name)
 
 
 @utils.Memoize
-def loadDataset(scm_class, dataset_class):
-  return loadData.loadDataset(dataset_class, return_one_hot = True, load_from_cache = False, meta_param = scm_class)
+def loadDataset(args, experiment_folder_name):
+  # unused: experiment_folder_name
+  return loadData.loadDataset(args.dataset_class, return_one_hot = True, load_from_cache = False, meta_param = args.scm_class)
 
 
 @utils.Memoize
-def loadClassifier(dataset_class, classifier_class, experiment_folder_name):
-  return loadModel.loadModelForDataset(classifier_class, dataset_class, experiment_folder_name)
+def loadClassifier(args, experiment_folder_name):
+  return loadModel.loadModelForDataset(args.classifier_class, args.dataset_class, experiment_folder_name)
 
 
-def measureActionSetCost(dataset_obj, factual_instance, action_set):
+def measureActionSetCost(args, objs, factual_instance, action_set):
   # TODO: add support for categorical data + measured in normalized space over all features
   deltas = []
-  ranges = dataset_obj.getVariableRanges()
+  ranges = objs.dataset_obj.getVariableRanges()
   for key in action_set.keys():
     deltas.append((action_set[key] - factual_instance[key]) / ranges[key])
-  return np.linalg.norm(deltas, NORM_TYPE)
+  return np.linalg.norm(deltas, args.norm_type)
 
 
 def getIndexOfFactualInstanceInDataFrame(factual_instance, data_frame):
@@ -96,7 +88,7 @@ def getIndexOfFactualInstanceInDataFrame(factual_instance, data_frame):
   return enumeration_idx
 
 
-def processDataFrameOrDict(dataset_obj, obj, processing_type):
+def processDataFrameOrDict(args, objs, obj, processing_type):
   # TODO: add support for categorical data
 
   if processing_type == 'raw':
@@ -112,9 +104,9 @@ def processDataFrameOrDict(dataset_obj, obj, processing_type):
     if 'u' in node:
       print(f'[WARNING] Skipping over processing of noise variable {node}.')
       continue
-    # use dataset_obj stats, not X_train (in case you use more samples later,
+    # use objs.dataset_obj stats, not X_train (in case you use more samples later,
     # e.g., validation set for cvae
-    tmp = dataset_obj.data_frame_kurz.describe()[node]
+    tmp = objs.dataset_obj.data_frame_kurz.describe()[node]
     node_min = tmp['min']
     node_max = tmp['max']
     node_mean = tmp['mean']
@@ -128,7 +120,7 @@ def processDataFrameOrDict(dataset_obj, obj, processing_type):
   return obj
 
 
-def deprocessDataFrameOrDict(dataset_obj, obj, processing_type):
+def deprocessDataFrameOrDict(args, objs, obj, processing_type):
   # TODO: add support for categorical data
 
   if processing_type == 'raw':
@@ -144,9 +136,9 @@ def deprocessDataFrameOrDict(dataset_obj, obj, processing_type):
     if 'u' in node:
       print(f'[WARNING] Skipping over processing of noise variable {node}.')
       continue
-    # use dataset_obj stats, not X_train (in case you use more samples later,
+    # use objs.dataset_obj stats, not X_train (in case you use more samples later,
     # e.g., validation set for cvae
-    tmp = dataset_obj.data_frame_kurz.describe()[node]
+    tmp = objs.dataset_obj.data_frame_kurz.describe()[node]
     node_min = tmp['min']
     node_max = tmp['max']
     node_mean = tmp['mean']
@@ -161,9 +153,9 @@ def deprocessDataFrameOrDict(dataset_obj, obj, processing_type):
 
 
 @utils.Memoize
-def getOriginalDataFrame(num_samples = NUM_TRAIN_SAMPLES, with_meta = False):
+def getOriginalDataFrame(objs, num_samples, with_meta = False):
   if with_meta:
-    X_train, X_test, U_train, U_test, y_train, y_test = dataset_obj.getTrainTestSplit(with_meta = True)
+    X_train, X_test, U_train, U_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit(with_meta = True)
     return pd.concat(
       [
         pd.concat([X_train, U_train], axis = 1),
@@ -172,7 +164,7 @@ def getOriginalDataFrame(num_samples = NUM_TRAIN_SAMPLES, with_meta = False):
       axis = 0
     )[:num_samples]
   else:
-    X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+    X_train, X_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit()
     return pd.concat([X_train, X_test], axis = 0)[:num_samples]
 
 
@@ -188,29 +180,29 @@ def prettyPrintDict(my_dict):
   return my_dict
 
 
-def getPredictionBatch(scm_obj, dataset_obj, classifier_obj, instances_df):
-  sklearn_model = classifier_obj
+def getPredictionBatch(args, objs, instances_df):
+  sklearn_model = objs.classifier_obj
   return sklearn_model.predict(instances_df)
 
 
-def getPrediction(scm_obj, dataset_obj, classifier_obj, instance):
-  sklearn_model = classifier_obj
+def getPrediction(args, objs, instance):
+  sklearn_model = objs.classifier_obj
   prediction = sklearn_model.predict(np.array(list(instance.values())).reshape(1,-1))[0]
   assert prediction in {0, 1}, f'Expected prediction in {0,1}; got {prediction}'
   return prediction
 
 
-def didFlip(scm_obj, dataset_obj, classifier_obj, factual_instance, counterfactual_instance):
+def didFlip(args, objs, factual_instance, counterfactual_instance):
   return \
-    getPrediction(scm_obj, dataset_obj, classifier_obj, factual_instance) != \
-    getPrediction(scm_obj, dataset_obj, classifier_obj, counterfactual_instance)
+    getPrediction(args, objs, factual_instance) != \
+    getPrediction(args, objs, counterfactual_instance)
 
 
 @utils.Memoize
-def trainRidge(dataset_obj, node, parents):
+def trainRidge(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
-  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using Ridge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_all = processDataFrameOrDict(dataset_obj, getOriginalDataFrame(), 'standardize')
+  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using Ridge on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
+  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), 'standardize')
   param_grid = {'alpha': np.logspace(-2, 1, 10)}
   model = GridSearchCV(Ridge(), param_grid=param_grid)
   model.fit(X_all[parents], X_all[[node]])
@@ -218,10 +210,10 @@ def trainRidge(dataset_obj, node, parents):
 
 
 @utils.Memoize
-def trainKernelRidge(dataset_obj, node, parents):
+def trainKernelRidge(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
-  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using KernelRidge on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_all = processDataFrameOrDict(dataset_obj, getOriginalDataFrame(), 'standardize')
+  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using KernelRidge on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
+  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), 'standardize')
   param_grid = {
     'alpha': np.logspace(-2, 1, 5),
     'kernel': [
@@ -235,53 +227,53 @@ def trainKernelRidge(dataset_obj, node, parents):
 
 
 @utils.Memoize
-def trainCVAE(dataset_obj, node, parents):
+def trainCVAE(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
-  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using CVAE on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_all = processDataFrameOrDict(dataset_obj, getOriginalDataFrame(num_samples = int(NUM_TRAIN_SAMPLES * 1.2)), 'raw')
+  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using CVAE on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
+  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, int(args.num_train_samples * 1.2)), 'raw')
 
-  # if scm_obj.scm_class == 'sanity-2-add':
-  #   if NUM_TRAIN_SAMPLES == 5000:
+  # if objs.scm_obj.scm_class == 'sanity-2-add':
+  #   if args.num_train_samples == 5000:
   #     lambda_kld = 0.1
   #     encoder_layer_sizes = [1, 3, 3]
   #     decoder_layer_sizes = [2, 2, 1]
-  #   elif NUM_TRAIN_SAMPLES == 1000:
+  #   elif args.num_train_samples == 1000:
   #     lambda_kld = 0.5
   #     encoder_layer_sizes = [1, 3, 3]
   #     decoder_layer_sizes = [2, 1]
-  # elif scm_obj.scm_class == 'sanity-2-sig-add':
-  #   if NUM_TRAIN_SAMPLES == 5000:
+  # elif objs.scm_obj.scm_class == 'sanity-2-sig-add':
+  #   if args.num_train_samples == 5000:
   #     lambda_kld = 0.1
   #     encoder_layer_sizes = [1, 3, 3]
   #     decoder_layer_sizes = [2, 2, 1]
-  #   elif NUM_TRAIN_SAMPLES == 1000:
+  #   elif args.num_train_samples == 1000:
   #     lambda_kld = 0.5
   #     encoder_layer_sizes = [1, 3, 3]
   #     decoder_layer_sizes = [2, 1]
-  # elif scm_obj.scm_class ==  'sanity-2-pow-add':
-  #   if NUM_TRAIN_SAMPLES == 5000:
+  # elif objs.scm_obj.scm_class ==  'sanity-2-pow-add':
+  #   if args.num_train_samples == 5000:
   #     lambda_kld = 0.5
   #     encoder_layer_sizes = [1, 3, 3]
   #     decoder_layer_sizes = [2, 2, 1]
-  #   elif NUM_TRAIN_SAMPLES == 1000:
+  #   elif args.num_train_samples == 1000:
   #     lambda_kld = 0.5
   #     encoder_layer_sizes = [1, 3, 3]
   #     decoder_layer_sizes = [2, 1]
-  # elif scm_obj.scm_class ==  'sanity-2-mult':
-  #   # if NUM_TRAIN_SAMPLES == 5000:
+  # elif objs.scm_obj.scm_class ==  'sanity-2-mult':
+  #   # if args.num_train_samples == 5000:
   #   #   lambda_kld = 0.1
   #   #   encoder_layer_sizes = [1, 3, 3]
   #   #   decoder_layer_sizes = [2, 2, 1]
-  #   if NUM_TRAIN_SAMPLES == 1000:
+  #   if args.num_train_samples == 1000:
   #     lambda_kld = 0.5
   #     encoder_layer_sizes = [1, 3, 3]
   #     decoder_layer_sizes = [2, 1]
-  # elif scm_obj.scm_class ==  'sanity-2-add-pow':
-  #   # if NUM_TRAIN_SAMPLES == 5000:
+  # elif objs.scm_obj.scm_class ==  'sanity-2-add-pow':
+  #   # if args.num_train_samples == 5000:
   #   #   lambda_kld = 0.5
   #   #   encoder_layer_sizes = [1, 3, 3]
   #   #   decoder_layer_sizes = [2, 2, 1]
-  #   if NUM_TRAIN_SAMPLES == 1000:
+  #   if args.num_train_samples == 1000:
   #     lambda_kld = 0.5
   #     encoder_layer_sizes = [1, 3, 3]
   #     decoder_layer_sizes = [2, 1]
@@ -293,10 +285,10 @@ def trainCVAE(dataset_obj, node, parents):
 
   return train_cvae(AttrDict({
     'name': f'p({node} | {", ".join(parents)})',
-    'node_train': X_all[[node]].iloc[:NUM_TRAIN_SAMPLES],
-    'parents_train': X_all[parents].iloc[:NUM_TRAIN_SAMPLES],
-    'node_valid': X_all[[node]].iloc[NUM_TRAIN_SAMPLES:],
-    'parents_valid': X_all[parents].iloc[NUM_TRAIN_SAMPLES:],
+    'node_train': X_all[[node]].iloc[:args.num_train_samples],
+    'parents_train': X_all[parents].iloc[:args.num_train_samples],
+    'node_valid': X_all[[node]].iloc[args.num_train_samples:],
+    'parents_valid': X_all[parents].iloc[args.num_train_samples:],
     'seed': 0,
     'epochs': 100,
     'batch_size': 128,
@@ -311,10 +303,10 @@ def trainCVAE(dataset_obj, node, parents):
 
 
 @utils.Memoize
-def trainGP(dataset_obj, node, parents):
+def trainGP(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
-  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using GP on {NUM_TRAIN_SAMPLES} samples; this may be very expensive, memoizing afterwards.')
-  X_all = processDataFrameOrDict(dataset_obj, getOriginalDataFrame(), 'raw')
+  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using GP on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
+  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), 'raw')
   kernel = GPy.kern.RBF(input_dim=len(parents), ARD=True)
   model = GPy.models.GPRegression(X_all[parents], X_all[[node]], kernel)
   model.optimize_restarts(parallel=True, num_restarts=5, verbose=False)
@@ -322,7 +314,7 @@ def trainGP(dataset_obj, node, parents):
   return kernel, X, model
 
 
-def _getAbductionNoise(scm_obj, dataset_obj, classifier_obj, node, parents, factual_instance, structural_equation):
+def _getAbductionNoise(args, objs, node, parents, factual_instance, structural_equation):
   # only applies for ANM models
   return factual_instance[node] - structural_equation(
     0,
@@ -330,16 +322,16 @@ def _getAbductionNoise(scm_obj, dataset_obj, classifier_obj, node, parents, fact
   )
 
 
-def sampleTrue(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instance, node, parents, recourse_type):
+def sampleTrue(args, objs, factual_instance, samples_df, node, parents, recourse_type):
   # Step 1. [abduction]: compute noise or load from dataset using factual_instance
   # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
   # Step 3. [prediction]: run through structural equation using noise and parents from samples_df
-  structural_equation = scm_obj.structural_equations[node]
+  structural_equation = objs.scm_obj.structural_equations[node]
 
   if recourse_type == 'm0_true':
 
-    noise_pred = _getAbductionNoise(scm_obj, dataset_obj, classifier_obj, node, parents, factual_instance, structural_equation)
-    # XU_all = getOriginalDataFrame(with_meta = True)
+    noise_pred = _getAbductionNoise(args, objs, node, parents, factual_instance, structural_equation)
+    # XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True)
     # tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
     # noise_true = XU_all.iloc[tmp_idx][getNoiseStringForNode(node)]
     # # print(f'noise_pred: {noise_pred:.8f} \t noise_true: {noise_true:.8f} \t difference: {np.abs(noise_pred - noise_true):.8f}')
@@ -347,7 +339,7 @@ def sampleTrue(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instanc
     # # noise_pred assume additive noise, and therefore only works with
     # # models such as 'm1_alin' and 'm1_akrr' in general cases
     # if recourse_type == 'm0_true':
-    #   if scm_obj.scm_class != 'sanity-power':
+    #   if objs.scm_obj.scm_class != 'sanity-power':
     #     assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
     #   noise = noise_true
     # else:
@@ -364,7 +356,7 @@ def sampleTrue(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instanc
   elif recourse_type == 'm2_true':
 
     for row_idx, row in samples_df.iterrows():
-      noise = scm_obj.noises_distributions[getNoiseStringForNode(node)].sample(),
+      noise = objs.scm_obj.noises_distributions[getNoiseStringForNode(node)].sample(),
       samples_df.loc[row_idx, node] = structural_equation(
         noise,
         *samples_df.loc[row_idx, parents].to_numpy(),
@@ -373,46 +365,38 @@ def sampleTrue(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instanc
   return samples_df
 
 
-def _sampleRidgeKernelRidge(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instance, node, parents, recourse_type, train_handle):
-  # XU_all = getOriginalDataFrame(with_meta = True)
-  # tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
-  # noise_true = XU_all.iloc[tmp_idx][getNoiseStringForNode(node)]
-
-  # All samplers EXCEPT FOR sampleTrue have been trained (and should be sampled) on standardized data
-  samples_df = processDataFrameOrDict(dataset_obj, samples_df.copy(), 'standardize')
-  factual_instance = processDataFrameOrDict(dataset_obj, factual_instance.copy(), 'standardize')
+def _sampleRidgeKernelRidge(args, objs, factual_instance, samples_df, node, parents, recourse_type, train_handle):
+  samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), 'standardize')
+  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), 'standardize')
 
   # Step 1. [abduction]: compute noise or load from dataset using factual_instance
   # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
   # Step 3. [prediction]: run through structural equation using noise and parents from samples_df
-  trained_model = train_handle(dataset_obj, node, parents)
+  trained_model = train_handle(args, objs, node, parents)
   structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
-  noise_pred = _getAbductionNoise(scm_obj, dataset_obj, classifier_obj, node, parents, factual_instance, structural_equation)
-  # print(f'noise_pred: {noise_pred:.8f} \t noise_true: {noise_true:.8f} \t difference: {np.abs(noise_pred - noise_true):.8f}') # TODO: check this out... why differnce?
   for row_idx, row in samples_df.iterrows():
-    noise = _getAbductionNoise(scm_obj, dataset_obj, classifier_obj, node, parents, factual_instance, structural_equation),
+    noise = _getAbductionNoise(args, objs, node, parents, factual_instance, structural_equation),
     samples_df.loc[row_idx, node] = structural_equation(
       noise,
       *samples_df.loc[row_idx, parents].to_numpy(),
     )
-  samples_df = deprocessDataFrameOrDict(dataset_obj, samples_df, 'standardize')
+  samples_df = deprocessDataFrameOrDict(args, objs, samples_df, 'standardize')
   return samples_df
 
 
-def sampleRidge(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instance, node, parents, recourse_type):
-  return _sampleRidgeKernelRidge(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instance, node, parents, recourse_type, trainRidge)
+def sampleRidge(args, objs, factual_instance, samples_df, node, parents, recourse_type):
+  return _sampleRidgeKernelRidge(args, objs, factual_instance, samples_df, node, parents, recourse_type, trainRidge)
 
 
-def sampleKernelRidge(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instance, node, parents, recourse_type):
-  return _sampleRidgeKernelRidge(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instance, node, parents, recourse_type, trainKernelRidge)
+def sampleKernelRidge(args, objs, factual_instance, samples_df, node, parents, recourse_type):
+  return _sampleRidgeKernelRidge(args, objs, factual_instance, samples_df, node, parents, recourse_type, trainKernelRidge)
 
 
-def sampleCVAE(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instance, node, parents, recourse_type):
-  # All samplers EXCEPT FOR sampleTrue have been trained (and should be sampled) on standardized data
-  samples_df = processDataFrameOrDict(dataset_obj, samples_df.copy(), 'raw')
-  factual_instance = processDataFrameOrDict(dataset_obj, factual_instance.copy(), 'raw')
+def sampleCVAE(args, objs, factual_instance, samples_df, node, parents, recourse_type):
+  samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), 'raw')
+  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), 'raw')
 
-  trained_cvae = trainCVAE(dataset_obj, node, parents)
+  trained_cvae = trainCVAE(args, objs, node, parents)
   num_samples = samples_df.shape[0]
 
   x_factual = pd.DataFrame(dict(zip(
@@ -440,14 +424,13 @@ def sampleCVAE(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instanc
   )
   new_samples = new_samples.rename(columns={0: node}) # bad code amir, this violates abstraction!
   samples_df[node] = new_samples
-  samples_df = deprocessDataFrameOrDict(dataset_obj, samples_df, 'raw')
+  samples_df = deprocessDataFrameOrDict(args, objs, samples_df, 'raw')
   return samples_df
 
 
-def sampleGP(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instance, node, parents, recourse_type):
-  # # All samplers EXCEPT FOR sampleTrue have been trained (and should be sampled) on standardized data
-  samples_df = processDataFrameOrDict(dataset_obj, samples_df.copy(), 'raw')
-  factual_instance = processDataFrameOrDict(dataset_obj, factual_instance.copy(), 'raw')
+def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_type):
+  samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), 'raw')
+  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), 'raw')
 
   def noise_post_mean(K, sigma, Y):
     N = K.shape[0]
@@ -464,7 +447,7 @@ def sampleGP(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instance,
     C = noise_post_cov(K, sigma)
     return np.array([C[i,i] for i in range(N)])
 
-  kernel, X, model = trainGP(dataset_obj, node, parents)
+  kernel, X, model = trainGP(args, objs, node, parents)
 
   K = kernel.K(X)
   sigma_noise = np.array(model.Gaussian_noise.variance)
@@ -480,8 +463,8 @@ def sampleGP(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instance,
     #            (earlier, the factual instance was appended as the last instance)
     tmp_idx = getIndexOfFactualInstanceInDataFrame(
       factual_instance,
-      processDataFrameOrDict(dataset_obj, getOriginalDataFrame(), 'raw'),
-    )
+      processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), 'raw'),
+    ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
     new_means = pred_means + noise_post_means[tmp_idx]
     new_vars = pred_vars + noise_post_vars[tmp_idx]
   elif recourse_type == 'm2_gaus': # interventional distribution for node
@@ -493,14 +476,14 @@ def sampleGP(scm_obj, dataset_obj, classifier_obj, samples_df, factual_instance,
   new_samples = new_means + np.sqrt(new_vars) * new_noise
 
   samples_df[node] = new_samples
-  samples_df = deprocessDataFrameOrDict(dataset_obj, samples_df, 'raw')
+  samples_df = deprocessDataFrameOrDict(args, objs, samples_df, 'raw')
   return samples_df
 
 
-def _samplingInnerLoop(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type, num_samples):
+def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, num_samples):
 
   counterfactual_template = dict.fromkeys(
-    dataset_obj.getInputAttributeNames(),
+    objs.dataset_obj.getInputAttributeNames(),
     np.NaN,
   )
 
@@ -509,7 +492,7 @@ def _samplingInnerLoop(scm_obj, dataset_obj, classifier_obj, factual_instance, a
 
   # intersection_of_non_descendents_of_intervened_upon_variables
   conditioning_set = set.intersection(*[
-    scm_obj.getNonDescendentsForNode(node)
+    objs.scm_obj.getNonDescendentsForNode(node)
     for node in intervention_set
   ])
 
@@ -526,19 +509,19 @@ def _samplingInnerLoop(scm_obj, dataset_obj, classifier_obj, factual_instance, a
   # this dataframe has populated columns set to intervention or conditioning values
   # and has NaN columns that will be set accordingly.
   samples_df = pd.DataFrame(dict(zip(
-    dataset_obj.getInputAttributeNames(),
-    [num_samples * [counterfactual_template[node]] for node in dataset_obj.getInputAttributeNames()],
+    objs.dataset_obj.getInputAttributeNames(),
+    [num_samples * [counterfactual_template[node]] for node in objs.dataset_obj.getInputAttributeNames()],
   )))
 
   # Simply traverse the graph in order, and populate nodes as we go!
   # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
-  for node in scm_obj.getTopologicalOrdering():
+  for node in objs.scm_obj.getTopologicalOrdering():
     # set variable if value not yet set through intervention or conditioning
     if samples_df[node].isnull().values.any():
-      parents = scm_obj.getParentsForNode(node)
+      parents = objs.scm_obj.getParentsForNode(node)
       # Confirm parents columns are present/have assigned values in samples_df
       assert not samples_df.loc[:,list(parents)].isnull().values.any()
-      if DEBUG_FLAG:
+      if args.debug_flag:
         print(f'Sampling `{recourse_type}` from p({node} | {", ".join(parents)})')
       if recourse_type in {'m0_true', 'm2_true'}:
         sampling_handle = sampleTrue
@@ -553,59 +536,56 @@ def _samplingInnerLoop(scm_obj, dataset_obj, classifier_obj, factual_instance, a
       else:
         raise Exception(f'{recourse_type} not recognized.')
       samples_df = sampling_handle(
-        scm_obj,
-        dataset_obj,
-        classifier_obj,
-        samples_df,
+        args,
+        objs,
         factual_instance,
+        samples_df,
         node,
         parents,
         recourse_type,
       )
   assert \
-    np.all(list(samples_df.columns) == dataset_obj.getInputAttributeNames()), \
+    np.all(list(samples_df.columns) == objs.dataset_obj.getInputAttributeNames()), \
     'Ordering of column names in samples_df has change unexpectedly'
-  # samples_df = samples_df[dataset_obj.getInputAttributeNames()]
+  # samples_df = samples_df[objs.dataset_obj.getInputAttributeNames()]
   return samples_df
 
 
-def computeCounterfactualInstance(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type):
+def computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type):
 
   assert recourse_type in ACCEPTABLE_POINT_RECOURSE
 
   if not bool(action_set): # if action_set is empty, CFE = F
     return factual_instance
 
-  samples_df = _samplingInnerLoop(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type, 1)
+  samples_df = _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 1)
 
   return samples_df.loc[0].to_dict() # return the first instance
 
 
-def getRecourseDistributionSample(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type, num_samples):
+def getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, num_samples):
 
   assert recourse_type in ACCEPTABLE_DISTR_RECOURSE
 
   if not bool(action_set): # if action_set is empty, CFE = F
     return pd.DataFrame(dict(zip(
-      dataset_obj.getInputAttributeNames(),
-      [num_samples * [factual_instance[node]] for node in dataset_obj.getInputAttributeNames()],
+      objs.dataset_obj.getInputAttributeNames(),
+      [num_samples * [factual_instance[node]] for node in objs.dataset_obj.getInputAttributeNames()],
     )))
 
-  samples_df = _samplingInnerLoop(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type, num_samples)
+  samples_df = _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, num_samples)
 
   return samples_df # return the entire data frame
 
 
-def isPointConstraintSatisfied(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type):
+def isPointConstraintSatisfied(args, objs, factual_instance, action_set, recourse_type):
   return didFlip(
-    scm_obj,
-    dataset_obj,
-    classifier_obj,
+    args,
+    objs,
     factual_instance,
     computeCounterfactualInstance(
-      scm_obj,
-      dataset_obj,
-      classifier_obj,
+      args,
+      objs,
       factual_instance,
       action_set,
       recourse_type,
@@ -613,24 +593,22 @@ def isPointConstraintSatisfied(scm_obj, dataset_obj, classifier_obj, factual_ins
   )
 
 
-def isDistrConstraintSatisfied(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type):
-  return computeLowerConfidenceBound(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type) >= 0.5
+def isDistrConstraintSatisfied(args, objs, factual_instance, action_set, recourse_type):
+  return computeLowerConfidenceBound(args, objs, factual_instance, action_set, recourse_type) >= 0.5
 
 
-def computeLowerConfidenceBound(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type):
+def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recourse_type):
   monte_carlo_samples_df = getRecourseDistributionSample(
-    scm_obj,
-    dataset_obj,
-    classifier_obj,
+    args,
+    objs,
     factual_instance,
     action_set,
     recourse_type,
-    NUM_MONTE_CARLO_SAMPLES,
+    args.num_mc_samples,
   )
   monte_carlo_predictions = getPredictionBatch(
-    scm_obj,
-    dataset_obj,
-    classifier_obj,
+    args,
+    objs,
     monte_carlo_samples_df.to_numpy(),
   )
 
@@ -643,20 +621,20 @@ def computeLowerConfidenceBound(scm_obj, dataset_obj, classifier_obj, factual_in
   # EITHER CLASS. THEREFORE, THE CONSTRAINT IS SATISFIED WHEN SIGNIFICANTLY
   # > 0.5 OR < 0.5 FOR A FACTUAL SAMPLE WITH Y = 0 OR Y = 1, RESPECTIVELY.
 
-  if getPrediction(scm_obj, dataset_obj, classifier_obj, factual_instance) == 0:
-    return expectation - LAMBDA_LCB * np.sqrt(variance) # NOTE DIFFERNCE IN SIGN OF STD
+  if getPrediction(args, objs, factual_instance) == 0:
+    return expectation - args.lambda_lcb * np.sqrt(variance) # NOTE DIFFERNCE IN SIGN OF STD
   else: # factual_prediction == 1
     raise Exception(f'Should only be considering negatively predicted individuals...')
-    # return expectation + LAMBDA_LCB * np.sqrt(variance) # NOTE DIFFERNCE IN SIGN OF STD
+    # return expectation + args.lambda_lcb * np.sqrt(variance) # NOTE DIFFERNCE IN SIGN OF STD
 
 
-def getValidDiscretizedActionSets(dataset_obj):
+def getValidDiscretizedActionSets(args, objs):
 
   possible_actions_per_node = []
 
-  for attr_name_kurz in dataset_obj.getInputAttributeNames('kurz'):
+  for attr_name_kurz in objs.dataset_obj.getInputAttributeNames('kurz'):
 
-    attr_obj = dataset_obj.attributes_kurz[attr_name_kurz]
+    attr_obj = objs.dataset_obj.attributes_kurz[attr_name_kurz]
 
     if attr_obj.attr_type in {'numeric-real', 'numeric-int', 'binary'}:
 
@@ -670,7 +648,7 @@ def getValidDiscretizedActionSets(dataset_obj):
           np.linspace(
             attr_obj.lower_bound,
             attr_obj.upper_bound,
-            GRID_SEARCH_BINS + 1
+            args.grid_search_bins + 1
           ),
           number_decimals,
         )
@@ -678,7 +656,7 @@ def getValidDiscretizedActionSets(dataset_obj):
       tmp.append('n/a')
       tmp = list(dict.fromkeys(tmp))
       # remove repeats from list; this may happen, say for numeric-int, where we
-      # can have upper-lower < GRID_SEARCH_BINS, then rounding to 0 will result
+      # can have upper-lower < args.grid_search_bins, then rounding to 0 will result
       # in some repeated values
       possible_actions_per_node.append(tmp)
 
@@ -691,7 +669,7 @@ def getValidDiscretizedActionSets(dataset_obj):
   ))
 
   all_action_sets = [
-    dict(zip(dataset_obj.getInputAttributeNames(), elem))
+    dict(zip(objs.dataset_obj.getInputAttributeNames(), elem))
     for elem in all_action_tuples
   ]
 
@@ -704,7 +682,7 @@ def getValidDiscretizedActionSets(dataset_obj):
   return valid_action_sets
 
 
-def computeOptimalActionSet(scm_obj, dataset_obj, classifier_obj, factual_instance, recourse_type, optimization_approach):
+def computeOptimalActionSet(args, objs, factual_instance, recourse_type, optimization_approach):
 
   if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     constraint_handle = isPointConstraintSatisfied
@@ -715,14 +693,14 @@ def computeOptimalActionSet(scm_obj, dataset_obj, classifier_obj, factual_instan
 
   if optimization_approach == 'brute_force':
 
-    valid_action_sets = getValidDiscretizedActionSets(dataset_obj)
+    valid_action_sets = getValidDiscretizedActionSets(args, objs)
     print(f'\n\t[INFO] Computing optimal `{recourse_type}`: grid searching over {len(valid_action_sets)} action sets...')
 
     min_cost = 1e10
     min_cost_action_set = {}
     for action_set in tqdm(valid_action_sets):
-      if constraint_handle(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type):
-        cost_of_action_set = measureActionSetCost(dataset_obj, factual_instance, action_set)
+      if constraint_handle(args, objs, factual_instance, action_set, recourse_type):
+        cost_of_action_set = measureActionSetCost(args, objs, factual_instance, action_set)
         if cost_of_action_set < min_cost:
           min_cost = cost_of_action_set
           min_cost_action_set = action_set
@@ -734,7 +712,7 @@ def computeOptimalActionSet(scm_obj, dataset_obj, classifier_obj, factual_instan
     raise NotImplementedError # TODO
     # for all possible intervention sets (without value)
     # for each child-parent that is missing
-    #     get object: trained_cvae = trainCVAE(dataset_obj, node, parents)
+    #     get object: trained_cvae = trainCVAE(args, objs, node, parents)
     #     this should be a torch object
     #     then the child is a function of
     #         its factual value
@@ -751,9 +729,9 @@ def computeOptimalActionSet(scm_obj, dataset_obj, classifier_obj, factual_instan
   return min_cost_action_set
 
 
-def scatterDecisionBoundary(scm_obj, dataset_obj, classifier_obj, ax):
-  assert len(dataset_obj.getInputAttributeNames()) == 3
-  sklearn_model = classifier_obj
+def scatterDecisionBoundary(args, objs, ax):
+  assert len(objs.dataset_obj.getInputAttributeNames()) == 3
+  sklearn_model = objs.classifier_obj
   fixed_model_w = sklearn_model.coef_
   fixed_model_b = sklearn_model.intercept_
 
@@ -767,9 +745,9 @@ def scatterDecisionBoundary(scm_obj, dataset_obj, classifier_obj, ax):
   surf = ax.plot_wireframe(X, Y, Z, alpha=0.3)
 
 
-def scatterDataset(dataset_obj, ax):
-  assert len(dataset_obj.getInputAttributeNames()) == 3
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+def scatterDataset(args, objs, ax):
+  assert len(objs.dataset_obj.getInputAttributeNames()) == 3
+  X_train, X_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit()
   X_train_numpy = X_train.to_numpy()
   X_test_numpy = X_test.to_numpy()
   y_train = y_train.to_numpy()
@@ -782,8 +760,8 @@ def scatterDataset(dataset_obj, ax):
     ax.scatter(X_test_numpy[idx, 0], X_test_numpy[idx, 1], X_test_numpy[idx, 2], marker='o', color=color_test, alpha=0.2, s=15)
 
 
-def scatterFactual(dataset_obj, factual_instance, ax):
-  assert len(dataset_obj.getInputAttributeNames()) == 3
+def scatterFactual(args, objs, factual_instance, ax):
+  assert len(objs.dataset_obj.getInputAttributeNames()) == 3
   ax.scatter(
     factual_instance['x1'],
     factual_instance['x2'],
@@ -794,25 +772,25 @@ def scatterFactual(dataset_obj, factual_instance, ax):
   )
 
 
-def scatterRecourse(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type, marker_type, legend_label, ax):
+def scatterRecourse(args, objs, factual_instance, action_set, recourse_type, marker_type, legend_label, ax):
 
-  assert len(dataset_obj.getInputAttributeNames()) == 3
+  assert len(objs.dataset_obj.getInputAttributeNames()) == 3
 
   if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     # point recourse
 
-    point = computeCounterfactualInstance(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type)
-    color_string = 'green' if didFlip(scm_obj, dataset_obj, classifier_obj, factual_instance, point) else 'red'
+    point = computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type)
+    color_string = 'green' if didFlip(args, objs, factual_instance, point) else 'red'
     ax.scatter(point['x1'], point['x2'], point['x3'], marker=marker_type, color=color_string, s=70, label=legend_label)
 
   elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
     # distr recourse
 
-    samples_df = getRecourseDistributionSample(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type, NUM_DISPLAY_SAMPLES)
+    samples_df = getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, args.num_display_samples)
     x1s = samples_df.iloc[:,0]
     x2s = samples_df.iloc[:,1]
     x3s = samples_df.iloc[:,2]
-    color_strings = ['green' if didFlip(scm_obj, dataset_obj, classifier_obj, factual_instance, sample.to_dict()) else 'red' for _, sample in samples_df.iterrows()]
+    color_strings = ['green' if didFlip(args, objs, factual_instance, sample.to_dict()) else 'red' for _, sample in samples_df.iterrows()]
     ax.scatter(x1s, x2s, x3s, marker=marker_type, color=color_strings, alpha=0.1, s=30, label=legend_label)
 
     # mean_distr_samples = {
@@ -820,7 +798,7 @@ def scatterRecourse(scm_obj, dataset_obj, classifier_obj, factual_instance, acti
     #   'x2': np.mean(samples_df['x2']),
     #   'x3': np.mean(samples_df['x3']),
     # }
-    # color_string = 'green' if didFlip(scm_obj, dataset_obj, classifier_obj, factual_instance, mean_distr_samples) else 'red'
+    # color_string = 'green' if didFlip(args, objs, factual_instance, mean_distr_samples) else 'red'
     # ax.scatter(mean_distr_samples['x1'], mean_distr_samples['x2'], mean_distr_samples['x3'], marker=marker_type, color=color_string, alpha=0.5, s=70, label=legend_label)
 
   else:
@@ -828,7 +806,25 @@ def scatterRecourse(scm_obj, dataset_obj, classifier_obj, factual_instance, acti
     raise Exception(f'{recourse_type} not recognized.')
 
 
-def getNegativelyPredictedInstances(scm_obj, dataset_obj, classifier_obj):
+def visualizeDatasetAndFixedModel(args, objs):
+
+  fig = pyplot.figure()
+  ax = pyplot.subplot(1, 1, 1, projection='3d')
+
+  scatterDataset(args, objs, ax)
+  scatterDecisionBoundary(args, objs, ax)
+
+  ax.set_xlabel('x1')
+  ax.set_ylabel('x2')
+  ax.set_zlabel('x3')
+  ax.set_title(f'datatset')
+  # ax.legend()
+  ax.grid(True)
+
+  pyplot.show()
+
+
+def getNegativelyPredictedInstances(args, objs):
   # Samples for which we seek recourse are chosen from the joint of X_train/test.
   # This is OK because the tasks of conditional density estimation and recourse
   # generation are distinct. Given the same data splicing used here and in trainGP,
@@ -837,20 +833,20 @@ def getNegativelyPredictedInstances(scm_obj, dataset_obj, classifier_obj):
   # (i.e., we can cache).
 
   # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
-  X_all = getOriginalDataFrame()
+  X_all = getOriginalDataFrame(objs, args.num_train_samples)
   factual_instances_dict = {}
   tmp_counter = 1
   for factual_instance_idx, row in X_all.iterrows():
     factual_instance = row.T.to_dict()
-    if getPrediction(scm_obj, dataset_obj, classifier_obj, factual_instance) == 0:
+    if getPrediction(args, objs, factual_instance) == 0:
       tmp_counter += 1
       factual_instances_dict[factual_instance_idx] = factual_instance
-    if tmp_counter > NUM_RECOURSE_SAMPLES:
+    if tmp_counter > args.num_recourse_samples:
       break
   return factual_instances_dict
 
 
-def hotTrainRecourseTypes(scm_obj, dataset_obj, classifier_obj, recourse_types):
+def hotTrainRecourseTypes(args, objs, recourse_types):
   start_time = time.time()
   print(f'\n' + '='*80 + '\n')
   print(f'[INFO] Hot-training ALIN, AKRR, GAUS, CVAE so they do not affect runtime...')
@@ -861,10 +857,10 @@ def hotTrainRecourseTypes(scm_obj, dataset_obj, classifier_obj, recourse_types):
   if any(['cvae' in elem for elem in recourse_types]): training_handles.append(trainCVAE)
   for training_handle in training_handles:
     print()
-    for node in scm_obj.getTopologicalOrdering():
-      parents = scm_obj.getParentsForNode(node)
+    for node in objs.scm_obj.getTopologicalOrdering():
+      parents = objs.scm_obj.getParentsForNode(node)
       if len(parents): # if not a root node
-        training_handle(dataset_obj, node, parents)
+        training_handle(args, objs, node, parents)
   end_time = time.time()
   print(f'\n[INFO] Done (total warm-up time: {end_time - start_time}).')
   print(f'\n' + '='*80 + '\n')
@@ -882,14 +878,14 @@ def hotTrainRecourseTypes(scm_obj, dataset_obj, classifier_obj, recourse_types):
 # DEPRECATED def experiment4
 
 
-def experiment5(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
+def experiment5(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' sub-plot sanity '''
 
   # action_sets = [
-  #   {'x1': scm_obj.noises_distributions['u1'].sample()}
+  #   {'x1': objs.scm_obj.noises_distributions['u1'].sample()}
   #   for _ in range(4)
   # ]
-  range_x1 = dataset_obj.data_frame_kurz.describe()['x1']
+  range_x1 = objs.dataset_obj.data_frame_kurz.describe()['x1']
   action_sets = [
     {'x1': value_x1}
     for value_x1 in np.linspace(range_x1['min'], range_x1['max'], 9)
@@ -918,11 +914,11 @@ def experiment5(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
       recourse_type, marker = experimental_setup[0], experimental_setup[1]
 
       if recourse_type in ACCEPTABLE_POINT_RECOURSE:
-        sample = computeCounterfactualInstance(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type)
+        sample = computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type)
         print(f'{recourse_type}:\t{prettyPrintDict(sample)}')
         axes.flatten()[idx].plot(sample['x2'], sample['x3'], marker, alpha=1.0, markersize = 7, label=recourse_type)
       elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
-        samples = getRecourseDistributionSample(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type, NUM_DISPLAY_SAMPLES)
+        samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, args.num_display_samples)
         print(f'{recourse_type}:\n{samples.head()}')
         axes.flatten()[idx].plot(samples['x2'], samples['x3'], marker, alpha=0.3, markersize = 4, label=recourse_type)
       else:
@@ -957,7 +953,7 @@ def experiment5(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
   pyplot.savefig(f'{experiment_folder_name}/_comparison.pdf')
 
 
-def experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
+def experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' optimal action set: figure + table '''
 
   per_instance_results = {}
@@ -975,9 +971,8 @@ def experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
 
       start_time = time.time()
       tmp['optimal_action_set'] = computeOptimalActionSet(
-        scm_obj,
-        dataset_obj,
-        classifier_obj,
+        args,
+        objs,
         factual_instance,
         recourse_type,
         'brute_force',
@@ -988,10 +983,10 @@ def experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
 
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
-      tmp['scf_validity']  = isPointConstraintSatisfied(scm_obj, dataset_obj, classifier_obj, factual_instance, tmp['optimal_action_set'], 'm0_true')
-      tmp['int_conf_true'] = np.around(computeLowerConfidenceBound(scm_obj, dataset_obj, classifier_obj, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
-      tmp['int_conf_cvae'] = np.around(computeLowerConfidenceBound(scm_obj, dataset_obj, classifier_obj, factual_instance, tmp['optimal_action_set'], 'm2_cvae'), 3)
-      tmp['cost_all'] = measureActionSetCost(dataset_obj, factual_instance, tmp['optimal_action_set'])
+      tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance, tmp['optimal_action_set'], 'm0_true')
+      tmp['int_conf_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
+      tmp['int_conf_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_cvae'), 3)
+      tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'])
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
 
       # print(f'\t done.')
@@ -1024,12 +1019,12 @@ def experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
 
   # TODO: FIX
   # # Figure
-  # if len(dataset_obj.getInputAttributeNames()) != 3:
+  # if len(objs.dataset_obj.getInputAttributeNames()) != 3:
   #   print('Cannot plot in more than 3 dimensions')
   #   return
 
   # max_to_plot = 4
-  # tmp = min(NUM_RECOURSE_SAMPLES, max_to_plot)
+  # tmp = min(args.num_recourse_samples, max_to_plot)
   # num_plot_cols = int(np.floor(np.sqrt(tmp)))
   # num_plot_rows = int(np.ceil(tmp / num_plot_cols))
 
@@ -1046,17 +1041,17 @@ def experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
 
   #   ax = axes.flatten()[idx]
 
-  #   scatterFactual(dataset_obj, factual_instance, ax)
+  #   scatterFactual(args, objs, factual_instance, ax)
   #   title = f'sample_{factual_instance_idx} - {prettyPrintDict(factual_instance)}'
 
   #   for experimental_setup in experimental_setups:
   #     recourse_type, marker = experimental_setup[0], experimental_setup[1]
   #     optimal_action_set = per_instance_results[factual_instance_idx][recourse_type]['optimal_action_set']
-  #     legend_label = f'\n {recourse_type}; do({prettyPrintDict(optimal_action_set)}); cost: {measureActionSetCost(dataset_obj, factual_instance, optimal_action_set):.3f}'
-  #     scatterRecourse(scm_obj, dataset_obj, classifier_obj, factual_instance, optimal_action_set, 'm0_true', marker, legend_label, ax)
-  #     # scatterRecourse(scm_obj, dataset_obj, classifier_obj, factual_instance, optimal_action_set, recourse_type, marker, legend_label, ax)
+  #     legend_label = f'\n {recourse_type}; do({prettyPrintDict(optimal_action_set)}); cost: {measureActionSetCost(args, objs, factual_instance, optimal_action_set):.3f}'
+  #     scatterRecourse(args, objs, factual_instance, optimal_action_set, 'm0_true', marker, legend_label, ax)
+  #     # scatterRecourse(args, objs, factual_instance, optimal_action_set, recourse_type, marker, legend_label, ax)
 
-  #   scatterDecisionBoundary(scm_obj, dataset_obj, classifier_obj, ax)
+  #   scatterDecisionBoundary(args, objs, ax)
   #   ax.set_xlabel('x1', fontsize=8)
   #   ax.set_ylabel('x2', fontsize=8)
   #   ax.set_zlabel('x3', fontsize=8)
@@ -1070,160 +1065,17 @@ def experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
   # pyplot.savefig(f'{experiment_folder_name}/comparison.pdf')
 
 
-def experiment7(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
-  ''' optimal action set: figure + table '''
-
-  per_instance_results = {}
-  for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
-    factual_instance_idx = f'sample_{key}'
-    factual_instance = value
-
-    print(f'\n\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
-
-    per_instance_results[factual_instance_idx] = {}
-
-    for recourse_type in recourse_types:
-
-      per_instance_results[factual_instance_idx][recourse_type] = {}
-      per_instance_results[factual_instance_idx][recourse_type]['pred_x2_on_true_x1'] = []
-      per_instance_results[factual_instance_idx][recourse_type]['pred_x3_on_true_x1_pred_x2'] = []
-      per_instance_results[factual_instance_idx][recourse_type]['pred_x3_on_true_x1_true_x2'] = []
-
-      num_samples = NUM_MONTE_CARLO_SAMPLES
-      testing_template = {
-        'x1': factual_instance['x1'],
-        'x2': np.NaN,
-        'x3': np.NaN,
-      }
-      # this dataframe has populated columns set to intervention or conditioning values
-      # and has NaN columns that will be set accordingly.
-      samples_df = pd.DataFrame(dict(zip(
-        dataset_obj.getInputAttributeNames(),
-        [num_samples * [testing_template[node]] for node in dataset_obj.getInputAttributeNames()],
-      )))
-      samples_df = tmpp(scm_obj, dataset_obj, classifier_obj, factual_instance, recourse_type, samples_df)
-      per_instance_results[factual_instance_idx][recourse_type]['pred_x2_on_true_x1'] = list(samples_df['x2'])
-      per_instance_results[factual_instance_idx][recourse_type]['pred_x3_on_true_x1_pred_x2'] = list(samples_df['x3'])
-
-      num_samples = NUM_MONTE_CARLO_SAMPLES
-      testing_template = {
-        'x1': factual_instance['x1'],
-        'x2': factual_instance['x2'],
-        'x3': np.NaN,
-      }
-      # this dataframe has populated columns set to intervention or conditioning values
-      # and has NaN columns that will be set accordingly.
-      samples_df = pd.DataFrame(dict(zip(
-        dataset_obj.getInputAttributeNames(),
-        [num_samples * [testing_template[node]] for node in dataset_obj.getInputAttributeNames()],
-      )))
-      samples_df = tmpp(scm_obj, dataset_obj, classifier_obj, factual_instance, recourse_type, samples_df)
-      per_instance_results[factual_instance_idx][recourse_type]['pred_x3_on_true_x1_true_x2'] = list(samples_df['x3'])
-
-  tmp_setups = [
-    ('x2','pred_x2_on_true_x1'),
-    ('x3','pred_x3_on_true_x1_true_x2'),
-    ('x3','pred_x3_on_true_x1_pred_x2'),
-  ]
-
-  # ============================================================================
-  # SANITY 1
-  # ============================================================================
-  fig, axes = pyplot.subplots(len(tmp_setups), len(recourse_types), sharex='row', sharey=True, tight_layout=True)
-  fig.suptitle(f'Comparison of recon error (2-rorm) for all regressor/conditionals', fontsize='x-small')
-
-  for idx_1, (node, node_string) in enumerate(tmp_setups):
-    for idx_2, recourse_type in enumerate(recourse_types):
-      mse_list_for_recourse_type = [
-        np.linalg.norm([sample - factual_instance[node]], 2)
-        for sample in per_instance_results[factual_instance_idx][recourse_type][node_string]
-        for factual_instance_idx in per_instance_results.keys()
-      ]
-      tmp_idx = idx_1 * len(recourse_types) + idx_2
-      axes.flatten()[tmp_idx].hist(mse_list_for_recourse_type, bins=30)
-      if tmp_idx % len(recourse_types) == 0: # if first subplot of row
-        axes.flatten()[tmp_idx].set_ylabel(node_string, fontsize='xx-small')
-      axes.flatten()[tmp_idx].tick_params(axis='both', which='major', labelsize=6)
-      axes.flatten()[tmp_idx].tick_params(axis='both', which='minor', labelsize=4)
-      axes.flatten()[tmp_idx].set_title(f'{recourse_type}', fontsize='xx-small')
-
-  fig.tight_layout()
-  pyplot.savefig(f'{experiment_folder_name}/_sanity_1.pdf')
-
-  # ============================================================================
-  # SANITY 2
-  # ============================================================================
-  tmp_recourse_types = [elem for elem in recourse_types if 'm2' in elem]
-
-  fig, axes = pyplot.subplots(len(tmp_recourse_types), len(tmp_setups), sharex='col', sharey=True, tight_layout=True)
-  fig.suptitle(f'Comparison of M2 smaples', fontsize='x-small')
-
-  for idx_1, (node, node_string) in enumerate(tmp_setups):
-    for idx_2, recourse_type in enumerate(tmp_recourse_types):
-      m2_samples_for_recourse_type = [
-        sample
-        for sample in per_instance_results[factual_instance_idx][recourse_type][node_string]
-        for factual_instance_idx in per_instance_results.keys()
-      ]
-      # print(f'\n{recourse_type}', m2_samples_for_recourse_type)
-      tmp_idx = idx_1 + idx_2 * len(tmp_setups)
-      axes.flatten()[tmp_idx].hist(m2_samples_for_recourse_type, bins=30)
-      if tmp_idx % len(tmp_setups) == 0: # if first subplot of row
-        axes.flatten()[tmp_idx].set_ylabel(recourse_type, fontsize='xx-small')
-      if tmp_idx >= (len(tmp_recourse_types)-1) * len(tmp_setups): # if last subplot of col
-        axes.flatten()[tmp_idx].set_xlabel(node_string, fontsize='xx-small')
-      axes.flatten()[tmp_idx].tick_params(axis='both', which='major', labelsize=6)
-      axes.flatten()[tmp_idx].tick_params(axis='both', which='minor', labelsize=4)
-      # axes.flatten()[tmp_idx].set_title(f'{recourse_type}', fontsize='xx-small')
-
-  fig.tight_layout()
-  pyplot.savefig(f'{experiment_folder_name}/_sanity_2.pdf')
+# DEPRECATED def experiment7
 
 
-def tmpp(scm_obj, dataset_obj, classifier_obj, factual_instance, recourse_type, samples_df):
-  # Simply traverse the graph in order, and populate nodes as we go!
-  # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
-  for node in scm_obj.getTopologicalOrdering():
-    # set variable if value not yet set through intervention or conditioning
-    if samples_df[node].isnull().values.any():
-      parents = scm_obj.getParentsForNode(node)
-      # Confirm parents columns are present/have assigned values in samples_df
-      assert not samples_df.loc[:,list(parents)].isnull().values.any()
-      if DEBUG_FLAG:
-        print(f'Sampling `{recourse_type}` from p({node} | {", ".join(parents)})')
-      if recourse_type in {'m0_true', 'm2_true'}:
-        sampling_handle = sampleTrue
-      elif recourse_type == 'm1_alin':
-        sampling_handle = sampleRidge
-      elif recourse_type == 'm1_akrr':
-        sampling_handle = sampleKernelRidge
-      elif recourse_type in {'m1_gaus', 'm2_gaus'}:
-        sampling_handle = sampleGP
-      elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
-        sampling_handle = sampleCVAE
-      else:
-        raise Exception(f'{recourse_type} not recognized.')
-      samples_df = sampling_handle(
-        scm_obj,
-        dataset_obj,
-        classifier_obj,
-        samples_df,
-        factual_instance,
-        node,
-        parents,
-        recourse_type,
-      )
-  return samples_df
-
-
-def experiment8(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
+def experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' box-plot sanity '''
 
   # action_sets = [
-  #   {'x1': scm_obj.noises_distributions['u1'].sample()}
+  #   {'x1': objs.scm_obj.noises_distributions['u1'].sample()}
   #   for _ in range(4)
   # ]
-  range_x1 = dataset_obj.data_frame_kurz.describe()['x1']
+  range_x1 = objs.dataset_obj.data_frame_kurz.describe()['x1']
   action_sets = [
     {'x1': value_x1}
     for value_x1 in np.linspace(range_x1['min'], range_x1['max'], 9)
@@ -1246,11 +1098,11 @@ def experiment8(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
       per_value_x1_results[value_x1][recourse_type] = []
 
       if recourse_type in ACCEPTABLE_POINT_RECOURSE:
-        sample = computeCounterfactualInstance(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type)
+        sample = computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type)
         # print(f'{recourse_type}:\t{prettyPrintDict(sample)}')
         # axes.flatten()[idx].plot(sample['x2'], sample['x3'], marker, alpha=1.0, markersize = 7, label=recourse_type)
       elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
-        samples = getRecourseDistributionSample(scm_obj, dataset_obj, classifier_obj, factual_instance, action_set, recourse_type, NUM_DISPLAY_SAMPLES)
+        samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, args.num_display_samples)
         # print(f'{recourse_type}:\n{samples.head()}')
         # axes.flatten()[idx].plot(samples['x2'], samples['x3'], marker, alpha=0.3, markersize = 4, label=recourse_type)
       else:
@@ -1277,85 +1129,56 @@ def experiment8(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, fa
   pyplot.savefig(f'{experiment_folder_name}/_sanity_3.pdf')
 
 
-def visualizeDatasetAndFixedModel(scm_obj, dataset_obj, classifier_obj):
-
-  fig = pyplot.figure()
-  ax = pyplot.subplot(1, 1, 1, projection='3d')
-
-  scatterDataset(dataset_obj, ax)
-  scatterDecisionBoundary(scm_obj, dataset_obj, classifier_obj, ax)
-
-  ax.set_xlabel('x1')
-  ax.set_ylabel('x2')
-  ax.set_zlabel('x3')
-  ax.set_title(f'datatset')
-  # ax.legend()
-  ax.grid(True)
-
-  pyplot.show()
-
-
 if __name__ == "__main__":
 
   parser = argparse.ArgumentParser()
 
-  parser.add_argument(
-    '-s', '--scm_class',
-    type = str,
-    default = 'sanity-2-add',
-    help = 'Name of SCM to generate data using (see loadSCM.py)')
+  parser.add_argument('-s', '--scm_class', type=str, default='sanity-2-add', help='Name of SCM to generate data using (see loadSCM.py)')
+  parser.add_argument('-d', '--dataset_class', type=str, default='random', help='Name of dataset to train explanation model for: german, random, mortgage, twomoon')
+  parser.add_argument('-c', '--classifier_class', type=str, default='lr', help='Model class that will learn data: lr, mlp')
+  parser.add_argument('-e', '--experiment', type=int, default=8, help='Which experiment to run (5,8=sanity; 6=table)')
+  parser.add_argument('-p', '--process_id', type=str, default='0', help='When running parallel tests on the cluster, process_id guarantees (in addition to time stamped experiment folder) that experiments do not conflict.')
 
-  parser.add_argument(
-    '-d', '--dataset_class',
-    type = str,
-    default = 'random',
-    help = 'Name of dataset to train explanation model for: german, random, mortgage, twomoon')
+  parser.add_argument('--norm_type', type=int, default=2)
+  parser.add_argument('--lambda_lcb', type=int, default=1)
+  parser.add_argument('--grid_search_bins', type=int, default=5)
+  parser.add_argument('--num_train_samples', type=int, default=1000)
+  parser.add_argument('--num_recourse_samples', type=int, default=30)
+  parser.add_argument('--num_display_samples', type=int, default=15)
+  parser.add_argument('--num_mc_samples', type=int, default=100)
+  parser.add_argument('--debug_flag', type=bool, default=False)
 
-  parser.add_argument(
-    '-c', '--classifier_class',
-    type = str,
-    default = 'lr',
-    help = 'Model class that will learn data: lr, mlp')
-
-  parser.add_argument(
-    '-e', '--experiment',
-    type = int,
-    default = 8,
-    help = 'Which experiment to run (5,8 = sanity; 6 = table)')
-
-  parser.add_argument(
-    '-p', '--process_id',
-    type = str,
-    default = '0',
-    help = 'When running parallel tests on the cluster, process_id guarantees (in addition to time stamped experiment folder) that experiments do not conflict.')
-
-  # parsing the args
   args = parser.parse_args()
-  scm_class = args.scm_class
-  dataset_class = args.dataset_class
-  classifier_class = args.classifier_class
 
-  if not (dataset_class in {'random'}):
-    raise Exception(f'{dataset_class} not supported.')
+  if not (args.dataset_class in {'random'}):
+    raise Exception(f'{args.dataset_class} not supported.')
 
-  if not (classifier_class in {'lr', 'mlp'}):
-    raise Exception(f'{classifier_class} not supported.')
+  if not (args.classifier_class in {'lr', 'mlp'}):
+    raise Exception(f'{args.classifier_class} not supported.')
 
   # create experiment folder
-  setup_name = f'{scm_class}__{dataset_class}__{classifier_class}'
+  setup_name = f'{args.scm_class}__{args.dataset_class}__{args.classifier_class}'
   experiment_folder_name = f"_experiments/{datetime.now().strftime('%Y.%m.%d_%H.%M.%S')}__{setup_name}"
   os.mkdir(f'{experiment_folder_name}')
 
   # only load once so shuffling order is the same
-  scm_obj = loadCausalModel(scm_class, experiment_folder_name)
-  dataset_obj = loadDataset(scm_class, dataset_class)
-  classifier_obj = loadClassifier(dataset_class, classifier_class, experiment_folder_name)
+  scm_obj = loadCausalModel(args, experiment_folder_name)
+  dataset_obj = loadDataset(args, experiment_folder_name)
+  classifier_obj = loadClassifier(args, experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(scm_obj.getTopologicalOrdering())
+  # TODO: add more assertions for columns of dataset matching soething classifer?
+  objs = AttrDict({
+    'scm_obj': scm_obj,
+    'dataset_obj': dataset_obj,
+    'classifier_obj': classifier_obj,
+  })
 
-  print(f'Describe original data:\n{getOriginalDataFrame().describe()}')
+  # TODO: describe scm_obj
+  print(f'Describe original data:\n{getOriginalDataFrame(objs, args.num_train_samples).describe()}')
+  # TODO: describe classifier_obj
 
   # setup
-  factual_instances_dict = getNegativelyPredictedInstances(scm_obj, dataset_obj, classifier_obj)
+  factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
     ('m0_true', '*'), \
     ('m1_alin', 'v'), \
@@ -1370,15 +1193,21 @@ if __name__ == "__main__":
 
   if args.experiment == 5:
 
-    assert len(dataset_obj.getInputAttributeNames()) == 3, 'Exp 5 is only designed for 3-variable SCMs'
+    assert \
+      len(objs.dataset_obj.getInputAttributeNames()) == 3, \
+      'Exp 5 is only designed for 3-variable SCMs'
 
   elif args.experiment == 6:
 
-    assert len(dataset_obj.getInputAttributeNames()) >= 3, 'Exp 6 is only designed for 3+-variable SCMs'
+    assert \
+      len(objs.dataset_obj.getInputAttributeNames()) >= 3, \
+      'Exp 6 is only designed for 3+-variable SCMs'
 
   elif args.experiment == 8:
 
-    assert len(dataset_obj.getInputAttributeNames()) == 2, 'Exp 8 is only designed for 2-variable SCMs'
+    assert \
+      len(objs.dataset_obj.getInputAttributeNames()) == 2, \
+      'Exp 8 is only designed for 2-variable SCMs'
     if not np.all(['m2' in elem[0] for elem in experimental_setups]):
       print('[INFO] Exp 8 is only designed for m2 recourse_types; filtering to those')
       experimental_setups = [
@@ -1388,25 +1217,17 @@ if __name__ == "__main__":
       ]
 
   recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
-  hotTrainRecourseTypes(scm_obj, dataset_obj, classifier_obj, recourse_types)
-
+  hotTrainRecourseTypes(args, objs, recourse_types)
 
   if args.experiment == 5:
-    experiment5(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+    experiment5(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   elif args.experiment == 6:
-    experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+    experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   elif args.experiment == 8:
-    experiment8(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
-  # experiment5(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
-  # experiment6(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
-  # experiment7(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
-  # experiment8(scm_obj, dataset_obj, classifier_obj, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+    experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
 
   # sanity check
-  # visualizeDatasetAndFixedModel(scm_obj, dataset_obj, classifier_obj)
-
-
-
+  # visualizeDatasetAndFixedModel(args, objs)
 
 
 
@@ -1441,16 +1262,3 @@ if __name__ == "__main__":
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-''
