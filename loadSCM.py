@@ -132,7 +132,7 @@ def loadSCM(scm_class, experiment_folder_name = None):
     noises_distributions = {
       'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
       'u2': Normal(0, 1),
-      'u3': Normal(0, 1),
+      'u3': Normal(0, 5),
     }
 
   elif scm_class == 'sanity-3-power':
