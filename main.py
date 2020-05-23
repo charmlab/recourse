@@ -1133,10 +1133,10 @@ if __name__ == "__main__":
 
   parser = argparse.ArgumentParser()
 
-  parser.add_argument('-s', '--scm_class', type=str, default='sanity-2-add', help='Name of SCM to generate data using (see loadSCM.py)')
+  parser.add_argument('-s', '--scm_class', type=str, default='sanity-3-lin', help='Name of SCM to generate data using (see loadSCM.py)')
   parser.add_argument('-d', '--dataset_class', type=str, default='random', help='Name of dataset to train explanation model for: german, random, mortgage, twomoon')
   parser.add_argument('-c', '--classifier_class', type=str, default='lr', help='Model class that will learn data: lr, mlp')
-  parser.add_argument('-e', '--experiment', type=int, default=8, help='Which experiment to run (5,8=sanity; 6=table)')
+  parser.add_argument('-e', '--experiment', type=int, default=6, help='Which experiment to run (5,8=sanity; 6=table)')
   parser.add_argument('-p', '--process_id', type=str, default='0', help='When running parallel tests on the cluster, process_id guarantees (in addition to time stamped experiment folder) that experiments do not conflict.')
 
   parser.add_argument('--norm_type', type=int, default=2)
