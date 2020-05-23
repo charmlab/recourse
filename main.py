@@ -40,8 +40,8 @@ DEBUG_FLAG = False
 NORM_TYPE = 2
 LAMBDA_LCB = 1
 GRID_SEARCH_BINS = 5
-NUM_TRAIN_SAMPLES = 500
-NUM_RECOURSE_SAMPLES = 5
+NUM_TRAIN_SAMPLES = 1000
+NUM_RECOURSE_SAMPLES = 30
 NUM_DISPLAY_SAMPLES = 15
 NUM_MONTE_CARLO_SAMPLES = 100
 
@@ -1342,7 +1342,7 @@ if __name__ == "__main__":
     raise Exception(f'{classifier_class} not supported.')
 
   # create experiment folder
-  setup_name = f'{dataset_class}__{classifier_class}'
+  setup_name = f'{scm_class}__{dataset_class}__{classifier_class}'
   experiment_folder_name = f"_experiments/{datetime.now().strftime('%Y.%m.%d_%H.%M.%S')}__{setup_name}"
   os.mkdir(f'{experiment_folder_name}')
 
