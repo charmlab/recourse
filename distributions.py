@@ -30,7 +30,7 @@ class Normal(BaseDistribution):
     self.name = f'Normal\t mean={self.mean}, std={self.std}'
 
   def sample(self, size=1):
-    tmp = [np.random.normal(self.mean, self.std) for _ in range(size)]
+    tmp = [np.random.normal(self.mean, np.sqrt(self.std)) for _ in range(size)]
     return tmp[0] if size == 1 else tmp
 
   def pdf(self, value):
@@ -49,7 +49,7 @@ class MixtureOfGaussians(BaseDistribution):
 
   def sample(self, size=1):
     tmp = [
-      np.random.normal(self.means[mixture_idx], self.stds[mixture_idx])
+      np.random.normal(self.means[mixture_idx], np.sqrt(self.stds[mixture_idx]))
       for mixture_idx in np.random.choice(len(self.probs), size=size, p=self.probs)
     ]
     return tmp[0] if size == 1 else tmp
