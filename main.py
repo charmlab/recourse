@@ -307,9 +307,30 @@ def trainGP(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using GP on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), 'raw')
+
+  # fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+  # fig.suptitle('Histograms of marginals')
+  # ax1.hist(X_all['x1'].values)
+  # ax1.set_xlabel('$X_1$')
+  # ax1.set_title('$X_1$')
+  # ax2.hist(X_all['x2'].values)
+  # ax2.set_xlabel('$X_2$')
+  # ax2.set_title('$X_2$')
+  # ax3.hist(X_all['x3'].values)
+  # ax3.set_xlabel('$X_3$')
+  # ax3.set_title('$X_3$')
+  # plt.show()
+
   kernel = GPy.kern.RBF(input_dim=len(parents), ARD=True)
   model = GPy.models.GPRegression(X_all[parents], X_all[[node]], kernel)
   model.optimize_restarts(parallel=True, num_restarts=5, verbose=False)
+  # model.optimize_restarts(num_restarts = 3)
+  # ipsh()
+  # display(model)
+  # model.plot()
+  # # a = np.linspace(min(X_1)-1, max(X_1)+1, 10 * N)
+  # # pyplot.plot(a, f_2(a),'r--', label='true')
+  # pyplot.show()
   X = X_all[parents].to_numpy()
   return kernel, X, model
 
@@ -450,9 +471,10 @@ def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_t
   kernel, X, model = trainGP(args, objs, node, parents)
 
   K = kernel.K(X)
-  sigma_noise = np.array(model.Gaussian_noise.variance)
-  noise_post_means = noise_post_mean(K, sigma_noise, X)
-  noise_post_vars = noise_post_var(K, sigma_noise)
+  noise_var = np.array(model.Gaussian_noise.variance)
+  noise_post_means = noise_post_mean(K, noise_var, X)
+  noise_post_vars = noise_post_var(K, noise_var)
+  # ipsh() # TODO: re-copy code from notebook confirming we don't see a 1.4x bias in learned noise_var
 
   # GP posterior for node at new (intervened & conditioned) input given parents
   # pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
@@ -469,7 +491,7 @@ def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_t
     new_vars = pred_vars + noise_post_vars[tmp_idx]
   elif recourse_type == 'm2_gaus': # interventional distribution for node
     new_means = pred_means + 0
-    new_vars = pred_vars + sigma_noise
+    new_vars = pred_vars + noise_var
 
   # sample from distribution via reparametrisation trick
   new_noise = np.random.randn(samples_df.shape[0], 1)
@@ -964,6 +986,7 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
     print(f'\n\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
 
     per_instance_results[factual_instance_idx] = {}
+    per_instance_results[factual_instance_idx]['factual_instance'] = factual_instance
 
     for recourse_type in recourse_types:
 
@@ -984,8 +1007,11 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
       tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance, tmp['optimal_action_set'], 'm0_true')
-      tmp['int_conf_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
-      tmp['int_conf_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_cvae'), 3)
+      tmp['int_conf_m1_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_gaus'), 3)
+      tmp['int_conf_m1_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_cvae'), 3)
+      tmp['int_conf_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
+      tmp['int_conf_m2_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_gaus'), 3)
+      tmp['int_conf_m2_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_cvae'), 3)
       tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'])
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
 
@@ -1000,7 +1026,7 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
 
   # Table
   metrics_summary = {}
-  metrics = ['scf_validity', 'int_conf_true', 'int_conf_cvae', 'cost_all', 'cost_valid', 'runtime']
+  metrics = ['scf_validity', 'int_conf_m1_gaus', 'int_conf_m1_cvae', 'int_conf_m2_true', 'int_conf_m2_gaus', 'int_conf_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
 
   for metric in metrics:
     metrics_summary[metric] = []
@@ -1157,7 +1183,13 @@ if __name__ == "__main__":
     raise Exception(f'{args.classifier_class} not supported.')
 
   # create experiment folder
-  setup_name = f'{args.scm_class}__{args.dataset_class}__{args.classifier_class}__pid{args.process_id}'
+  setup_name = \
+    f'{args.scm_class}__{args.dataset_class}__{args.classifier_class}' + \
+    f'__ntrain_{args.num_train_samples}' +\
+    f'__nmc_{args.num_mc_samples}' + \
+    f'__nrecourse_{args.num_recourse_samples}' + \
+    f'__lambda_lcb_{args.lambda_lcb}' + \
+    f'__pid{args.process_id}'
   experiment_folder_name = f"_experiments/{datetime.now().strftime('%Y.%m.%d_%H.%M.%S')}__{setup_name}"
   os.mkdir(f'{experiment_folder_name}')
 
@@ -1176,6 +1208,11 @@ if __name__ == "__main__":
   # TODO: describe scm_obj
   print(f'Describe original data:\n{getOriginalDataFrame(objs, args.num_train_samples).describe()}')
   # TODO: describe classifier_obj
+
+  # if only visualizing
+  if args.experiment == 0:
+    visualizeDatasetAndFixedModel(args, objs)
+    quit()
 
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)

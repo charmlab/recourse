@@ -8,110 +8,110 @@ request_cpus = 2
 
 
 arguments = main.py --scm_class sanity-3-lin --lambda_lcb 0 --num_mc_samples 100 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-lin --lambda_lcb 0 --num_mc_samples 300 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-lin --lambda_lcb 0 --num_mc_samples 1000 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --num_mc_samples 100 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --num_mc_samples 300 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --num_mc_samples 1000 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-lin --lambda_lcb 2 --num_mc_samples 100 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-lin --lambda_lcb 2 --num_mc_samples 300 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-lin --lambda_lcb 2 --num_mc_samples 1000 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-anm --lambda_lcb 0 --num_mc_samples 100 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-anm --lambda_lcb 0 --num_mc_samples 300 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-anm --lambda_lcb 0 --num_mc_samples 1000 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --num_mc_samples 100 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --num_mc_samples 300 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --num_mc_samples 1000 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-anm --lambda_lcb 2 --num_mc_samples 100 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-anm --lambda_lcb 2 --num_mc_samples 300 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-anm --lambda_lcb 2 --num_mc_samples 1000 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-gen --lambda_lcb 0 --num_mc_samples 100 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-gen --lambda_lcb 0 --num_mc_samples 300 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-gen --lambda_lcb 0 --num_mc_samples 1000 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --num_mc_samples 100 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --num_mc_samples 300 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --num_mc_samples 1000 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-gen --lambda_lcb 2 --num_mc_samples 100 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-gen --lambda_lcb 2 --num_mc_samples 300 -p $(Process)
-queue 3
+queue 1
 
 
 arguments = main.py --scm_class sanity-3-gen --lambda_lcb 2 --num_mc_samples 1000 -p $(Process)
-queue 3
+queue 1
 
 

@@ -16,7 +16,7 @@ $ pip install -r pip_requirements.txt
 
 
 
-Sanity checks:
+# Sanity checks:
 
 EXPERIMENT 5 (sub-plots):
 If:

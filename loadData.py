@@ -419,6 +419,10 @@ class Dataset(object):
         balanced_data_frame[balanced_data_frame.loc[:,output_col] == 0].sample(number_of_subsamples_in_each_class, random_state = RANDOM_SEED),
         balanced_data_frame[balanced_data_frame.loc[:,output_col] == 1].sample(number_of_subsamples_in_each_class, random_state = RANDOM_SEED),
     ]).sample(frac = 1, random_state = RANDOM_SEED)
+    # balanced_data_frame = pd.concat([
+    #     balanced_data_frame[balanced_data_frame.loc[:,output_col] == 0],
+    #     balanced_data_frame[balanced_data_frame.loc[:,output_col] == 1],
+    # ]).sample(frac = 1, random_state = RANDOM_SEED)
 
     return balanced_data_frame, meta_cols, input_cols, output_col
 
