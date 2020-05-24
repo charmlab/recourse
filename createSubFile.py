@@ -11,7 +11,7 @@ print('error = _cluster_logs/test.$(Process).err', file=sub_file)
 print('output = _cluster_logs/test.$(Process).out', file=sub_file)
 print('log = _cluster_logs/test.$(Process).log', file=sub_file)
 print(f'request_memory = {request_memory}', file=sub_file)
-print('request_cpus = 1', file=sub_file)
+print('request_cpus = 2', file=sub_file)
 print('\n' * 2, file=sub_file)
 
 for scm_class in SCM_CLASS_VALUES:
