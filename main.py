@@ -198,10 +198,14 @@ def didFlip(args, objs, factual_instance, counterfactual_instance):
     getPrediction(args, objs, counterfactual_instance)
 
 
+def getConditionalString(node, parents):
+  return f'p({node} | {", ".join(parents)})'
+
+
 @utils.Memoize
 def trainRidge(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
-  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using Ridge on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
+  print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using Ridge on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), 'standardize')
   param_grid = {'alpha': np.logspace(-2, 1, 10)}
   model = GridSearchCV(Ridge(), param_grid=param_grid)
@@ -212,7 +216,7 @@ def trainRidge(args, objs, node, parents):
 @utils.Memoize
 def trainKernelRidge(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
-  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using KernelRidge on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
+  print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using KernelRidge on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), 'standardize')
   param_grid = {
     'alpha': np.logspace(-2, 1, 5),
@@ -229,7 +233,7 @@ def trainKernelRidge(args, objs, node, parents):
 @utils.Memoize
 def trainCVAE(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
-  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using CVAE on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
+  print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using CVAE on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, int(args.num_train_samples * 1.2)), 'raw')
 
   # if objs.scm_obj.scm_class == 'sanity-2-add':
@@ -284,7 +288,7 @@ def trainCVAE(args, objs, node, parents):
   # decoder_layer_sizes = [1 + len(parents), 1]
 
   return train_cvae(AttrDict({
-    'name': f'p({node} | {", ".join(parents)})',
+    'name': f'{getConditionalString(node, parents)}',
     'node_train': X_all[[node]].iloc[:args.num_train_samples],
     'parents_train': X_all[parents].iloc[:args.num_train_samples],
     'node_valid': X_all[[node]].iloc[args.num_train_samples:],
@@ -305,7 +309,7 @@ def trainCVAE(args, objs, node, parents):
 @utils.Memoize
 def trainGP(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
-  print(f'\t[INFO] Fitting p({node} | {", ".join(parents)}) using GP on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
+  print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using GP on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), 'raw')
 
   # fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
@@ -541,10 +545,12 @@ def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 
     # set variable if value not yet set through intervention or conditioning
     if samples_df[node].isnull().values.any():
       parents = objs.scm_obj.getParentsForNode(node)
+      # root nodes MUST always be set through intervention or conditioning
+      assert len(parents) > 0
       # Confirm parents columns are present/have assigned values in samples_df
       assert not samples_df.loc[:,list(parents)].isnull().values.any()
       if args.debug_flag:
-        print(f'Sampling `{recourse_type}` from p({node} | {", ".join(parents)})')
+        print(f'Sampling `{recourse_type}` from {getConditionalString(node, parents)}')
       if recourse_type in {'m0_true', 'm2_true'}:
         sampling_handle = sampleTrue
       elif recourse_type == 'm1_alin':
@@ -930,7 +936,7 @@ def experiment5(args, objs, experiment_folder_name, factual_instances_dict, expe
 
   for idx, action_set in enumerate(action_sets):
 
-    print(f'\n\n[INFO] ACTION SET: {str(action_set)}' + ' =' * 40)
+    print(f'\n\n[INFO] ACTION SET: {str(prettyPrintDict(action_set))}' + ' =' * 40)
 
     for experimental_setup in experimental_setups:
       recourse_type, marker = experimental_setup[0], experimental_setup[1]
@@ -1097,62 +1103,75 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
 def experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' box-plot sanity '''
 
-  # action_sets = [
-  #   {'x1': objs.scm_obj.noises_distributions['u1'].sample()}
-  #   for _ in range(4)
-  # ]
-  range_x1 = objs.dataset_obj.data_frame_kurz.describe()['x1']
-  action_sets = [
-    {'x1': value_x1}
-    for value_x1 in np.linspace(range_x1['min'], range_x1['max'], 9)
-  ]
+  PER_DIM_GRANULARITY = 3
 
-  factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
+  for node in objs.scm_obj.getTopologicalOrdering():
 
-  per_value_x1_results = {} # TODO: deprecate this and just merge into one big dataframe (and perhaps do the same for exp 5?)
+    parents = objs.scm_obj.getParentsForNode(node)
 
-  for idx, action_set in enumerate(action_sets):
+    # if len(parents): # if not a root node
+    #   pass # don't want to plot marginals, because we're not learning these
+    # elif len(parents) > 2:
+    #   print(f'[INFO] not able to plot sanity checks for {getConditionalString(node, parents)}')
 
-    print(f'\n\n[INFO] ACTION SET: {str(action_set)}' + ' =' * 40)
-    value_x1 = action_set['x1']
 
-    per_value_x1_results[value_x1] = {}
+    if len(parents) == 1:
+    # if len(parents) == 1 or len(parents) == 2:
 
-    for experimental_setup in experimental_setups:
-      recourse_type, marker = experimental_setup[0], experimental_setup[1]
+      all_actions_outer_product = list(itertools.product(
+        *[
+          np.linspace(
+            objs.dataset_obj.data_frame_kurz.describe()[parent]['min'],
+            objs.dataset_obj.data_frame_kurz.describe()[parent]['max'],
+            PER_DIM_GRANULARITY,
+          )
+          for parent in parents
+        ]
+      ))
+      action_sets = [
+        dict(zip(parents, elem))
+        for elem in all_actions_outer_product
+      ]
 
-      per_value_x1_results[value_x1][recourse_type] = []
+      # i don't this has any affect... especially when we sweep over values of all parents and condition children
+      factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
+      total_df = pd.DataFrame(columns=['recourse_type'] + list(objs.scm_obj.getTopologicalOrdering()))
 
-      if recourse_type in ACCEPTABLE_POINT_RECOURSE:
-        sample = computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type)
-        # print(f'{recourse_type}:\t{prettyPrintDict(sample)}')
-        # axes.flatten()[idx].plot(sample['x2'], sample['x3'], marker, alpha=1.0, markersize = 7, label=recourse_type)
-      elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
-        samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, args.num_display_samples)
-        # print(f'{recourse_type}:\n{samples.head()}')
-        # axes.flatten()[idx].plot(samples['x2'], samples['x3'], marker, alpha=0.3, markersize = 4, label=recourse_type)
-      else:
-        raise Exception(f'{recourse_type} not supported.')
+      for idx, action_set in enumerate(action_sets):
 
-      per_value_x1_results[value_x1][recourse_type] = list(samples['x2'])
+        print(f'\n\n[INFO] ACTION SET: {str(prettyPrintDict(action_set))}' + ' =' * 40)
 
-  tmp = {}
-  tmp['recourse_type'] = []
-  tmp['value_x1'] = []
-  tmp['sample_x2'] = []
-  for k1,v1 in per_value_x1_results.items():
-    for k2,v2 in v1.items():
-      for elem in v2:
-        tmp['recourse_type'].append(k2)
-        tmp['value_x1'].append(k1)
-        tmp['sample_x2'].append(elem)
-  tmp = pd.DataFrame.from_dict(tmp)
-  # ipsh()
-  ax = sns.boxplot(x="value_x1", y="sample_x2", hue="recourse_type", data=tmp, palette="Set3", showmeans=True)
-  # TODO: average over high dens pdf, and show a separate plot/table for the average over things...
-  ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
-  # pyplot.show()
-  pyplot.savefig(f'{experiment_folder_name}/_sanity_3.pdf')
+        for experimental_setup in experimental_setups:
+          recourse_type, marker = experimental_setup[0], experimental_setup[1]
+
+          if recourse_type in ACCEPTABLE_POINT_RECOURSE:
+            sample = computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type)
+            # print(f'{recourse_type}:\t{prettyPrintDict(sample)}')
+          elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
+            samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, args.num_mc_samples)
+            # print(f'{recourse_type}:\n{samples.head()}')
+          else:
+            raise Exception(f'{recourse_type} not supported.')
+
+          tmp_df = samples.copy()
+          tmp_df['recourse_type'] = recourse_type # add column
+          total_df = pd.concat([total_df, tmp_df]) # concat to overall
+
+      if len(parents) == 1:
+        # box plot
+        ax = sns.boxplot(x=parents[0], y=node, hue='recourse_type', data=total_df, palette='Set3', showmeans=True)
+        # TODO: average over high dens pdf, and show a separate plot/table for the average over things...
+        # ax.set_xticklabels(
+        #   [np.around(elem, 3) for elem in ax.get_xticks()],
+        #   rotation=90,
+        # )
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
+        pyplot.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
+
+      # TODO:
+      elif len(parents) == 2:
+        # contour plot
+        ipsh()
 
 
 if __name__ == "__main__":
@@ -1242,9 +1261,9 @@ if __name__ == "__main__":
 
   elif args.experiment == 8:
 
-    assert \
-      len(objs.dataset_obj.getInputAttributeNames()) == 2, \
-      'Exp 8 is only designed for 2-variable SCMs'
+    # assert \
+    #   len(objs.dataset_obj.getInputAttributeNames()) == 2, \
+    #   'Exp 8 is only designed for 2-variable SCMs'
     if not np.all(['m2' in elem[0] for elem in experimental_setups]):
       print('[INFO] Exp 8 is only designed for m2 recourse_types; filtering to those')
       experimental_setups = [
