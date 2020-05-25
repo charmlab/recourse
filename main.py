@@ -312,29 +312,15 @@ def trainGP(args, objs, node, parents):
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using GP on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), 'raw')
 
-  # fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
-  # fig.suptitle('Histograms of marginals')
-  # ax1.hist(X_all['x1'].values)
-  # ax1.set_xlabel('$X_1$')
-  # ax1.set_title('$X_1$')
-  # ax2.hist(X_all['x2'].values)
-  # ax2.set_xlabel('$X_2$')
-  # ax2.set_title('$X_2$')
-  # ax3.hist(X_all['x3'].values)
-  # ax3.set_xlabel('$X_3$')
-  # ax3.set_title('$X_3$')
-  # plt.show()
-
   kernel = GPy.kern.RBF(input_dim=len(parents), ARD=True)
-  model = GPy.models.GPRegression(X_all[parents], X_all[[node]], kernel)
+  # IMPORTANT: do NOT use DataFrames, use Numpy arrays; GPy doesn't like DF.
+  # https://github.com/SheffieldML/GPy/issues/781#issuecomment-532738155
+  model = GPy.models.GPRegression(
+    X_all[parents].to_numpy(),
+    X_all[[node]].to_numpy(),
+    kernel,
+  )
   model.optimize_restarts(parallel=True, num_restarts=5, verbose=False)
-  # model.optimize_restarts(num_restarts = 3)
-  # ipsh()
-  # display(model)
-  # model.plot()
-  # # a = np.linspace(min(X_1)-1, max(X_1)+1, 10 * N)
-  # # pyplot.plot(a, f_2(a),'r--', label='true')
-  # pyplot.show()
   X = X_all[parents].to_numpy()
   return kernel, X, model
 
