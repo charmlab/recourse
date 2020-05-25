@@ -35,7 +35,7 @@ If:
 Expect:
 * m1_akrr to match m0_true perfectly within data manifold
 * m1_gaus to have smaller variance than m2_gaus
-* m1_gaus to be (ideally) close (but not necessarily centered around) to m0_true
+* m1_gaus to be (ideally) close and centered around to m0_true
 * m2_gaus to match m2_true within data manifold
 
 <> <> <> <> <> <> <> <> <> <> <> <> <> <> <> <> <> <> <> <> <>

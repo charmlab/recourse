@@ -329,8 +329,8 @@ def trainGP(args, objs, node, parents):
     kernel,
   )
   model.optimize_restarts(parallel=True, num_restarts=5, verbose=False)
-  X = X_all[parents].to_numpy()
-  return kernel, X, model
+
+  return kernel, X_all, model
 
 
 def _getAbductionNoise(args, objs, node, parents, factual_instance, structural_equation):
@@ -452,26 +452,27 @@ def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_t
   samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_GAUS)
   factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_GAUS)
 
-  def noise_post_mean(K, sigma, Y):
+  def noise_post_mean(K, sigma_squared, Y):
     N = K.shape[0]
-    S = np.linalg.inv(K + sigma * np.eye(N))
-    return sigma * np.dot(S, Y)
+    S = np.linalg.inv(K + sigma_squared * np.eye(N))
+    return sigma_squared * np.dot(S, Y)
 
-  def noise_post_cov(K, sigma):
+  def noise_post_cov(K, sigma_squared):
     N = K.shape[0]
-    S = np.linalg.inv(K + sigma * np.eye(N))
-    return  sigma * (np.eye(N) - sigma * S)
+    S = np.linalg.inv(K + sigma_squared * np.eye(N))
+    return  sigma_squared * (np.eye(N) - sigma_squared * S)
 
-  def noise_post_var(K, sigma):
+  def noise_post_var(K, sigma_squared):
     N = K.shape[0]
-    C = noise_post_cov(K, sigma)
+    C = noise_post_cov(K, sigma_squared)
     return np.array([C[i,i] for i in range(N)])
 
-  kernel, X, model = trainGP(args, objs, node, parents)
+  kernel, X_all, model = trainGP(args, objs, node, parents)
 
-  K = kernel.K(X)
+  K = kernel.K(X_all[parents].to_numpy())
+  Y = X_all[[node]].to_numpy()
   noise_var = np.array(model.Gaussian_noise.variance)
-  noise_post_means = noise_post_mean(K, noise_var, X)
+  noise_post_means = noise_post_mean(K, noise_var, Y)
   noise_post_vars = noise_post_var(K, noise_var)
 
   # GP posterior for node at new (intervened & conditioned) input given parents
@@ -1103,14 +1104,11 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
 
     parents = objs.scm_obj.getParentsForNode(node)
 
-    # if len(parents): # if not a root node
-    #   pass # don't want to plot marginals, because we're not learning these
-    # elif len(parents) > 2:
-    #   print(f'[INFO] not able to plot sanity checks for {getConditionalString(node, parents)}')
-
-
-    if len(parents) == 1:
-    # if len(parents) == 1 or len(parents) == 2:
+    if len(parents) == 0: # if not a root node
+      continue # don't want to plot marginals, because we're not learning these
+    elif len(parents) > 2:
+      print(f'[INFO] not able to plot sanity checks for {getConditionalString(node, parents)}')
+    elif len(parents) == 1 or len(parents) == 2:
 
       all_actions_outer_product = list(itertools.product(
         *[
@@ -1166,6 +1164,7 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
       elif len(parents) == 2:
         # contour plot
         ipsh()
+        # TODO: show2x2 plot, validation set (here and abve!) X_true, m2_true, m2_gaus, m2_cvae
 
 
 if __name__ == "__main__":
