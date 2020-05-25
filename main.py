@@ -240,7 +240,8 @@ def trainCVAE(args, objs, node, parents):
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using CVAE on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples  + args.num_validation_samples), PROCESSING_CVAE)
 
-  sweep_lambda_kld = [0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
+  # sweep_lambda_kld = [0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
+  sweep_lambda_kld = [0.5, 0.1, 0.05]
   # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
   sweep_encoder_layer_sizes = [
     [1, 3, 3],
@@ -295,9 +296,9 @@ def trainCVAE(args, objs, node, parents):
     X_pred_posterior = X_true.copy()
     X_pred_posterior[node] = pd.DataFrame(recon_node_validation.numpy(), columns=[node])
 
-    tmp_factual_instance = dict.fromkeys(objs.scm_obj.getTopologicalOrdering(), -1)
-    tmp_samples_df = X_true.copy()
-    X_pred_prior = sampleCVAE(args, objs, tmp_factual_instance, tmp_samples_df, node, parents, 'm2_cvae', trained_cvae = trained_cvae)
+    not_imp_factual_instance = dict.fromkeys(objs.scm_obj.getTopologicalOrdering(), -1)
+    not_imp_samples_df = X_true.copy()
+    X_pred_prior = sampleCVAE(args, objs, not_imp_factual_instance, not_imp_samples_df, node, parents, 'm2_cvae', trained_cvae = trained_cvae)
 
     X_pred = X_pred_prior
 
@@ -1108,7 +1109,7 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
       continue # don't want to plot marginals, because we're not learning these
     elif len(parents) > 2:
       print(f'[INFO] not able to plot sanity checks for {getConditionalString(node, parents)}')
-    elif len(parents) == 1 or len(parents) == 2:
+    elif len(parents) == 1:
 
       all_actions_outer_product = list(itertools.product(
         *[
@@ -1149,22 +1150,51 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
           tmp_df['recourse_type'] = recourse_type # add column
           total_df = pd.concat([total_df, tmp_df]) # concat to overall
 
-      if len(parents) == 1:
-        # box plot
-        ax = sns.boxplot(x=parents[0], y=node, hue='recourse_type', data=total_df, palette='Set3', showmeans=True)
-        # TODO: average over high dens pdf, and show a separate plot/table for the average over things...
-        # ax.set_xticklabels(
-        #   [np.around(elem, 3) for elem in ax.get_xticks()],
-        #   rotation=90,
-        # )
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
-        plt.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
+      # box plot
+      ax = sns.boxplot(x=parents[0], y=node, hue='recourse_type', data=total_df, palette='Set3', showmeans=True)
+      # TODO: average over high dens pdf, and show a separate plot/table for the average over things...
+      # ax.set_xticklabels(
+      #   [np.around(elem, 3) for elem in ax.get_xticks()],
+      #   rotation=90,
+      # )
+      ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
+      plt.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
 
-      # TODO:
-      elif len(parents) == 2:
-        # contour plot
-        ipsh()
-        # TODO: show2x2 plot, validation set (here and abve!) X_true, m2_true, m2_gaus, m2_cvae
+    elif len(parents) == 2:
+      # distribution plot
+
+      total_df = pd.DataFrame(columns=['recourse_type'] + list(objs.scm_obj.getTopologicalOrdering()))
+
+      X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples  + args.num_validation_samples), PROCESSING_CVAE)
+      X_val = X_all[args.num_train_samples:].copy()
+
+      X_true = X_val[parents + [node]]
+
+      not_imp_factual_instance = dict.fromkeys(objs.scm_obj.getTopologicalOrdering(), -1)
+      not_imp_samples_df = X_true.copy()
+
+      # add samples from validation set itself (the true data):
+      tmp_df = X_true.copy()
+      tmp_df['recourse_type'] = 'true data' # add column
+      total_df = pd.concat([total_df, tmp_df]) # concat to overall
+
+      # add samples from all m2 methods
+      for recourse_type in recourse_types:
+
+        if recourse_type == 'm2_true':
+          sampling_handle = sampleTrue
+        elif recourse_type == 'm2_gaus':
+          sampling_handle = sampleGP
+        elif recourse_type == 'm2_cvae':
+          sampling_handle = sampleCVAE
+
+        samples = sampling_handle(args, objs, not_imp_factual_instance, not_imp_samples_df, node, parents, recourse_type)
+        tmp_df = samples.copy()
+        tmp_df['recourse_type'] = recourse_type # add column
+        total_df = pd.concat([total_df, tmp_df]) # concat to overall
+
+      ax = sns.boxplot(x='recourse_type', y=node, data=total_df, palette='Set3', showmeans=True)
+      plt.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
 
 
 if __name__ == "__main__":
