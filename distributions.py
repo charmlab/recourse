@@ -1,5 +1,5 @@
 import numpy as np
-from matplotlib import pyplot
+from matplotlib import plt
 from scipy.stats import norm # norm for univariate; use multivariate_normal otherwise
 
 # univariate distributions
@@ -14,11 +14,11 @@ class BaseDistribution(object):
     raise NotImplementedError
 
   def visualize(self):
-    pyplot.hist(self.sample(500), 50, facecolor='green', alpha=0.75)
-    pyplot.ylabel('Count')
-    pyplot.title(fr'Histogram of {self.name}')
-    pyplot.grid(True)
-    pyplot.show()
+    plt.hist(self.sample(500), 50, facecolor='green', alpha=0.75)
+    plt.ylabel('Count')
+    plt.title(fr'Histogram of {self.name}')
+    plt.grid(True)
+    plt.show()
 
 
 class Normal(BaseDistribution):

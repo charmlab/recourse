@@ -12,7 +12,7 @@ import seaborn as sns
 
 from tqdm import tqdm
 from pprint import pprint
-from matplotlib import pyplot
+from matplotlib import plt
 from datetime import datetime
 from attrdict import AttrDict
 
@@ -822,8 +822,8 @@ def scatterRecourse(args, objs, factual_instance, action_set, recourse_type, mar
 
 def visualizeDatasetAndFixedModel(args, objs):
 
-  fig = pyplot.figure()
-  ax = pyplot.subplot(1, 1, 1, projection='3d')
+  fig = plt.figure()
+  ax = plt.subplot(1, 1, 1, projection='3d')
 
   scatterDataset(args, objs, ax)
   scatterDecisionBoundary(args, objs, ax)
@@ -835,7 +835,7 @@ def visualizeDatasetAndFixedModel(args, objs):
   # ax.legend()
   ax.grid(True)
 
-  pyplot.show()
+  plt.show()
 
 
 def getNegativelyPredictedInstances(args, objs):
@@ -907,7 +907,7 @@ def experiment5(args, objs, experiment_folder_name, factual_instances_dict, expe
 
   factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
 
-  fig, axes = pyplot.subplots(
+  fig, axes = plt.subplots(
     int(np.sqrt(len(action_sets))),
     int(np.sqrt(len(action_sets))),
     # tight_layout=True,
@@ -963,8 +963,8 @@ def experiment5(args, objs, experiment_folder_name, factual_instances_dict, expe
   )
   fig.tight_layout()
   plt.subplots_adjust(right=0.85)
-  # pyplot.show()
-  pyplot.savefig(f'{experiment_folder_name}/_comparison.pdf')
+  # plt.show()
+  plt.savefig(f'{experiment_folder_name}/_comparison.pdf')
 
 
 def experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
@@ -1046,7 +1046,7 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
   # num_plot_cols = int(np.floor(np.sqrt(tmp)))
   # num_plot_rows = int(np.ceil(tmp / num_plot_cols))
 
-  # fig, axes = pyplot.subplots(num_plot_rows, num_plot_cols, subplot_kw=dict(projection='3d'))
+  # fig, axes = plt.subplots(num_plot_rows, num_plot_cols, subplot_kw=dict(projection='3d'))
   # if num_plot_rows * num_plot_cols == max_to_plot:
   #   axes = np.array(axes) # weird hack we need to use so to later use flatten()
 
@@ -1079,8 +1079,8 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
   # for ax in axes.flatten():
   #   ax.legend(fontsize='xx-small')
   # fig.tight_layout()
-  # # pyplot.show()
-  # pyplot.savefig(f'{experiment_folder_name}/comparison.pdf')
+  # # plt.show()
+  # plt.savefig(f'{experiment_folder_name}/comparison.pdf')
 
 
 # DEPRECATED def experiment7
@@ -1152,7 +1152,7 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
         #   rotation=90,
         # )
         ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
-        pyplot.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
+        plt.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
 
       # TODO:
       elif len(parents) == 2:
