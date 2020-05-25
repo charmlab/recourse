@@ -1,5 +1,5 @@
 import numpy as np
-from matplotlib import plt
+from matplotlib import pyplot as plt
 from scipy.stats import norm # norm for univariate; use multivariate_normal otherwise
 
 # univariate distributions

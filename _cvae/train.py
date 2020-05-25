@@ -90,7 +90,8 @@ def train_cvae(args):
 
     logs = defaultdict(list)
 
-    all_mse_valid_losses = []
+    all_mse_validation_losses = []
+    stopped_early = False
     for epoch in tqdm(range(args.epochs)):
 
         # tracker_epoch = defaultdict(lambda: defaultdict(dict))
@@ -127,43 +128,42 @@ def train_cvae(args):
         x = torch.tensor(args.node_train.to_numpy()).float()
         pa = torch.tensor(args.parents_train.to_numpy()).float()
         recon_x, mean, log_var, z = vae(x, pa)
-        recon_x = recon_x.detach()
-        mean = mean.detach()
-        log_var = log_var.detach()
+        recon_x, mean, log_var, z = recon_x.detach(), mean.detach(), log_var.detach(), z.detach()
+        x_train, pa_train, recon_x_train = x, pa, recon_x
         MSE_train = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
         KLD_train = -0.5 * torch.mean(torch.sum(1 + log_var - mean.pow(2) - log_var.exp(), axis=1))
 
-        # valid set
-        x = torch.tensor(args.node_valid.to_numpy()).float()
-        pa = torch.tensor(args.parents_valid.to_numpy()).float()
+        # validation set
+        x = torch.tensor(args.node_validation.to_numpy()).float()
+        pa = torch.tensor(args.parents_validation.to_numpy()).float()
         recon_x, mean, log_var, z = vae(x, pa)
-        recon_x = recon_x.detach()
-        mean = mean.detach()
-        log_var = log_var.detach()
-        MSE_valid = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
-        KLD_valid = -0.5 * torch.mean(torch.sum(1 + log_var - mean.pow(2) - log_var.exp(), axis=1))
+        recon_x, mean, log_var, z = recon_x.detach(), mean.detach(), log_var.detach(), z.detach()
+        x_validation, pa_validation, recon_x_validation = x, pa, recon_x
+        MSE_validation = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
+        KLD_validation = -0.5 * torch.mean(torch.sum(1 + log_var - mean.pow(2) - log_var.exp(), axis=1))
 
         writer.add_scalars(f'loss/{args.name}', {
             'MSE_train': MSE_train,
             'KLD_train': KLD_train,
             # 'sum_train': MSE_train + KLD_train,
-            'MSE_valid': MSE_valid,
-            'KLD_valid': KLD_valid,
-            # 'sum_valid': MSE_valid + KLD_valid,
+            'MSE_validation': MSE_validation,
+            'KLD_validation': KLD_validation,
+            # 'sum_validation': MSE_validation + KLD_validation,
         }, epoch)
 
         moving_window_size = 20
-        all_mse_valid_losses.append(MSE_valid)
-        # if MSE_valid has converged (NOT BOTH MSE_valid and KLD_valid), then stop training...
+        all_mse_validation_losses.append(MSE_validation)
+        # if MSE_validation has converged (NOT BOTH MSE_validation and KLD_validation), then stop training...
         if \
             epoch >= moving_window_size and \
-            np.abs(np.mean(all_mse_valid_losses[-moving_window_size:]) / MSE_valid) < 1.05:
-            print(f'Early stopping at epoch {epoch}')
+            np.abs(np.mean(all_mse_validation_losses[-moving_window_size:]) / MSE_validation) < 1.05:
+            stopped_early = True
             break
 
+    if stopped_early: print(f'Early stopping at epoch {epoch}')
     print(f'Final lambda_loss value: {lambda_loss:.6f}')
 
-    return vae
+    return vae, recon_x_train, recon_x_validation
 
         #         if args.conditional:
         #             c = torch.arange(0, 10).long().unsqueeze(1)

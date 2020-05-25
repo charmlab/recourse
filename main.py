@@ -12,11 +12,12 @@ import seaborn as sns
 
 from tqdm import tqdm
 from pprint import pprint
-from matplotlib import plt
+from matplotlib import pyplot as plt
 from datetime import datetime
 from attrdict import AttrDict
 
 import GPy
+import mmd
 import utils
 import loadSCM
 import loadData
@@ -46,6 +47,9 @@ ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cva
 #     self.endogenous_dict = endogenous_dict
 #     self.exogenous_dict = exogenous_dict
 
+PROCESSING_SKLEARN = 'standardize'
+PROCESSING_GAUS = 'raw'
+PROCESSING_CVAE = 'raw'
 
 @utils.Memoize
 def loadCausalModel(args, experiment_folder_name):
@@ -206,7 +210,7 @@ def getConditionalString(node, parents):
 def trainRidge(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using Ridge on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
-  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), 'standardize')
+  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_SKLEARN)
   param_grid = {'alpha': np.logspace(-2, 1, 10)}
   model = GridSearchCV(Ridge(), param_grid=param_grid)
   model.fit(X_all[parents], X_all[[node]])
@@ -217,7 +221,7 @@ def trainRidge(args, objs, node, parents):
 def trainKernelRidge(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using KernelRidge on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
-  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), 'standardize')
+  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_SKLEARN)
   param_grid = {
     'alpha': np.logspace(-2, 1, 5),
     'kernel': [
@@ -234,7 +238,7 @@ def trainKernelRidge(args, objs, node, parents):
 def trainCVAE(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using CVAE on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
-  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, int(args.num_train_samples * 1.2)), 'raw')
+  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples  + args.num_validation_samples), PROCESSING_CVAE)
 
   # if objs.scm_obj.scm_class == 'sanity-2-add':
   #   if args.num_train_samples == 5000:
@@ -287,12 +291,12 @@ def trainCVAE(args, objs, node, parents):
   decoder_layer_sizes = [2, 1]
   # decoder_layer_sizes = [1 + len(parents), 1]
 
-  return train_cvae(AttrDict({
+  trained_cvae, recon_node_train, recon_node_validation = train_cvae(AttrDict({
     'name': f'{getConditionalString(node, parents)}',
     'node_train': X_all[[node]].iloc[:args.num_train_samples],
     'parents_train': X_all[parents].iloc[:args.num_train_samples],
-    'node_valid': X_all[[node]].iloc[args.num_train_samples:],
-    'parents_valid': X_all[parents].iloc[args.num_train_samples:],
+    'node_validation': X_all[[node]].iloc[args.num_train_samples:],
+    'parents_validation': X_all[parents].iloc[args.num_train_samples:],
     'seed': 0,
     'epochs': 100,
     'batch_size': 128,
@@ -305,12 +309,29 @@ def trainCVAE(args, objs, node, parents):
     'debug_folder': experiment_folder_name,
   }))
 
+  # test whether training is good or not: (ON VALIDATION SET)
+  X_val = X_all[args.num_train_samples:].copy()
+  # POTENTIAL BUG? reset index here so that we can populate the `node` column
+  # with reconstructed values from trained_cvae that lack indexing
+  X_val = X_val.reset_index(drop = True)
+  X_true = X_val[parents + [node]]
+  X_pred = X_true.copy()
+  X_pred[node] = pd.DataFrame(recon_node_validation.numpy(), columns=[node])
+
+  my_statistic, statistics, sigma_median = mmd.mmd_with_median_heuristic(X_true.to_numpy(), X_pred.to_numpy())
+  print('using median of ', sigma_median, 'as bandwith')
+  print('test-statistic = ', my_statistic)
+
+
+
+  return trained_cvae
+
 
 @utils.Memoize
 def trainGP(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using GP on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
-  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), 'raw')
+  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS)
 
   kernel = GPy.kern.RBF(input_dim=len(parents), ARD=True)
   # IMPORTANT: do NOT use DataFrames, use Numpy arrays; GPy doesn't like DF.
@@ -377,8 +398,8 @@ def sampleTrue(args, objs, factual_instance, samples_df, node, parents, recourse
 
 
 def _sampleRidgeKernelRidge(args, objs, factual_instance, samples_df, node, parents, recourse_type, train_handle):
-  samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), 'standardize')
-  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), 'standardize')
+  samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_SKLEARN)
+  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_SKLEARN)
 
   # Step 1. [abduction]: compute noise or load from dataset using factual_instance
   # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
@@ -391,7 +412,7 @@ def _sampleRidgeKernelRidge(args, objs, factual_instance, samples_df, node, pare
       noise,
       *samples_df.loc[row_idx, parents].to_numpy(),
     )
-  samples_df = deprocessDataFrameOrDict(args, objs, samples_df, 'standardize')
+  samples_df = deprocessDataFrameOrDict(args, objs, samples_df, PROCESSING_SKLEARN)
   return samples_df
 
 
@@ -404,8 +425,8 @@ def sampleKernelRidge(args, objs, factual_instance, samples_df, node, parents, r
 
 
 def sampleCVAE(args, objs, factual_instance, samples_df, node, parents, recourse_type):
-  samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), 'raw')
-  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), 'raw')
+  samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_CVAE)
+  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_CVAE)
 
   trained_cvae = trainCVAE(args, objs, node, parents)
   num_samples = samples_df.shape[0]
@@ -435,13 +456,13 @@ def sampleCVAE(args, objs, factual_instance, samples_df, node, parents, recourse
   )
   new_samples = new_samples.rename(columns={0: node}) # bad code amir, this violates abstraction!
   samples_df[node] = new_samples
-  samples_df = deprocessDataFrameOrDict(args, objs, samples_df, 'raw')
+  samples_df = deprocessDataFrameOrDict(args, objs, samples_df, PROCESSING_CVAE)
   return samples_df
 
 
 def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_type):
-  samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), 'raw')
-  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), 'raw')
+  samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_GAUS)
+  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_GAUS)
 
   def noise_post_mean(K, sigma, Y):
     N = K.shape[0]
@@ -464,7 +485,6 @@ def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_t
   noise_var = np.array(model.Gaussian_noise.variance)
   noise_post_means = noise_post_mean(K, noise_var, X)
   noise_post_vars = noise_post_var(K, noise_var)
-  # ipsh() # TODO: re-copy code from notebook confirming we don't see a 1.4x bias in learned noise_var
 
   # GP posterior for node at new (intervened & conditioned) input given parents
   # pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
@@ -475,7 +495,7 @@ def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_t
     #            (earlier, the factual instance was appended as the last instance)
     tmp_idx = getIndexOfFactualInstanceInDataFrame(
       factual_instance,
-      processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), 'raw'),
+      processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
     ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
     new_means = pred_means + noise_post_means[tmp_idx]
     new_vars = pred_vars + noise_post_vars[tmp_idx]
@@ -488,7 +508,7 @@ def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_t
   new_samples = new_means + np.sqrt(new_vars) * new_noise
 
   samples_df[node] = new_samples
-  samples_df = deprocessDataFrameOrDict(args, objs, samples_df, 'raw')
+  samples_df = deprocessDataFrameOrDict(args, objs, samples_df, PROCESSING_GAUS)
   return samples_df
 
 
@@ -1174,6 +1194,7 @@ if __name__ == "__main__":
   parser.add_argument('--lambda_lcb', type=int, default=1)
   parser.add_argument('--grid_search_bins', type=int, default=5)
   parser.add_argument('--num_train_samples', type=int, default=1000)
+  parser.add_argument('--num_validation_samples', type=int, default=25)
   parser.add_argument('--num_recourse_samples', type=int, default=30)
   parser.add_argument('--num_display_samples', type=int, default=15)
   parser.add_argument('--num_mc_samples', type=int, default=100)
@@ -1223,12 +1244,12 @@ if __name__ == "__main__":
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
     ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
-    ('m1_gaus', 'D'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
+    # ('m1_gaus', 'D'), \
     ('m1_cvae', 'x'), \
-    ('m2_true', 'o'), \
-    ('m2_gaus', 's'), \
+    # ('m2_true', 'o'), \
+    # ('m2_gaus', 's'), \
     ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
