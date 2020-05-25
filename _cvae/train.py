@@ -52,31 +52,11 @@ def train_cvae(args):
     data_loader = DataLoader(
         dataset=dataset, batch_size=args.batch_size, shuffle=True)
 
-    # lambda_loss = torch.tensor(args.lambda_kld, requires_grad = True)
-    # lambda_loss = torch.tensor(0.1, requires_grad = True)
-    lambda_loss = torch.tensor(2., requires_grad = True)
-
-    def loss_fn(recon_x, x, mean, log_var, lambda_loss):
+    def loss_fn(recon_x, x, mean, log_var):
         # TODO: add back for binary / categorical variables
         # BCE = torch.nn.functional.binary_cross_entropy(recon_x, x, reduction='sum')
         MSE = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
         KLD = -0.5 * torch.mean(torch.sum(1 + log_var - mean.pow(2) - log_var.exp(), axis=1))
-        # print(recon_x)
-        # ipsh()
-        # ipsh()
-        # print(f'MSE: {MSE} \t KLD: {KLD}')
-        # return (BCE + KLD) / x.size(0)
-        # return (10 * MSE + KLD) / x.size(0)
-        # return (MSE + KLD) / x.size(0)
-        # return MSE + KLD * mean.size(1)
-        # return MSE / (2 / (4.58**2))  + KLD
-        # return MSE / 2 + KLD
-        # return MSE + KLD * lambda_loss.detach() + lambda_loss * KLD.detach()
-        # return MSE + KLD * lambda_loss.detach() + MSE.detach() / lambda_loss
-        # return MSE / lambda_loss.detach() + KLD - MSE.detach() / lambda_loss
-        # return MSE + KLD + lambda_loss.detach() * torch.norm(MSE - KLD, p = 2) - lambda_loss * torch.norm(MSE - KLD, p = 2).detach()
-
-        # return MSE * lambda_loss.detach() + KLD # - MSE.detach() * lambda_loss
         return MSE / args.lambda_kld + KLD
 
     vae = VAE(
@@ -86,7 +66,7 @@ def train_cvae(args):
         conditional=args.conditional,
         num_labels=args.parents_train.shape[1] if args.conditional else 0).to(device)
 
-    optimizer = torch.optim.Adam(list(vae.parameters()) + [lambda_loss], lr=args.learning_rate)
+    optimizer = torch.optim.Adam(vae.parameters(), lr=args.learning_rate)
 
     logs = defaultdict(list)
 
@@ -111,7 +91,7 @@ def train_cvae(args):
             #     tracker_epoch[id]['y'] = z[i, 1].item()
             #     tracker_epoch[id]['label'] = yi.item()
 
-            loss = loss_fn(recon_x, x, mean, log_var, lambda_loss)
+            loss = loss_fn(recon_x, x, mean, log_var)
 
             optimizer.zero_grad()
             loss.backward()
@@ -160,8 +140,7 @@ def train_cvae(args):
             stopped_early = True
             break
 
-    if stopped_early: print(f'\t[INFO] Early stopping at epoch {epoch}')
-    print(f'\t[INFO] Final lambda_loss value: {lambda_loss:.6f}')
+    if stopped_early: print(f'\t\t[INFO] Early stopping at epoch {epoch}')
 
     return vae, recon_x_train, recon_x_validation
 
