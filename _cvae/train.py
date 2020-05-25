@@ -160,8 +160,8 @@ def train_cvae(args):
             stopped_early = True
             break
 
-    if stopped_early: print(f'Early stopping at epoch {epoch}')
-    print(f'Final lambda_loss value: {lambda_loss:.6f}')
+    if stopped_early: print(f'\t[INFO] Early stopping at epoch {epoch}')
+    print(f'\t[INFO] Final lambda_loss value: {lambda_loss:.6f}')
 
     return vae, recon_x_train, recon_x_validation
 

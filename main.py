@@ -240,91 +240,70 @@ def trainCVAE(args, objs, node, parents):
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using CVAE on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples  + args.num_validation_samples), PROCESSING_CVAE)
 
-  # if objs.scm_obj.scm_class == 'sanity-2-add':
-  #   if args.num_train_samples == 5000:
-  #     lambda_kld = 0.1
-  #     encoder_layer_sizes = [1, 3, 3]
-  #     decoder_layer_sizes = [2, 2, 1]
-  #   elif args.num_train_samples == 1000:
-  #     lambda_kld = 0.5
-  #     encoder_layer_sizes = [1, 3, 3]
-  #     decoder_layer_sizes = [2, 1]
-  # elif objs.scm_obj.scm_class == 'sanity-2-sig-add':
-  #   if args.num_train_samples == 5000:
-  #     lambda_kld = 0.1
-  #     encoder_layer_sizes = [1, 3, 3]
-  #     decoder_layer_sizes = [2, 2, 1]
-  #   elif args.num_train_samples == 1000:
-  #     lambda_kld = 0.5
-  #     encoder_layer_sizes = [1, 3, 3]
-  #     decoder_layer_sizes = [2, 1]
-  # elif objs.scm_obj.scm_class ==  'sanity-2-pow-add':
-  #   if args.num_train_samples == 5000:
-  #     lambda_kld = 0.5
-  #     encoder_layer_sizes = [1, 3, 3]
-  #     decoder_layer_sizes = [2, 2, 1]
-  #   elif args.num_train_samples == 1000:
-  #     lambda_kld = 0.5
-  #     encoder_layer_sizes = [1, 3, 3]
-  #     decoder_layer_sizes = [2, 1]
-  # elif objs.scm_obj.scm_class ==  'sanity-2-mult':
-  #   # if args.num_train_samples == 5000:
-  #   #   lambda_kld = 0.1
-  #   #   encoder_layer_sizes = [1, 3, 3]
-  #   #   decoder_layer_sizes = [2, 2, 1]
-  #   if args.num_train_samples == 1000:
-  #     lambda_kld = 0.5
-  #     encoder_layer_sizes = [1, 3, 3]
-  #     decoder_layer_sizes = [2, 1]
-  # elif objs.scm_obj.scm_class ==  'sanity-2-add-pow':
-  #   # if args.num_train_samples == 5000:
-  #   #   lambda_kld = 0.5
-  #   #   encoder_layer_sizes = [1, 3, 3]
-  #   #   decoder_layer_sizes = [2, 2, 1]
-  #   if args.num_train_samples == 1000:
-  #     lambda_kld = 0.5
-  #     encoder_layer_sizes = [1, 3, 3]
-  #     decoder_layer_sizes = [2, 1]
+  sweep_lambda_kld = [0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
+  # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
+  sweep_encoder_layer_sizes = [
+    [1, 3, 3],
+    # [1, 5, 5],
+  ]
+  sweep_decoder_layer_sizes = [
+    [2, 1],
+    [2, 2, 1],
+    [3, 3, 1],
+    [5, 5, 1],
+  ]
 
-  lambda_kld = 0.5
-  encoder_layer_sizes = [1, 3, 3]
-  decoder_layer_sizes = [2, 1]
-  # decoder_layer_sizes = [1 + len(parents), 1]
+  trained_models = {}
 
-  trained_cvae, recon_node_train, recon_node_validation = train_cvae(AttrDict({
-    'name': f'{getConditionalString(node, parents)}',
-    'node_train': X_all[[node]].iloc[:args.num_train_samples],
-    'parents_train': X_all[parents].iloc[:args.num_train_samples],
-    'node_validation': X_all[[node]].iloc[args.num_train_samples:],
-    'parents_validation': X_all[parents].iloc[args.num_train_samples:],
-    'seed': 0,
-    'epochs': 100,
-    'batch_size': 128,
-    'learning_rate': 0.05,
-    'lambda_kld': lambda_kld,
-    'encoder_layer_sizes': encoder_layer_sizes, # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
-    'decoder_layer_sizes': decoder_layer_sizes, # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
-    'latent_size': 1,
-    'conditional': True,
-    'debug_folder': experiment_folder_name,
-  }))
+  all_hyperparam_setups = list(itertools.product(
+    sweep_lambda_kld,
+    sweep_encoder_layer_sizes,
+    sweep_decoder_layer_sizes,
+  ))
 
-  # test whether training is good or not: (ON VALIDATION SET)
-  X_val = X_all[args.num_train_samples:].copy()
-  # POTENTIAL BUG? reset index here so that we can populate the `node` column
-  # with reconstructed values from trained_cvae that lack indexing
-  X_val = X_val.reset_index(drop = True)
-  X_true = X_val[parents + [node]]
-  X_pred = X_true.copy()
-  X_pred[node] = pd.DataFrame(recon_node_validation.numpy(), columns=[node])
+  for idx, hyperparams in enumerate(all_hyperparam_setups):
 
-  my_statistic, statistics, sigma_median = mmd.mmd_with_median_heuristic(X_true.to_numpy(), X_pred.to_numpy())
-  print('using median of ', sigma_median, 'as bandwith')
-  print('test-statistic = ', my_statistic)
+    print(f'\n\t[INFO] Training hyperparams setup #{idx} / {len(all_hyperparam_setups)}: {str(hyperparams)}')
 
+    trained_cvae, recon_node_train, recon_node_validation = train_cvae(AttrDict({
+      'name': f'{getConditionalString(node, parents)}',
+      'node_train': X_all[[node]].iloc[:args.num_train_samples],
+      'parents_train': X_all[parents].iloc[:args.num_train_samples],
+      'node_validation': X_all[[node]].iloc[args.num_train_samples:],
+      'parents_validation': X_all[parents].iloc[args.num_train_samples:],
+      'seed': 0,
+      'epochs': 100,
+      'batch_size': 128,
+      'learning_rate': 0.05,
+      'lambda_kld': hyperparams[0],
+      'encoder_layer_sizes': hyperparams[1],
+      'decoder_layer_sizes': hyperparams[2],
+      'latent_size': 1,
+      'conditional': True,
+      'debug_folder': experiment_folder_name + f'/cvae_hyperparams_setup_{idx}_of_{len(all_hyperparam_setups)}',
+    }))
 
+    # run mmd to verify whether training is good or not (ON VALIDATION SET)
+    X_val = X_all[args.num_train_samples:].copy()
+    # POTENTIAL BUG? reset index here so that we can populate the `node` column
+    # with reconstructed values from trained_cvae that lack indexing
+    X_val = X_val.reset_index(drop = True)
+    X_true = X_val[parents + [node]]
+    X_pred = X_true.copy()
+    X_pred[node] = pd.DataFrame(recon_node_validation.numpy(), columns=[node])
 
-  return trained_cvae
+    my_statistic, statistics, sigma_median = mmd.mmd_with_median_heuristic(X_true.to_numpy(), X_pred.to_numpy())
+    print('\t[INFO] using median of ', sigma_median, 'as bandwith')
+    print('\t[INFO] test-statistic = ', my_statistic)
+
+    trained_models[f'setup_{idx}'] = {}
+    trained_models[f'setup_{idx}']['hyperparams'] = hyperparams
+    trained_models[f'setup_{idx}']['trained_cvae'] = trained_cvae
+    trained_models[f'setup_{idx}']['test-statistic'] = my_statistic
+
+  index_with_lowest_test_statistics = min(trained_models.keys(), key=(lambda k: trained_models[k]['test-statistic']))
+  model_with_lowest_test_statistics = trained_models[index_with_lowest_test_statistics]['trained_cvae']
+  return model_with_lowest_test_statistics
 
 
 @utils.Memoize
@@ -1194,7 +1173,7 @@ if __name__ == "__main__":
   parser.add_argument('--lambda_lcb', type=int, default=1)
   parser.add_argument('--grid_search_bins', type=int, default=5)
   parser.add_argument('--num_train_samples', type=int, default=1000)
-  parser.add_argument('--num_validation_samples', type=int, default=25)
+  parser.add_argument('--num_validation_samples', type=int, default=250)
   parser.add_argument('--num_recourse_samples', type=int, default=30)
   parser.add_argument('--num_display_samples', type=int, default=15)
   parser.add_argument('--num_mc_samples', type=int, default=100)
@@ -1296,7 +1275,7 @@ if __name__ == "__main__":
 
 # TODO:
 # merge exp5,6,8
-# to confirm training correct -->for each child/parent, save m2 comparison (regression, no intervention) + report MSE/VAR between m2 methods (good choice of hyperparms)
+# to confirm training correct -->for each child/parent, save m2 comparison (regression, no intervention) + report MSE/VAR between m2 methods (good choice of hyperparams)
 # (=? intervention on parent node given value of sweep?)
 # show 9 interventions on parent
 # show table

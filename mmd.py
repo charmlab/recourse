@@ -105,7 +105,7 @@ def mmd_with_median_heuristic(X, Y):
   my_mmd = lambda X,Y : quadratic_time_mmd(X, Y, my_kernel)
   statistics = two_sample_permutation_test(my_mmd, X, Y, num_permutations=200)
   my_statistic = my_mmd(X,Y)
-  plot_permutation_samples(statistics, my_statistic)
+  # plot_permutation_samples(statistics, my_statistic)
   return my_statistic, statistics, sigma_median
 
 
