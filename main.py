@@ -1016,24 +1016,24 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
     pprint(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results.txt', 'w'))
     print(f'done.')
 
-  # Table
-  metrics_summary = {}
-  metrics = ['scf_validity', 'int_conf_m1_gaus', 'int_conf_m1_cvae', 'int_conf_m2_true', 'int_conf_m2_gaus', 'int_conf_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
+    # Table
+    metrics_summary = {}
+    metrics = ['scf_validity', 'int_conf_m1_gaus', 'int_conf_m1_cvae', 'int_conf_m2_true', 'int_conf_m2_gaus', 'int_conf_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
 
-  for metric in metrics:
-    metrics_summary[metric] = []
-  # metrics_summary = dict.fromkeys(metrics, []) # BROKEN: all lists will be shared; causing massive headache!!!
-
-  for recourse_type in recourse_types:
     for metric in metrics:
-      metrics_summary[metric].append(
-        f'{np.around(np.nanmean([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}' + \
-        '+/-' + \
-        f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}'
-      )
-  tmp_df = pd.DataFrame(metrics_summary, recourse_types)
-  print(tmp_df)
-  tmp_df.to_csv(f'{experiment_folder_name}/_comparison.txt', sep='\t')
+      metrics_summary[metric] = []
+    # metrics_summary = dict.fromkeys(metrics, []) # BROKEN: all lists will be shared; causing massive headache!!!
+
+    for recourse_type in recourse_types:
+      for metric in metrics:
+        metrics_summary[metric].append(
+          f'{np.around(np.nanmean([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}' + \
+          '+/-' + \
+          f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}'
+        )
+    tmp_df = pd.DataFrame(metrics_summary, recourse_types)
+    print(tmp_df)
+    tmp_df.to_csv(f'{experiment_folder_name}/_comparison.txt', sep='\t')
 
   # TODO: FIX
   # # Figure
@@ -1089,7 +1089,7 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
 def experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' box-plot sanity '''
 
-  PER_DIM_GRANULARITY = 3
+  PER_DIM_GRANULARITY = 8
 
   for node in objs.scm_obj.getTopologicalOrdering():
 
