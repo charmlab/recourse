@@ -244,13 +244,14 @@ def trainCVAE(args, objs, node, parents):
   # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
   sweep_encoder_layer_sizes = [
     [1, 3, 3],
-    # [1, 5, 5],
+    [1, 5, 5],
   ]
   sweep_decoder_layer_sizes = [
     [2, 1],
+    [1 + len(parents), 1],
     [2, 2, 1],
-    [3, 3, 1],
-    [5, 5, 1],
+    # [3, 3, 1],
+    # [5, 5, 1],
   ]
 
   trained_models = {}
@@ -288,13 +289,20 @@ def trainCVAE(args, objs, node, parents):
     # POTENTIAL BUG? reset index here so that we can populate the `node` column
     # with reconstructed values from trained_cvae that lack indexing
     X_val = X_val.reset_index(drop = True)
+
     X_true = X_val[parents + [node]]
-    X_pred = X_true.copy()
-    X_pred[node] = pd.DataFrame(recon_node_validation.numpy(), columns=[node])
+
+    X_pred_posterior = X_true.copy()
+    X_pred_posterior[node] = pd.DataFrame(recon_node_validation.numpy(), columns=[node])
+
+    tmp_factual_instance = dict.fromkeys(objs.scm_obj.getTopologicalOrdering(), -1)
+    tmp_samples_df = X_true.copy()
+    X_pred_prior = sampleCVAE(args, objs, tmp_factual_instance, tmp_samples_df, node, parents, 'm2_cvae', trained_cvae = trained_cvae)
+
+    X_pred = X_pred_prior
 
     my_statistic, statistics, sigma_median = mmd.mmd_with_median_heuristic(X_true.to_numpy(), X_pred.to_numpy())
-    print('\t[INFO] using median of ', sigma_median, 'as bandwith')
-    print('\t[INFO] test-statistic = ', my_statistic)
+    print(f'\t\t[INFO] test-statistic = {my_statistic} using median of {sigma_median} as bandwith')
 
     trained_models[f'setup_{idx}'] = {}
     trained_models[f'setup_{idx}']['hyperparams'] = hyperparams
@@ -403,11 +411,12 @@ def sampleKernelRidge(args, objs, factual_instance, samples_df, node, parents, r
   return _sampleRidgeKernelRidge(args, objs, factual_instance, samples_df, node, parents, recourse_type, trainKernelRidge)
 
 
-def sampleCVAE(args, objs, factual_instance, samples_df, node, parents, recourse_type):
+def sampleCVAE(args, objs, factual_instance, samples_df, node, parents, recourse_type, trained_cvae = None):
   samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_CVAE)
   factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_CVAE)
 
-  trained_cvae = trainCVAE(args, objs, node, parents)
+  if trained_cvae is None: # UGLY CODE
+    trained_cvae = trainCVAE(args, objs, node, parents)
   num_samples = samples_df.shape[0]
 
   x_factual = pd.DataFrame(dict(zip(
@@ -1223,12 +1232,12 @@ if __name__ == "__main__":
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
     ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
-    # ('m1_gaus', 'D'), \
+    ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
+    ('m1_gaus', 'D'), \
     ('m1_cvae', 'x'), \
-    # ('m2_true', 'o'), \
-    # ('m2_gaus', 's'), \
+    ('m2_true', 'o'), \
+    ('m2_gaus', 's'), \
     ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
