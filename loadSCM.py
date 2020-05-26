@@ -176,9 +176,9 @@ def loadSCM(scm_class, experiment_folder_name = None):
       'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
       'u2': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
       'u3': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-      'u4': Normal(0, 2),
-      'u5': Normal(0, 2),
-      'u6': Normal(0, 2),
+      'u4': Normal(0, 1),
+      'u5': Normal(0, 1),
+      'u6': Normal(0, 1),
     }
 
   assert \

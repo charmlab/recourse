@@ -670,8 +670,9 @@ def getValidDiscretizedActionSets(args, objs):
       tmp = list(
         np.around(
           np.linspace(
-            attr_obj.lower_bound,
-            attr_obj.upper_bound,
+            objs.dataset_obj.data_frame_kurz.describe()[attr_name_kurz]['min'],
+            # bad code amir; don't access internal object attribute
+            objs.dataset_obj.data_frame_kurz.describe()[attr_name_kurz]['max'],
             args.grid_search_bins + 1
           ),
           number_decimals,
@@ -691,6 +692,13 @@ def getValidDiscretizedActionSets(args, objs):
   all_action_tuples = list(itertools.product(
     *possible_actions_per_node
   ))
+
+  all_action_tuples = [
+    elem1 for elem1 in all_action_tuples
+    if len([
+      elem2 for elem2 in elem1.values() if elem2 == 'n/a'
+    ]) <= args.max_intervention_cardinality
+  ]
 
   all_action_sets = [
     dict(zip(objs.dataset_obj.getInputAttributeNames(), elem))
@@ -1216,6 +1224,7 @@ if __name__ == "__main__":
   parser.add_argument('--num_display_samples', type=int, default=15)
   parser.add_argument('--num_mc_samples', type=int, default=100)
   parser.add_argument('--debug_flag', type=bool, default=False)
+  parser.add_argument('--max_intervention_cardinality', type=int, default=10)
 
   args = parser.parse_args()
 
