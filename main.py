@@ -1009,11 +1009,11 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
       tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance, tmp['optimal_action_set'], 'm0_true')
-      tmp['int_conf_m1_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_gaus'), 3)
-      tmp['int_conf_m1_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_cvae'), 3)
-      tmp['int_conf_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
-      tmp['int_conf_m2_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_gaus'), 3)
-      tmp['int_conf_m2_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_cvae'), 3)
+      tmp['ic_m1_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_gaus'), 3)
+      tmp['ic_m1_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_cvae'), 3)
+      tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
+      tmp['ic_m2_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_gaus'), 3)
+      tmp['ic_m2_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_cvae'), 3)
       tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'])
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
 
@@ -1028,7 +1028,7 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
 
     # Table
     metrics_summary = {}
-    metrics = ['scf_validity', 'int_conf_m1_gaus', 'int_conf_m1_cvae', 'int_conf_m2_true', 'int_conf_m2_gaus', 'int_conf_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
+    metrics = ['scf_validity', 'ic_m1_gaus', 'ic_m1_cvae', 'ic_m2_true', 'ic_m2_gaus', 'ic_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
 
     for metric in metrics:
       metrics_summary[metric] = []
@@ -1044,6 +1044,7 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
     tmp_df = pd.DataFrame(metrics_summary, recourse_types)
     print(tmp_df)
     tmp_df.to_csv(f'{experiment_folder_name}/_comparison.txt', sep='\t')
+    tmp_df.to_pickle(f'{experiment_folder_name}/_comparison.pkl')
 
   # TODO: FIX
   # # Figure
@@ -1214,7 +1215,7 @@ if __name__ == "__main__":
   parser.add_argument('--num_validation_samples', type=int, default=250)
   parser.add_argument('--num_recourse_samples', type=int, default=30)
   parser.add_argument('--num_display_samples', type=int, default=15)
-  parser.add_argument('--num_mc_samples', type=int, default=100)
+  parser.add_argument('--num_mc_samples', type=int, default=300)
   parser.add_argument('--debug_flag', type=bool, default=False)
 
   args = parser.parse_args()
