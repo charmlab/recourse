@@ -696,7 +696,7 @@ def getValidDiscretizedActionSets(args, objs):
   all_action_tuples = [
     elem1 for elem1 in all_action_tuples
     if len([
-      elem2 for elem2 in elem1.values() if elem2 == 'n/a'
+      elem2 for elem2 in elem1 if elem2 != 'n/a'
     ]) <= args.max_intervention_cardinality
   ]
 
@@ -1224,7 +1224,7 @@ if __name__ == "__main__":
   parser.add_argument('--num_display_samples', type=int, default=15)
   parser.add_argument('--num_mc_samples', type=int, default=100)
   parser.add_argument('--debug_flag', type=bool, default=False)
-  parser.add_argument('--max_intervention_cardinality', type=int, default=10)
+  parser.add_argument('--max_intervention_cardinality', type=int, default=3)
 
   args = parser.parse_args()
 
