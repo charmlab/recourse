@@ -18,6 +18,7 @@ from datetime import datetime
 from attrdict import AttrDict
 
 import GPy
+import gpHelper
 import mmd
 import utils
 import loadSCM
@@ -483,32 +484,10 @@ def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_t
   samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_GAUS)
   factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_GAUS)
 
-  def noise_post_mean(K, sigma_squared, Y):
-    N = K.shape[0]
-    S = np.linalg.inv(K + sigma_squared * np.eye(N))
-    return sigma_squared * np.dot(S, Y)
-
-  def noise_post_cov(K, sigma_squared):
-    N = K.shape[0]
-    S = np.linalg.inv(K + sigma_squared * np.eye(N))
-    return  sigma_squared * (np.eye(N) - sigma_squared * S)
-
-  def noise_post_var(K, sigma_squared):
-    N = K.shape[0]
-    C = noise_post_cov(K, sigma_squared)
-    return np.array([C[i,i] for i in range(N)])
-
   kernel, X_all, model = trainGP(args, objs, node, parents)
-
-  K = kernel.K(X_all[parents].to_numpy())
-  Y = X_all[[node]].to_numpy()
-  noise_var = np.array(model.Gaussian_noise.variance)
-  noise_post_means = noise_post_mean(K, noise_var, Y)
-  noise_post_vars = noise_post_var(K, noise_var)
-
-  # GP posterior for node at new (intervened & conditioned) input given parents
-  # pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
-  pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
+  X_parents = torch.tensor(samples_df[parents].to_numpy())
+  # import autograd.numpy as np
+  # X_parents = np.array(samples_df[parents].to_numpy())
 
   if recourse_type == 'm1_gaus': # counterfactual distribution for node
     # IMPORTANT: Find index of factual instance in dataframe used for training GP
@@ -517,19 +496,74 @@ def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_t
       factual_instance,
       processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
     ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
-    new_means = pred_means + noise_post_means[tmp_idx]
-    new_vars = pred_vars + noise_post_vars[tmp_idx]
+    new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'cf', tmp_idx)
   elif recourse_type == 'm2_gaus': # interventional distribution for node
-    new_means = pred_means + 0
-    new_vars = pred_vars + noise_var
+    new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
 
-  # sample from distribution via reparametrisation trick
-  new_noise = np.random.randn(samples_df.shape[0], 1)
-  new_samples = new_means + np.sqrt(new_vars) * new_noise
-
-  samples_df[node] = new_samples
+  samples_df[node] = new_samples.numpy()
+  # samples_df[node] = new_samples
   samples_df = deprocessDataFrameOrDict(args, objs, samples_df, PROCESSING_GAUS)
   return samples_df
+
+  # TODOS:
+  # [x] get code running
+  # [ ] speed up, perhaps with Memoization
+  # [ ] investigate why are we seeing nan samples for 10 training samples?
+  # [ ] confirm same solution for the old/new sampleGP functions on brute-force
+  # [ ] build grad-descent solution on new sampleGP function
+
+
+# def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_type):
+#   samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_GAUS)
+#   factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_GAUS)
+
+#   def noise_post_mean(K, sigma_squared, Y):
+#     N = K.shape[0]
+#     S = np.linalg.inv(K + sigma_squared * np.eye(N))
+#     return sigma_squared * np.dot(S, Y)
+
+#   def noise_post_cov(K, sigma_squared):
+#     N = K.shape[0]
+#     S = np.linalg.inv(K + sigma_squared * np.eye(N))
+#     return  sigma_squared * (np.eye(N) - sigma_squared * S)
+
+#   def noise_post_var(K, sigma_squared):
+#     N = K.shape[0]
+#     C = noise_post_cov(K, sigma_squared)
+#     return np.array([C[i,i] for i in range(N)])
+
+#   kernel, X_all, model = trainGP(args, objs, node, parents)
+
+#   K = kernel.K(X_all[parents].to_numpy())
+#   Y = X_all[[node]].to_numpy()
+#   noise_var = np.array(model.Gaussian_noise.variance)
+#   noise_post_means = noise_post_mean(K, noise_var, Y)
+#   noise_post_vars = noise_post_var(K, noise_var)
+
+#   # GP posterior for node at new (intervened & conditioned) input given parents
+#   # pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
+#   pred_means, pred_vars = model.predict_noiseless(samples_df[parents].to_numpy())
+
+#   if recourse_type == 'm1_gaus': # counterfactual distribution for node
+#     # IMPORTANT: Find index of factual instance in dataframe used for training GP
+#     #            (earlier, the factual instance was appended as the last instance)
+#     tmp_idx = getIndexOfFactualInstanceInDataFrame(
+#       factual_instance,
+#       processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
+#     ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
+#     new_means = pred_means + noise_post_means[tmp_idx]
+#     new_vars = pred_vars + noise_post_vars[tmp_idx]
+#   elif recourse_type == 'm2_gaus': # interventional distribution for node
+#     new_means = pred_means + 0
+#     new_vars = pred_vars + noise_var
+
+#   # sample from distribution via reparametrisation trick
+#   new_noise = np.random.randn(samples_df.shape[0], 1)
+#   new_samples = new_means + np.sqrt(new_vars) * new_noise
+
+#   samples_df[node] = new_samples
+#   samples_df = deprocessDataFrameOrDict(args, objs, samples_df, PROCESSING_GAUS)
+#   return samples_df
 
 
 def _getSamplesDFTemplate(args, objs, factual_instance, action_set, recourse_type, num_samples):
@@ -1566,11 +1600,11 @@ if __name__ == "__main__":
     # ('m0_true', '*'), \
     # ('m1_alin', 'v'), \
     # ('m1_akrr', '^'), \
-    # ('m1_gaus', 'D'), \
+    ('m1_gaus', 'D'), \
     # ('m1_cvae', 'x'), \
     # ('m2_true', 'o'), \
-    # ('m2_gaus', 's'), \
-    ('m2_cvae', '+'), \
+    ('m2_gaus', 's'), \
+    # ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
 
