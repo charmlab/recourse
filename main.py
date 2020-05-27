@@ -1,5 +1,6 @@
 import os
 import time
+import torch
 import pickle
 import inspect
 import pathlib
@@ -67,13 +68,37 @@ def loadClassifier(args, experiment_folder_name):
   return loadModel.loadModelForDataset(args.classifier_class, args.dataset_class, experiment_folder_name)
 
 
+@utils.Memoize
+def getTorchClassifier(args, objs):
+  fixed_model_w = objs.classifier_obj.coef_
+  fixed_model_b = objs.classifier_obj.intercept_
+  fixed_model = lambda x: torch.sigmoid(
+      torch.nn.functional.linear(
+        x,
+        torch.from_numpy(fixed_model_w).float(),
+    ) + float(fixed_model_b)
+  )
+  return fixed_model
+
+
 def measureActionSetCost(args, objs, factual_instance, action_set):
   # TODO: add support for categorical data + measured in normalized space over all features
-  deltas = []
+
   ranges = objs.dataset_obj.getVariableRanges()
-  for key in action_set.keys():
-    deltas.append((action_set[key] - factual_instance[key]) / ranges[key])
-  return np.linalg.norm(deltas, args.norm_type)
+  deltas = [
+    (action_set[key] - factual_instance[key]) / ranges[key]
+    for key in action_set.keys()
+  ]
+  if \
+    np.all([isinstance(elem, float) for elem in factual_instance.values()]) and \
+    np.all([isinstance(elem, float) for elem in action_set.values()]):
+    return np.linalg.norm(deltas, args.norm_type)
+  elif \
+    np.all([isinstance(elem, torch.Tensor) for elem in factual_instance.values()]) and \
+    np.all([isinstance(elem, torch.Tensor) for elem in action_set.values()]):
+    return torch.norm(torch.tensor(deltas), p=args.norm_type)
+  else:
+    raise Exception(f'Mismatching or unsupport datatypes.')
 
 
 def getIndexOfFactualInstanceInDataFrame(factual_instance, data_frame):
@@ -178,6 +203,7 @@ def getNoiseStringForNode(node):
 
 
 def prettyPrintDict(my_dict):
+  # use this for grad descent logs (convert tensor accordingly)
   my_dict = my_dict.copy()
   for key, value in my_dict.items():
     my_dict[key] = np.around(value, 3)
@@ -285,6 +311,9 @@ def trainCVAE(args, objs, node, parents):
       'debug_folder': experiment_folder_name + f'/cvae_hyperparams_setup_{idx}_of_{len(all_hyperparam_setups)}',
     }))
 
+    # # TODO: remove after models.py is corrected
+    return trained_cvae
+
     # run mmd to verify whether training is good or not (ON VALIDATION SET)
     X_val = X_all[args.num_train_samples:].copy()
     # POTENTIAL BUG? reset index here so that we can populate the `node` column
@@ -358,13 +387,10 @@ def sampleTrue(args, objs, factual_instance, samples_df, node, parents, recourse
 
     # # noise_pred assume additive noise, and therefore only works with
     # # models such as 'm1_alin' and 'm1_akrr' in general cases
-    # if recourse_type == 'm0_true':
-    #   if objs.scm_obj.scm_class != 'sanity-power':
-    #     assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
-    #   noise = noise_true
-    # else:
-    #   noise = noise_pred
     noise = noise_pred
+    # if SCM_CLASS != 'sanity-power':
+    #   assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
+    #   noise = noise_true
 
     for row_idx, row in samples_df.iterrows():
       noise = noise
@@ -502,8 +528,7 @@ def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_t
   return samples_df
 
 
-def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, num_samples):
-
+def _getSamplesDFTemplate(args, objs, factual_instance, action_set, recourse_type, num_samples):
   counterfactual_template = dict.fromkeys(
     objs.dataset_obj.getInputAttributeNames(),
     np.NaN,
@@ -528,15 +553,26 @@ def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 
   for node in intervention_set:
     counterfactual_template[node] = action_set[node]
 
+  # return counterfactual_template
+
   # this dataframe has populated columns set to intervention or conditioning values
   # and has NaN columns that will be set accordingly.
   samples_df = pd.DataFrame(dict(zip(
     objs.dataset_obj.getInputAttributeNames(),
-    [num_samples * [counterfactual_template[node]] for node in objs.dataset_obj.getInputAttributeNames()],
-  )))
+    [num_samples * [counterfactual_template[node] + 0] for node in objs.dataset_obj.getInputAttributeNames()],
+  ))) # +0 important, specifically for tensor based elements, so we don't copy
+      # an existing object in the computational graph, but we create a new node
+
+  return samples_df
+
+
+def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, num_samples):
+
+  # counterfactual_template = _getCounterfactualTemplate(dataset_obj, classifier_obj, scm_obj, factual_instance, action_set, recourse_type, num_samples)
+  samples_df = _getSamplesDFTemplate(args, objs, factual_instance, action_set, recourse_type, num_samples)
 
   # Simply traverse the graph in order, and populate nodes as we go!
-  # IMPORTANT: DO NOT USE set(topo ordering); it sometimes changes ordering!
+  # IMPORTANT: DO NOT use SET(topo ordering); it sometimes changes ordering!
   for node in objs.scm_obj.getTopologicalOrdering():
     # set variable if value not yet set through intervention or conditioning
     if samples_df[node].isnull().values.any():
@@ -714,7 +750,217 @@ def getValidDiscretizedActionSets(args, objs):
   return valid_action_sets
 
 
-def computeOptimalActionSet(args, objs, factual_instance, recourse_type, optimization_approach):
+def getValidInterventionSets(args, objs):
+
+  # https://stackoverflow.com/a/1482316/2759976
+  def powerset(iterable):
+    "powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
+    s = list(iterable)
+    return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(len(s)+1))
+
+  all_intervention_tuples = powerset(objs.dataset_obj.getInputAttributeNames('kurz'))
+  all_intervention_tuples = [
+    elem for elem in all_intervention_tuples
+    if len(elem) <= args.max_intervention_cardinality
+    and elem is not tuple() # no interventions (i.e., empty tuple) could never result in recourse --> ignore
+  ]
+
+  return all_intervention_tuples
+
+
+def getColumnIndexFromName(args, objs, column_name):
+    # this is index in df, need to -1 to get index in x_counter / do_update,
+    # because the first column of df is 'y'
+    return objs.dataset_obj.data_frame_kurz.columns.get_loc(column_name) - 1
+
+
+def performGradDescentOptimization(args, objs, factual_instance, intervention_set, recourse_type):
+
+  assert 'cvae' in recourse_type, f'{args.optimization_approach} does not currently support {recourse_type}'
+
+  # TODO: @utils.Memoize ???
+  def convertDataFrameOfTensorsToSharedTensor(tmp_df, cols):
+    assert isinstance(tmp_df, pd.DataFrame) # not series
+    return torch.stack([
+        torch.stack(
+          tuple(
+            tmp_df[col].to_numpy()
+          )
+        )
+        for col in cols
+    ], axis = 1)
+    # return torch.stack([
+    #     torch.stack([tmp_df.iloc[j,i]
+    #         for j in range(tmp_df.shape[0])
+    #     ], axis = 0)
+    #     for i in range(tmp_df.shape[1])
+    # ], axis = 1)
+
+  NUM_EPOCHS = 500 # TODO: make input args
+  h = getTorchClassifier(args, objs)
+  # initial_action_set, values of this dictionary are tensors which are trained
+  action_set = dict(zip(
+    intervention_set,
+    [
+      torch.tensor(factual_instance[node], requires_grad=True)
+      for node in intervention_set
+    ]
+  ))
+
+  # IMPORTANT: watch ordering of action_set and factual_instance, they are
+  # both tensors, but the former are trainable whereas the latter are not.
+  factual_instance = {k: torch.tensor(v) for k, v in factual_instance.items()}
+  factual_df = pd.DataFrame({k : [v] * args.num_mc_samples for k,v in factual_instance.items()})
+
+  loss_lagrangian = torch.nn.Parameter(torch.ones(1) * 10) # initial value
+  optimizer = torch.optim.Adam([
+    {'params': list(action_set.values()), 'lr': 0.1},
+    {'params': loss_lagrangian, 'lr': 1},
+  ])
+
+  all_loss_totals = []
+  all_loss_objectives = []
+  all_loss_constraints = []
+
+  start_time = time.time()
+  print(f'\t\t[INFO] initial action set: {str({k : np.around(v.detach().item(), 4) for k,v in action_set.items()})}') # TODO: use pretty print
+  for epoch in range(1, NUM_EPOCHS + 1):
+
+    # ========================================================================
+    # ========================================================================
+
+    samples_df = _getSamplesDFTemplate(args, objs, factual_instance, action_set, recourse_type, args.num_mc_samples)
+
+    # Simply traverse the graph in order, and populate nodes as we go!
+    # IMPORTANT: DO NOT use SET(topo ordering); it sometimes changes ordering!
+    for node in objs.scm_obj.getTopologicalOrdering():
+      # set variable if value not yet set through intervention or conditioning
+      if samples_df[node].isnull().values.any():
+        parents = objs.scm_obj.getParentsForNode(node)
+        # root nodes MUST always be set through intervention or conditioning
+        assert len(parents) > 0
+        # Confirm parents columns are present/have assigned values in samples_df
+        assert not samples_df.loc[:,list(parents)].isnull().values.any()
+
+        # TODO: this would change according to other recourse types
+        if recourse_type == 'm1_cvae':
+          sample_from = 'posterior'
+        elif recourse_type == 'm2_cvae':
+          sample_from = 'prior'
+        elif recourse_type == 'm2_cvae_ps':
+          sample_from = 'reweighted_prior'
+
+        trained_cvae = trainCVAE(args, objs, node, parents)
+        new_samples = trained_cvae.reconstruct(
+          x_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, [node]),
+          pa_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, parents),
+          pa_counter=convertDataFrameOfTensorsToSharedTensor(samples_df, parents),
+          sample_from=sample_from,
+        )
+
+        # split returns a tuple/list of tensors which have listed (!) values
+        samples_df[node] = [elem[0][0] for elem in torch.split(new_samples, 1)]
+        # for idx in range(samples_df.shape[0]):
+        #   samples_df['x3'][idx] = new_samples[0][idx]
+
+    # TODO: convertDataFrameOfTensorsToSharedTensor does not work if some cols
+    # are nan --> so placing this after the loop above once all cols are filled
+    counter_ts = convertDataFrameOfTensorsToSharedTensor(samples_df, scm_obj.getTopologicalOrdering())
+
+    # TODO: time analysis to speed up passing back of gradients?
+    # start_time = time.time()
+    # for i in range(1000):
+    #   counter_ts = convertDataFrameOfTensorsToSharedTensor(samples_df, scm_obj.getTopologicalOrdering())
+    # end_time = time.time()
+    # print(f'\n[INFO] Done (total run-time: {end_time - start_time}).')
+
+    # start_time = time.time()
+    # for i in range(1000):
+    #   samples_df['x3'] = [elem[0][0] for elem in torch.split(new_samples, 1)]
+    # end_time = time.time()
+    # print(f'\n[INFO] Done (total run-time: {end_time - start_time}).')
+
+    # ========================================================================
+    # ========================================================================
+
+    # DOES NOT WORK ON GENERAL INTERVENTION_SETS!
+    # counter_ts = torch.zeros((args.num_mc_samples, len(objs.dataset_obj.getInputAttributeNames())))
+    # counter_ts[:,0] = factual_instance['x1']
+    # counter_ts[:,1] = action_set[int_node] + 0 # +0 important so to have shared gradients passed back into single varable inside action_set
+    # trained_cvae = trainCVAE(args, objs, 'x3', ['x1', 'x2'])
+    # counter_ts[:,2] = trained_cvae.reconstruct(
+    #   x_factual=factual_ts[:,2].reshape(-1,1), # make dynamic
+    #   pa_factual=factual_ts[:,0:2],
+    #   pa_counter=counter_ts[:,0:2],
+    #   sample_from='prior',
+    # ).T
+
+    # ========================================================================
+    # ========================================================================
+
+    loss_objective = measureActionSetCost(args, objs, factual_instance, action_set)
+
+    # compute LCB
+    pred_labels = h(counter_ts)
+    # when all predictions are the same (likely because all sampled points are
+    # the same, likely because we are outside of the manifold OR e.g., when we
+    # intervene on all nodes and the initial epoch returns same samples), then
+    # torch.std() will be 0 and therefore there is no gradinet to pass back; in
+    # turn this results in torch.std() giving nan and ruining the training!
+    #     tmp = torch.ones((10,1), requires_grad=True)
+    #     torch.std(tmp).backward()
+    #     print(tmp.grad)
+    # https://github.com/pytorch/pytorch/issues/4320
+    # SOLUTION: remove torch.std() when this term is small.
+    if torch.std(pred_labels) < 1e-10:
+      # print(f'\t\t[INFO] Removing variance term due to very small variance breaking gradient.')
+      loss_constraint = torch.mean(pred_labels)
+    else:
+      loss_constraint = torch.mean(pred_labels) - args.lambda_lcb * torch.std(pred_labels)
+
+    # ========================================================================
+    # ========================================================================
+
+    loss_total = \
+      loss_objective \
+      + loss_lagrangian.detach() * (0.5 - loss_constraint) \
+      - loss_lagrangian * (0.5 - loss_constraint).detach()
+
+    optimizer.zero_grad()
+    loss_total.backward()
+    optimizer.step()
+    if epoch % 50 == 0:
+      # TODO: use pretty print
+      print(
+        f'\t\t[INFO] epoch #{epoch}: ' \
+        f'optimal action: {str({k : np.around(v.detach().item(), 2) for k,v in action_set.items()})}    ' \
+        f'loss_total: {loss_total.detach().item():.6f}    ' \
+        f'loss_objective: {loss_objective.detach().item():.6f}    ' \
+        f'lagrangian: {loss_lagrangian.detach().item():.6f}    '
+        f'loss_constraint: {loss_constraint.detach().item():.6f}    ' \
+      )
+    all_loss_totals.append(loss_total.detach().item())
+    all_loss_objectives.append(loss_objective.detach().item())
+    all_loss_constraints.append(loss_constraint.detach().item())
+
+  end_time = time.time()
+  print(f'\t\t[INFO] Done (total run-time: {end_time - start_time}).\n\n')
+
+  # fig, ax = plt.subplots()
+  # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
+  # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_objectives, 'g--', label='loss objectives')
+  # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
+  # ax.set(xlabel='epochs', ylabel='loss', title='Loss curve')
+  # ax.grid()
+  # ax.legend()
+  # plt.show()
+
+  # Convert to non-tensor action_set for rest of code
+  action_set = {k : v.detach().item() for k,v in action_set.items()}
+  return action_set
+
+
+def computeOptimalActionSet(args, objs, factual_instance, recourse_type):
 
   if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     constraint_handle = isPointConstraintSatisfied
@@ -723,7 +969,7 @@ def computeOptimalActionSet(args, objs, factual_instance, recourse_type, optimiz
   else:
     raise Exception(f'{recourse_type} not recognized.')
 
-  if optimization_approach == 'brute_force':
+  if args.optimization_approach == 'brute_force':
 
     valid_action_sets = getValidDiscretizedActionSets(args, objs)
     print(f'\n\t[INFO] Computing optimal `{recourse_type}`: grid searching over {len(valid_action_sets)} action sets...')
@@ -739,24 +985,50 @@ def computeOptimalActionSet(args, objs, factual_instance, recourse_type, optimiz
 
     print(f'\t done (optimal action set: {str(min_cost_action_set)}).')
 
-  elif optimization_approach == 'grad_descent':
+  elif args.optimization_approach == 'grad_descent':
 
-    raise NotImplementedError # TODO
-    # for all possible intervention sets (without value)
-    # for each child-parent that is missing
-    #     get object: trained_cvae = trainCVAE(args, objs, node, parents)
-    #     this should be a torch object
-    #     then the child is a function of
-    #         its factual value
-    #         its parents' factual value
-    #         the post-intervention value of its parents
-    #     then write h() as a function of all nodes
-    #     see if you can pass gradients back to the intervention value of the nodes (possibly > 1) being intervened on
-    #     then add the cost function
-    #     and finally minimize everything together
+    valid_intervention_sets = getValidInterventionSets(args, objs)
+    print(f'\n\t[INFO] Computing optimal `{recourse_type}`: grad descent over {len(valid_intervention_sets)} intervention sets...')
+
+    min_cost = 1e10
+    min_cost_action_set = {}
+    for intervention_set in valid_intervention_sets:
+      action_set = performGradDescentOptimization(args, objs, factual_instance, intervention_set, recourse_type)
+      if constraint_handle(args, objs, factual_instance, action_set, recourse_type):
+        cost_of_action_set = measureActionSetCost(args, objs, factual_instance, action_set)
+        if cost_of_action_set < min_cost:
+          min_cost = cost_of_action_set
+          min_cost_action_set = action_set
+
+    print(f'\t done (optimal intervention set: {str(min_cost_action_set)}).')
+
+    # TODOs:
+
+    # Tuesday:
+    # [x] convert sklearn to torch classifier
+    # [x] compute sample mean and sample variance (of h_classifier)
+    # [x] first running example of grad descent on cvae
+    # [x] flush computational graph to speed up training without hogging memory
+    # [x] can we apply lambda grad only when constraint >= 0
+    # [x] loss_objective: use measureActionSetCost
+    # [x] loss_constraint: fix BCE loss > 0.5
+    # [x] learn lambda
+    # [x] fix nan in theta after some epochs
+    # [x] add plotting
+
+    # Wednesday:
+    # [x] cleanup models.py
+    # [x] make code dynamic: use dataframes (as auxiliary store of value? think intervention on x1->x2->x3)
+    # [x] investigate loss constraint 0 -> 1 -> 0 (because of not capping ()_+? yes it seems)
+    # [ ] see parallels in training of gp, merge torch and autograd implementations
+
+    # Thursday:
+    # [ ] implement grad based for non-cvae non-gp approaches
+    # [ ] select hyperparms (initial values, learning rate, etc.) across settings: intervention nodes, recourse types (incl'd learned cvae model), factual instances, scms, etc.
+    # [ ] select hyperparms (initial values, learning rate, etc.) in comparison with brute_force
 
   else:
-    raise Exception(f'{optimization_approach} not recognized.')
+    raise Exception(f'{args.optimization_approach} not recognized.')
 
   return min_cost_action_set
 
@@ -1008,7 +1280,6 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
         objs,
         factual_instance,
         recourse_type,
-        'brute_force',
       )
       end_time = time.time()
 
@@ -1150,7 +1421,7 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
             sample = computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type)
             # print(f'{recourse_type}:\t{prettyPrintDict(sample)}')
           elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
-            samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, args.num_mc_samples)
+            samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, args.num_validation_samples)
             # print(f'{recourse_type}:\n{samples.head()}')
           else:
             raise Exception(f'{recourse_type} not supported.')
@@ -1226,6 +1497,7 @@ if __name__ == "__main__":
   parser.add_argument('--num_mc_samples', type=int, default=300)
   parser.add_argument('--debug_flag', type=bool, default=False)
   parser.add_argument('--max_intervention_cardinality', type=int, default=3)
+  parser.add_argument('--optimization_approach', type=str, default='brute_force')
 
   args = parser.parse_args()
 
@@ -1251,7 +1523,7 @@ if __name__ == "__main__":
   dataset_obj = loadDataset(args, experiment_folder_name)
   classifier_obj = loadClassifier(args, experiment_folder_name)
   assert set(dataset_obj.getInputAttributeNames()) == set(scm_obj.getTopologicalOrdering())
-  # TODO: add more assertions for columns of dataset matching soething classifer?
+  # TODO: add more assertions for columns of dataset matching the classifer?
   objs = AttrDict({
     'scm_obj': scm_obj,
     'dataset_obj': dataset_obj,
@@ -1270,13 +1542,13 @@ if __name__ == "__main__":
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
-    ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
-    ('m1_gaus', 'D'), \
-    ('m1_cvae', 'x'), \
-    ('m2_true', 'o'), \
-    ('m2_gaus', 's'), \
+    # ('m0_true', '*'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
+    # ('m1_gaus', 'D'), \
+    # ('m1_cvae', 'x'), \
+    # ('m2_true', 'o'), \
+    # ('m2_gaus', 's'), \
     ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]

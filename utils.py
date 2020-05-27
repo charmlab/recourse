@@ -1,5 +1,6 @@
 import inspect
 import collections
+import pandas as pd
 
 # See https://www.python-course.eu/python3_memoization.php
 class Memoize:
@@ -24,6 +25,12 @@ class Memoize:
       if param.name in kwargs.keys():
         ba.arguments[param.name] = kwargs[param.name]
     args = ba.args
+
+    # # convert DataFrames (not hashable because mutable) to numpy array (hashable)
+    # args = [
+    #   elem.copy().to_numpy() if isinstance(elem, pd.DataFrame) else elem
+    #   for elem in args
+    # ]
 
     # convert lists and numpy array into tuples so that they can be used as keys
     hashable_args = tuple([

@@ -44,57 +44,69 @@ class VAE(nn.Module):
 
     def reconstruct(self, x_factual, pa_factual, pa_counter, sample_from):
 
-        with torch.no_grad():
+        # this needs to be removed so that we have gradients for child given parents,
+        # but it shouldn't be trained during backprop of outer optimization problem!
+        # with torch.no_grad():
 
-            if isinstance(x_factual, pd.DataFrame):
-                x_factual = torch.tensor(x_factual.values).float()
-            if isinstance(pa_factual, pd.DataFrame):
-                pa_factual = torch.tensor(pa_factual.values).float()
-            if isinstance(pa_counter, pd.DataFrame):
-                pa_counter = torch.tensor(pa_counter.values).float()
+        assert x_factual.__class__ == pa_factual.__class__ == pa_counter.__class__
+        return_data_frame = False
+        if isinstance(x_factual, pd.DataFrame):
+            return_data_frame = True
+            x_factual = torch.tensor(x_factual.values).float()
+            pa_factual = torch.tensor(pa_factual.values).float()
+            pa_counter = torch.tensor(pa_counter.values).float()
 
-            batch_size = x_factual.size(0)
+        batch_size = x_factual.size(0)
 
-            samples_pz = torch.randn([batch_size, self.latent_size])
-            means, log_vars = self.encoder(x_factual, pa_factual) # noise is computed in factual world
-            stds = torch.exp(0.5 * log_vars)
-            eps = torch.randn([batch_size, self.latent_size])
-            samples_qz = eps * stds + means
+        samples_pz = torch.randn([batch_size, self.latent_size])
+        means, log_vars = self.encoder(x_factual, pa_factual) # noise is computed in factual world
+        stds = torch.exp(0.5 * log_vars)
+        eps = torch.randn([batch_size, self.latent_size])
+        samples_qz = eps * stds + means
 
-            # print(f'KL between posterior and prior: {-0.5 * torch.sum(1 + log_vars - means.pow(2) - log_vars.exp())}')
+        # print(f'KL between posterior and prior: {-0.5 * torch.sum(1 + log_vars - means.pow(2) - log_vars.exp())}')
 
-            if sample_from == 'prior':
+        if sample_from == 'prior':
 
-                recon_x = self.decoder(samples_pz, pa_counter)
+            recon_x = self.decoder(samples_pz, pa_counter)
 
-            elif sample_from == 'reweighted_prior':
+        elif sample_from == 'reweighted_prior':
 
-                means_pz, stds_pz = torch.zeros([batch_size, self.latent_size]), torch.ones([batch_size, self.latent_size])
-                means_qz, stds_qz = means.detach(), stds.detach()
+            raise Exception(f'{sample_from} is broken.')
 
-                assert means_pz.shape == stds_pz.shape == means_qz.shape == stds_qz.shape
+            means_pz, stds_pz = torch.zeros([batch_size, self.latent_size]), torch.ones([batch_size, self.latent_size])
+            means_qz, stds_qz = means.detach(), stds.detach()
 
-                pdf_pz = [
-                    multivariate_normal(mean_pz, torch.diag(std_pz)).pdf(sample_qz)
-                    for mean_pz, std_pz, sample_qz in zip(means_pz, stds_pz, samples_qz) # IMP: note this is sample qz not pz
-                ]
-                pdf_qz = [
-                    multivariate_normal(mean_qz, torch.diag(std_qz)).pdf(sample_qz)
-                    for mean_qz, std_qz, sample_qz in zip(means_qz, stds_qz, samples_qz)
-                ]
+            assert means_pz.shape == stds_pz.shape == means_qz.shape == stds_qz.shape
 
-                pz_over_qz = torch.div(torch.tensor(pdf_pz), torch.tensor(pdf_qz)).reshape(-1, 1)
-                recon_x = self.decoder(samples_qz, pa_counter) * pz_over_qz
-                recon_x = torch.mul(recon_x, pz_over_qz)
+            pdf_pz = [
+                multivariate_normal(mean_pz, torch.diag(std_pz)).pdf(sample_qz)
+                for mean_pz, std_pz, sample_qz in zip(means_pz, stds_pz, samples_qz) # IMP: note this is sample qz not pz
+            ]
+            pdf_qz = [
+                multivariate_normal(mean_qz, torch.diag(std_qz)).pdf(sample_qz)
+                for mean_qz, std_qz, sample_qz in zip(means_qz, stds_qz, samples_qz)
+            ]
 
-            elif sample_from == 'posterior':
+            pz_over_qz = torch.div(torch.tensor(pdf_pz), torch.tensor(pdf_qz)).reshape(-1, 1)
+            recon_x = self.decoder(samples_qz, pa_counter) * pz_over_qz
+            recon_x = torch.mul(recon_x, pz_over_qz)
 
-                recon_x = self.decoder(samples_qz, pa_counter)
+        elif sample_from == 'posterior':
 
-            else:
-                raise Exception(f'{sample_from} not recognized.')
+            recon_x = self.decoder(samples_qz, pa_counter)
 
+        else:
+            raise Exception(f'{sample_from} not recognized.')
+
+        # ipsh()
+
+        # if input was a dataframe (tensor), return a dataframe (tensor)
+        if return_data_frame:
             return pd.DataFrame(recon_x.detach().numpy())
+        elif isinstance(x_factual, torch.Tensor):
+            return recon_x # should this be more dynamic?
+
 
 
 def init_weights(m):
