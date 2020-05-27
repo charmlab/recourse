@@ -85,18 +85,22 @@ def measureActionSetCost(args, objs, factual_instance, action_set):
   # TODO: add support for categorical data + measured in normalized space over all features
 
   ranges = objs.dataset_obj.getVariableRanges()
-  deltas = [
-    (action_set[key] - factual_instance[key]) / ranges[key]
-    for key in action_set.keys()
-  ]
   if \
     np.all([isinstance(elem, float) for elem in factual_instance.values()]) and \
     np.all([isinstance(elem, float) for elem in action_set.values()]):
+    deltas = [
+      (action_set[key] - factual_instance[key]) / ranges[key]
+      for key in action_set.keys()
+    ]
     return np.linalg.norm(deltas, args.norm_type)
   elif \
     np.all([isinstance(elem, torch.Tensor) for elem in factual_instance.values()]) and \
     np.all([isinstance(elem, torch.Tensor) for elem in action_set.values()]):
-    return torch.norm(torch.tensor(deltas), p=args.norm_type)
+    deltas = torch.stack([
+      (action_set[key] - factual_instance[key]) / ranges[key]
+      for key in action_set.keys()
+    ])
+    return torch.norm(deltas, p=args.norm_type)
   else:
     raise Exception(f'Mismatching or unsupport datatypes.')
 
@@ -796,7 +800,6 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
     #     for i in range(tmp_df.shape[1])
     # ], axis = 1)
 
-  NUM_EPOCHS = 500 # TODO: make input args
   h = getTorchClassifier(args, objs)
   # initial_action_set, values of this dictionary are tensors which are trained
   action_set = dict(zip(
@@ -812,19 +815,23 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
   factual_instance = {k: torch.tensor(v) for k, v in factual_instance.items()}
   factual_df = pd.DataFrame({k : [v] * args.num_mc_samples for k,v in factual_instance.items()})
 
-  loss_lagrangian = torch.nn.Parameter(torch.ones(1) * 10) # initial value
-  optimizer = torch.optim.Adam([
-    {'params': list(action_set.values()), 'lr': 0.1},
-    {'params': loss_lagrangian, 'lr': 1},
-  ])
+  capped_loss = False
+  num_epochs = 2000 # TODO: make input args
+  lambda_opt = 1 # initial value
+  lambda_opt_update_every = 5
+  lambda_opt_learning_rate = 0.2
+  action_set_learning_rate = 0.1
+  print_log_every = lambda_opt_update_every
+  optimizer = torch.optim.Adam(params = list(action_set.values()), lr = action_set_learning_rate)
 
   all_loss_totals = []
   all_loss_objectives = []
+  all_lambda_opts = []
   all_loss_constraints = []
 
   start_time = time.time()
   print(f'\t\t[INFO] initial action set: {str({k : np.around(v.detach().item(), 4) for k,v in action_set.items()})}') # TODO: use pretty print
-  for epoch in range(1, NUM_EPOCHS + 1):
+  for epoch in range(1, num_epochs + 1):
 
     # ========================================================================
     # ========================================================================
@@ -902,8 +909,8 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
 
     # compute LCB
     pred_labels = h(counter_ts)
-    # when all predictions are the same (likely because all sampled points are
-    # the same, likely because we are outside of the manifold OR e.g., when we
+    # When all predictions are the same (likely because all sampled points are
+    # the same, likely because we are outside of the manifold OR, e.g., when we
     # intervene on all nodes and the initial epoch returns same samples), then
     # torch.std() will be 0 and therefore there is no gradinet to pass back; in
     # turn this results in torch.std() giving nan and ruining the training!
@@ -911,49 +918,58 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
     #     torch.std(tmp).backward()
     #     print(tmp.grad)
     # https://github.com/pytorch/pytorch/issues/4320
-    # SOLUTION: remove torch.std() when this term is small.
+    # SOLUTION: remove torch.std() when this term is small to prevent passing nans.
     if torch.std(pred_labels) < 1e-10:
       # print(f'\t\t[INFO] Removing variance term due to very small variance breaking gradient.')
-      loss_constraint = torch.mean(pred_labels)
+      loss_lcb = torch.mean(pred_labels)
     else:
-      loss_constraint = torch.mean(pred_labels) - args.lambda_lcb * torch.std(pred_labels)
+      loss_lcb = torch.mean(pred_labels) - args.lambda_lcb * torch.std(pred_labels)
+
+    loss_constraint = (0.5 - loss_lcb)
+    if capped_loss:
+      loss_constraint = torch.nn.functional.relu(loss_constraint)
 
     # ========================================================================
     # ========================================================================
 
-    loss_total = \
-      loss_objective \
-      + loss_lagrangian.detach() * (0.5 - loss_constraint) \
-      - loss_lagrangian * (0.5 - loss_constraint).detach()
+    # for fixed lambda, optimize theta (grad descent)
+    loss_total = loss_objective + lambda_opt * loss_constraint
+
+    # once every few epochs, optimize theta (grad ascent) manually (w/o pytorch)
+    if epoch % lambda_opt_update_every == 0:
+      lambda_opt = lambda_opt + lambda_opt_learning_rate * loss_constraint.detach()
 
     optimizer.zero_grad()
     loss_total.backward()
     optimizer.step()
-    if epoch % 50 == 0:
+    if epoch % print_log_every == 0:
       # TODO: use pretty print
       print(
-        f'\t\t[INFO] epoch #{epoch}: ' \
+        f'\t\t[INFO] epoch #{epoch:03}: ' \
         f'optimal action: {str({k : np.around(v.detach().item(), 2) for k,v in action_set.items()})}    ' \
-        f'loss_total: {loss_total.detach().item():.6f}    ' \
-        f'loss_objective: {loss_objective.detach().item():.6f}    ' \
-        f'lagrangian: {loss_lagrangian.detach().item():.6f}    '
-        f'loss_constraint: {loss_constraint.detach().item():.6f}    ' \
+        f'loss_total: {loss_total.detach().item():02.6f}    ' \
+        f'loss_objective: {loss_objective.detach().item():02.6f}    ' \
+        f'lambda_opt: {lambda_opt:02.6f}    ' \
+        f'loss_constraint: {loss_constraint.detach().item():02.6f}    ' \
+        f'loss_lcb: {loss_lcb.detach().item():02.6f}    ' \
       )
     all_loss_totals.append(loss_total.detach().item())
-    all_loss_objectives.append(loss_objective.detach().item())
+    all_loss_objectives.append(loss_objective.item())
+    all_lambda_opts.append(lambda_opt)
     all_loss_constraints.append(loss_constraint.detach().item())
 
   end_time = time.time()
   print(f'\t\t[INFO] Done (total run-time: {end_time - start_time}).\n\n')
 
-  # fig, ax = plt.subplots()
-  # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
-  # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_objectives, 'g--', label='loss objectives')
-  # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
-  # ax.set(xlabel='epochs', ylabel='loss', title='Loss curve')
-  # ax.grid()
-  # ax.legend()
-  # plt.show()
+  fig, ax = plt.subplots()
+  ax.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
+  ax.plot(range(1, len(all_loss_totals) + 1), all_loss_objectives, 'g--', label='loss objectives')
+  ax.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
+  ax.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
+  ax.set(xlabel='epochs', ylabel='loss', title='Loss curve')
+  ax.grid()
+  ax.legend()
+  plt.show()
 
   # Convert to non-tensor action_set for rest of code
   action_set = {k : v.detach().item() for k,v in action_set.items()}
@@ -1517,6 +1533,11 @@ if __name__ == "__main__":
     f'__pid{args.process_id}'
   experiment_folder_name = f"_experiments/{datetime.now().strftime('%Y.%m.%d_%H.%M.%S')}__{setup_name}"
   os.mkdir(f'{experiment_folder_name}')
+
+  # save all arguments to file
+  args_file = open(f'{experiment_folder_name}/_args.txt','w')
+  for arg in vars(args):
+    print(arg, ':\t', getattr(args, arg), file = args_file)
 
   # only load once so shuffling order is the same
   scm_obj = loadCausalModel(args, experiment_folder_name)
