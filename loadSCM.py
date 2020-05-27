@@ -161,6 +161,26 @@ def loadSCM(scm_class, experiment_folder_name = None):
       'u3': Normal(0, 1),
     }
 
+  elif scm_class == 'sanity-6-lin':
+
+    structural_equations = {
+      'x1': lambda n_samples,           :                 n_samples,
+      'x2': lambda n_samples,           :                 n_samples,
+      'x3': lambda n_samples,           :                n_samples,
+      'x4': lambda n_samples, x1, x2    :      x1 + x2 + n_samples,
+      'x5': lambda n_samples, x2, x4    :      x2 - 2 * x4 + n_samples,
+      'x6': lambda n_samples, x3, x4, x5: x3 + x4 - x5 + n_samples,
+
+    }
+    noises_distributions = {
+      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+      'u2': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+      'u3': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+      'u4': Normal(0, 1),
+      'u5': Normal(0, 1),
+      'u6': Normal(0, 1),
+    }
+
   assert \
     set([getNoiseStringForNode(node) for node in structural_equations.keys()]) == \
     set(noises_distributions.keys()), \
