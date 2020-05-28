@@ -502,14 +502,6 @@ def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_t
   samples_df = deprocessDataFrameOrDict(args, objs, samples_df, PROCESSING_GAUS)
   return samples_df
 
-  # TODOS:
-  # [x] get code running
-  # [x] speed up, perhaps with Memoization
-  # [x] investigate why are we seeing nan samples for 10 training samples?
-  # [x] confirm same solution for the old/new sampleGP functions on brute-force
-  # [x] build grad-descent solution on new sampleGP function
-  # [ ] find params for grad-descent solution on new sampleGP function
-
 
 def _getSamplesDFTemplate(args, objs, factual_instance, action_set, recourse_type, num_samples):
   counterfactual_template = dict.fromkeys(
@@ -1038,10 +1030,19 @@ def computeOptimalActionSet(args, objs, factual_instance, recourse_type):
     # [x] cleanup models.py
     # [x] make code dynamic: use dataframes (as auxiliary store of value? think intervention on x1->x2->x3)
     # [x] investigate loss constraint 0 -> 1 -> 0 (because of not capping ()_+? yes it seems)
-    # [ ] see parallels in training of gp, merge torch and autograd implementations
+    # [x] see parallels in training of gp, merge torch and autograd implementations
+    #     [x] get code running
+    #     [x] speed up, perhaps with Memoization
+    #     [x] investigate why are we seeing nan samples for 10 training samples?
+    #     [x] confirm same solution for the old/new sampleGP functions on brute-force
+    #     [x] build grad-descent solution on new sampleGP function
+    #     [ ] find params for grad-descent solution on new sampleGP function
 
     # Thursday:
-    # [ ] implement grad based for non-cvae non-gp approaches
+    # [ ] implement grad based for m0/m2_true
+    # [ ] implement grad based for m1_alin
+    # [ ] implement grad based for m1_akrr
+    # [ ] merge all repetitive code to work for numpy and tensors gracefully (e.g., process/deprocessDf, samplingInnerLoop, etc.)
     # [ ] select hyperparms (initial values, learning rate, etc.) across settings: intervention nodes, recourse types (incl'd learned cvae model), factual instances, scms, etc.
     # [ ] select hyperparms (initial values, learning rate, etc.) in comparison with brute_force
 
