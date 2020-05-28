@@ -397,21 +397,17 @@ def sampleTrue(args, objs, factual_instance, samples_df, node, parents, recourse
     #   assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
     #   noise = noise_true
 
-    for row_idx, row in samples_df.iterrows():
-      noise = noise
-      samples_df.loc[row_idx, node] = structural_equation(
-        noise,
-        *samples_df.loc[row_idx, parents].to_numpy(),
-      )
+    samples_df[node] = structural_equation(
+      noise, # may be scalar, which will be case as pd.series when being summed.
+      *[samples_df[parent] for parent in parents],
+    )
 
   elif recourse_type == 'm2_true':
 
-    for row_idx, row in samples_df.iterrows():
-      noise = objs.scm_obj.noises_distributions[getNoiseStringForNode(node)].sample(),
-      samples_df.loc[row_idx, node] = structural_equation(
-        noise,
-        *samples_df.loc[row_idx, parents].to_numpy(),
-      )
+    samples_df[node] = structural_equation(
+      objs.scm_obj.noises_distributions[getNoiseStringForNode(node)].sample(samples_df.shape[0]),
+      *[samples_df[parent] for parent in parents],
+    )
 
   return samples_df
 
@@ -1768,13 +1764,13 @@ if __name__ == "__main__":
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
     ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
+    # ('m1_alin', 'v'), \
     # ('m1_akrr', '^'), \
     # ('m1_gaus', 'D'), \
     # ('m1_cvae', 'x'), \
     ('m2_true', 'o'), \
     # ('m2_gaus', 's'), \
-    ('m2_cvae', '+'), \
+    # ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
 
