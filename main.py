@@ -749,6 +749,186 @@ def getColumnIndexFromName(args, objs, column_name):
     return objs.dataset_obj.data_frame_kurz.columns.get_loc(column_name) - 1
 
 
+def tmpPlot(args, objs, factual_instance, intervention_set, recourse_type):
+
+  assert \
+    'cvae' in recourse_type or 'gaus' in recourse_type, \
+    f'{args.optimization_approach} does not currently support {recourse_type}'
+
+  # TODO: @utils.Memoize ???
+  def convertDataFrameOfTensorsToSharedTensor(tmp_df, cols):
+    assert isinstance(tmp_df, pd.DataFrame) # not series
+    return torch.stack([
+        torch.stack(
+          tuple(
+            tmp_df[col].to_numpy()
+          )
+        )
+        for col in cols
+    ], axis = 1)
+    # return torch.stack([
+    #     torch.stack([tmp_df.iloc[j,i]
+    #         for j in range(tmp_df.shape[0])
+    #     ], axis = 0)
+    #     for i in range(tmp_df.shape[1])
+    # ], axis = 1)
+
+  range_x1 = objs.dataset_obj.data_frame_kurz.describe()['x1']
+  tmp_linspace = np.linspace(range_x1['min'], range_x1['max'], 100).astype('float32')
+  action_sets = [
+    {'x1': torch.tensor(value_x1)}
+    for value_x1 in tmp_linspace
+  ]
+
+  # IMPORTANT: watch ordering of action_set_ts and factual_instance_ts, they are
+  # both tensors, but the former are trainable whereas the latter are not.
+  factual_instance_ts = {k: torch.tensor(v) for k, v in factual_instance.items()}
+  factual_df = pd.DataFrame({k : [v] * args.num_mc_samples for k,v in factual_instance_ts.items()})
+
+
+  h = getTorchClassifier(args, objs)
+  # TODO: make input args
+  capped_loss = False
+  num_epochs = 500
+  lambda_opt = 1 # initial value
+  lambda_opt_update_every = 50
+  lambda_opt_learning_rate = 0.5
+  action_set_learning_rate = 0.1
+  print_log_every = lambda_opt_update_every
+  # optimizer = torch.optim.Adam(params = list(action_set_ts.values()), lr = action_set_learning_rate)
+
+  all_loss_totals_1 = []
+  all_loss_totals_2 = []
+  all_loss_totals_3 = []
+  all_loss_costs = []
+  all_lambda_opts = []
+  all_loss_constraints = []
+  # all_thetas = []
+
+  for idx, action_set_ts in enumerate(action_sets):
+    print(f'idx: {idx}')
+
+    samples_df = _getSamplesDFTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type, args.num_mc_samples)
+
+    # Simply traverse the graph in order, and populate nodes as we go!
+    # IMPORTANT: DO NOT use SET(topo ordering); it sometimes changes ordering!
+    for node in objs.scm_obj.getTopologicalOrdering():
+      # set variable if value not yet set through intervention or conditioning
+      if samples_df[node].isnull().values.any():
+        parents = objs.scm_obj.getParentsForNode(node)
+        # root nodes MUST always be set through intervention or conditioning
+        assert len(parents) > 0
+        # Confirm parents columns are present/have assigned values in samples_df
+        assert not samples_df.loc[:,list(parents)].isnull().values.any()
+
+        # TODO: this would change according to other recourse types
+        if recourse_type == 'm1_cvae':
+          sample_from = 'posterior'
+        elif recourse_type == 'm2_cvae':
+          sample_from = 'prior'
+        elif recourse_type == 'm2_cvae_ps':
+          sample_from = 'reweighted_prior'
+
+        if 'gaus' in recourse_type:
+          kernel, X_all, model = trainGP(args, objs, node, parents)
+          # ipsh()
+          # X_parents = torch.tensor(samples_df[parents].to_numpy())
+          X_parents = convertDataFrameOfTensorsToSharedTensor(samples_df, parents)
+          if recourse_type == 'm1_gaus': # counterfactual distribution for node
+            # IMPORTANT: Find index of factual instance in dataframe used for training GP
+            #            (earlier, the factual instance was appended as the last instance)
+            tmp_idx = getIndexOfFactualInstanceInDataFrame(
+              factual_instance,
+              processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
+            ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
+            new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'cf', tmp_idx)
+          elif recourse_type == 'm2_gaus': # interventional distribution for node
+            new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
+
+          samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)] # GP torch returns float.64, convert to float32
+
+        elif 'cvae' in recourse_type:
+          trained_cvae = trainCVAE(args, objs, node, parents)
+          new_samples = trained_cvae.reconstruct(
+            x_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, [node]),
+            pa_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, parents),
+            pa_counter=convertDataFrameOfTensorsToSharedTensor(samples_df, parents),
+            sample_from=sample_from,
+          )
+
+          # split returns a tuple/list of tensors which have listed (!) values
+          samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)]
+          # for idx in range(samples_df.shape[0]):
+          #   samples_df['x3'][idx] = new_samples[0][idx]
+
+    # TODO: convertDataFrameOfTensorsToSharedTensor does not work if some cols
+    # are nan --> so placing this after the loop above once all cols are filled
+    counter_ts = convertDataFrameOfTensorsToSharedTensor(samples_df, scm_obj.getTopologicalOrdering())
+
+    loss_cost = measureActionSetCost(args, objs, factual_instance_ts, action_set_ts)
+
+    # compute LCB
+    pred_labels = h(counter_ts)
+    # When all predictions are the same (likely because all sampled points are
+    # the same, likely because we are outside of the manifold OR, e.g., when we
+    # intervene on all nodes and the initial epoch returns same samples), then
+    # torch.std() will be 0 and therefore there is no gradinet to pass back; in
+    # turn this results in torch.std() giving nan and ruining the training!
+    #     tmp = torch.ones((10,1), requires_grad=True)
+    #     torch.std(tmp).backward()
+    #     print(tmp.grad)
+    # https://github.com/pytorch/pytorch/issues/4320
+    # SOLUTION: remove torch.std() when this term is small to prevent passing nans.
+    if torch.std(pred_labels) < 1e-10:
+      # print(f'\t\t[INFO] Removing variance term due to very small variance breaking gradient.')
+      value_lcb = torch.mean(pred_labels)
+    else:
+      value_lcb = torch.mean(pred_labels) - args.lambda_lcb * torch.std(pred_labels)
+
+    loss_constraint = (0.5 - value_lcb)
+    if capped_loss:
+      loss_constraint = torch.nn.functional.relu(loss_constraint)
+
+    # ========================================================================
+    # ========================================================================
+
+    # for fixed lambda, optimize theta (grad descent)
+    loss_total_1 = loss_cost + 1 * loss_constraint
+    loss_total_2 = loss_cost + 2 * loss_constraint
+    loss_total_3 = loss_cost + 3 * loss_constraint
+
+    all_loss_totals_1.append(loss_total_1.detach().item())
+    all_loss_totals_2.append(loss_total_2.detach().item())
+    all_loss_totals_3.append(loss_total_3.detach().item())
+    all_loss_costs.append(loss_cost.item())
+    all_lambda_opts.append(lambda_opt)
+    all_loss_constraints.append(loss_constraint.detach().item())
+    # all_thetas.append() # show in 1d or 2d
+
+  fig, ax = plt.subplots()
+  ax.plot(tmp_linspace, all_loss_totals_1, '-', label='loss totals 1')
+  ax.plot(tmp_linspace, all_loss_totals_2, '-', label='loss totals 2')
+  ax.plot(tmp_linspace, all_loss_totals_3, '-', label='loss totals 3')
+  ax.plot(tmp_linspace, all_loss_costs, 'g--', label='loss costs')
+  ax.plot(tmp_linspace, all_loss_constraints, 'r:', label='loss constraints')
+  ax.set(xlabel='theta', ylabel='loss', title='Losses vs Theta')
+  ax.grid()
+  ax.legend()
+  plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def performGradDescentOptimization(args, objs, factual_instance, intervention_set, recourse_type):
 
   assert \
@@ -790,7 +970,7 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
 
   # TODO: make input args
   capped_loss = False
-  num_epochs = 500
+  num_epochs = 2500
   lambda_opt = 1 # initial value
   lambda_opt_update_every = 50
   lambda_opt_learning_rate = 0.5
@@ -831,7 +1011,6 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
           sample_from = 'prior'
         elif recourse_type == 'm2_cvae_ps':
           sample_from = 'reweighted_prior'
-
 
         if 'gaus' in recourse_type:
           kernel, X_all, model = trainGP(args, objs, node, parents)
@@ -1023,6 +1202,7 @@ def computeOptimalActionSet(args, objs, factual_instance, recourse_type):
     min_cost = 1e10
     min_cost_action_set = {}
     for intervention_set in valid_intervention_sets:
+      # tmpPlot(args, objs, factual_instance, intervention_set, recourse_type)
       action_set = performGradDescentOptimization(args, objs, factual_instance, intervention_set, recourse_type)
       if constraint_handle(args, objs, factual_instance, action_set, recourse_type):
         cost_of_action_set = measureActionSetCost(args, objs, factual_instance, action_set)
