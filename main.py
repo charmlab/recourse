@@ -749,7 +749,7 @@ def getColumnIndexFromName(args, objs, column_name):
     return objs.dataset_obj.data_frame_kurz.columns.get_loc(column_name) - 1
 
 
-def tmpPlot(args, objs, factual_instance, intervention_set, recourse_type):
+def tmpPlot(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
   assert \
     'cvae' in recourse_type or 'gaus' in recourse_type, \
@@ -929,7 +929,7 @@ def tmpPlot(args, objs, factual_instance, intervention_set, recourse_type):
 
 
 
-def performGradDescentOptimization(args, objs, factual_instance, intervention_set, recourse_type):
+def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
   assert \
     'cvae' in recourse_type or 'gaus' in recourse_type, \
@@ -970,7 +970,7 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
 
   # TODO: make input args
   capped_loss = False
-  num_epochs = 2500
+  num_epochs = 1000
   lambda_opt = 1 # initial value
   lambda_opt_update_every = 50
   lambda_opt_learning_rate = 0.5
@@ -985,8 +985,9 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
   all_thetas = []
 
   start_time = time.time()
-  print(f'\t\t[INFO] initial action set: {str({k : np.around(v.detach().item(), 4) for k,v in action_set_ts.items()})}') # TODO: use pretty print
-  for epoch in range(1, num_epochs + 1):
+  if args.debug_flag:
+    print(f'\t\t[INFO] initial action set: {str({k : np.around(v.detach().item(), 4) for k,v in action_set_ts.items()})}') # TODO: use pretty print
+  for epoch in tqdm(range(1, num_epochs + 1)):
 
     # ========================================================================
     # ========================================================================
@@ -1116,7 +1117,7 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
     optimizer.zero_grad()
     loss_total.backward()
     optimizer.step()
-    if epoch % print_log_every == 0:
+    if args.debug_flag and epoch % print_log_every == 0:
       # TODO: use pretty print
       print(
         f'\t\t[INFO] epoch #{epoch:03}: ' \
@@ -1134,7 +1135,8 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
     # all_thetas.append() # show in 1d or 2d
 
   end_time = time.time()
-  print(f'\t\t[INFO] Done (total run-time: {end_time - start_time}).\n\n')
+  if args.debug_flag:
+    print(f'\t\t[INFO] Done (total run-time: {end_time - start_time}).\n\n')
 
   # fig, ax = plt.subplots()
   # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
@@ -1150,7 +1152,6 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
   ax1.set(xlabel='epochs', ylabel='loss', title='Loss curve')
   ax1.grid()
   ax1.legend()
-  # ax1.set_ylim(-1.1, 1.1)
 
   ax2.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
   ax2.set(xlabel='epochs', ylabel='loss', title='Lambda curve')
@@ -1162,14 +1163,15 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
   # ax3.grid()
   # ax3.legend()
 
-  plt.show()
+  # plt.show()
+  plt.savefig(f'{save_path}/{str(intervention_set)}.pdf')
 
   # Convert action_set_ts to non-tensor action_set when passing back to rest of code
   action_set = {k : v.detach().item() for k,v in action_set_ts.items()}
   return action_set
 
 
-def computeOptimalActionSet(args, objs, factual_instance, recourse_type):
+def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_type):
 
   if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     constraint_handle = isPointConstraintSatisfied
@@ -1201,9 +1203,10 @@ def computeOptimalActionSet(args, objs, factual_instance, recourse_type):
 
     min_cost = 1e10
     min_cost_action_set = {}
-    for intervention_set in valid_intervention_sets:
-      # tmpPlot(args, objs, factual_instance, intervention_set, recourse_type)
-      action_set = performGradDescentOptimization(args, objs, factual_instance, intervention_set, recourse_type)
+    for idx, intervention_set in enumerate(valid_intervention_sets):
+      print(f'\n\t[INFO] intervention set #{idx}/{len(valid_intervention_sets)}: {str(intervention_set)}')
+      # tmpPlot(args, objs, factual_instance, save_path, intervention_set, recourse_type)
+      action_set = performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type)
       if constraint_handle(args, objs, factual_instance, action_set, recourse_type):
         cost_of_action_set = measureActionSetCost(args, objs, factual_instance, action_set)
         if cost_of_action_set < min_cost:
@@ -1479,6 +1482,8 @@ def experiment5(args, objs, experiment_folder_name, factual_instances_dict, expe
 def experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' optimal action set: figure + table '''
 
+  os.mkdir(f'{experiment_folder_name}/optimization_results')
+
   per_instance_results = {}
   for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
     factual_instance_idx = f'sample_{key}'
@@ -1492,12 +1497,15 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
     for recourse_type in recourse_types:
 
       tmp = {}
+      save_path = f'{experiment_folder_name}/optimization_results/{recourse_type}_factual_instance_{factual_instance_idx}'
+      os.mkdir(save_path)
 
       start_time = time.time()
       tmp['optimal_action_set'] = computeOptimalActionSet(
         args,
         objs,
         factual_instance,
+        save_path,
         recourse_type,
       )
       end_time = time.time()
