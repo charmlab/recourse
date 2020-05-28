@@ -792,16 +792,17 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
   capped_loss = False
   num_epochs = 500
   lambda_opt = 1 # initial value
-  lambda_opt_update_every = 5
-  lambda_opt_learning_rate = 0.2
+  lambda_opt_update_every = 50
+  lambda_opt_learning_rate = 0.5
   action_set_learning_rate = 0.1
   print_log_every = lambda_opt_update_every
   optimizer = torch.optim.Adam(params = list(action_set_ts.values()), lr = action_set_learning_rate)
 
   all_loss_totals = []
-  all_loss_objectives = []
+  all_loss_costs = []
   all_lambda_opts = []
   all_loss_constraints = []
+  all_thetas = []
 
   start_time = time.time()
   print(f'\t\t[INFO] initial action set: {str({k : np.around(v.detach().item(), 4) for k,v in action_set_ts.items()})}') # TODO: use pretty print
@@ -899,7 +900,7 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
     # ========================================================================
     # ========================================================================
 
-    loss_objective = measureActionSetCost(args, objs, factual_instance_ts, action_set_ts)
+    loss_cost = measureActionSetCost(args, objs, factual_instance_ts, action_set_ts)
 
     # compute LCB
     pred_labels = h(counter_ts)
@@ -915,11 +916,11 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
     # SOLUTION: remove torch.std() when this term is small to prevent passing nans.
     if torch.std(pred_labels) < 1e-10:
       # print(f'\t\t[INFO] Removing variance term due to very small variance breaking gradient.')
-      loss_lcb = torch.mean(pred_labels)
+      value_lcb = torch.mean(pred_labels)
     else:
-      loss_lcb = torch.mean(pred_labels) - args.lambda_lcb * torch.std(pred_labels)
+      value_lcb = torch.mean(pred_labels) - args.lambda_lcb * torch.std(pred_labels)
 
-    loss_constraint = (0.5 - loss_lcb)
+    loss_constraint = (0.5 - value_lcb)
     if capped_loss:
       loss_constraint = torch.nn.functional.relu(loss_constraint)
 
@@ -927,7 +928,7 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
     # ========================================================================
 
     # for fixed lambda, optimize theta (grad descent)
-    loss_total = loss_objective + lambda_opt * loss_constraint
+    loss_total = loss_cost + lambda_opt * loss_constraint
 
     # once every few epochs, optimize theta (grad ascent) manually (w/o pytorch)
     if epoch % lambda_opt_update_every == 0:
@@ -942,27 +943,46 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
         f'\t\t[INFO] epoch #{epoch:03}: ' \
         f'optimal action: {str({k : np.around(v.detach().item(), 2) for k,v in action_set_ts.items()})}    ' \
         f'loss_total: {loss_total.detach().item():02.6f}    ' \
-        f'loss_objective: {loss_objective.detach().item():02.6f}    ' \
+        f'loss_cost: {loss_cost.detach().item():02.6f}    ' \
         f'lambda_opt: {lambda_opt:02.6f}    ' \
         f'loss_constraint: {loss_constraint.detach().item():02.6f}    ' \
-        f'loss_lcb: {loss_lcb.detach().item():02.6f}    ' \
+        f'value_lcb: {value_lcb.detach().item():02.6f}    ' \
       )
     all_loss_totals.append(loss_total.detach().item())
-    all_loss_objectives.append(loss_objective.item())
+    all_loss_costs.append(loss_cost.item())
     all_lambda_opts.append(lambda_opt)
     all_loss_constraints.append(loss_constraint.detach().item())
+    # all_thetas.append() # show in 1d or 2d
 
   end_time = time.time()
   print(f'\t\t[INFO] Done (total run-time: {end_time - start_time}).\n\n')
 
-  fig, ax = plt.subplots()
-  ax.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
-  ax.plot(range(1, len(all_loss_totals) + 1), all_loss_objectives, 'g--', label='loss objectives')
-  ax.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
-  ax.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
-  ax.set(xlabel='epochs', ylabel='loss', title='Loss curve')
-  ax.grid()
-  ax.legend()
+  # fig, ax = plt.subplots()
+  # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
+  # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_costs, 'g--', label='loss objectives')
+  # ax.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
+  # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
+
+  # fig, (ax1, ax2, ax3) = plt.subplots(1,3)
+  fig, (ax1, ax2) = plt.subplots(2,1, sharex=True)
+  ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
+  ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_costs, 'g--', label='loss costs')
+  ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
+  ax1.set(xlabel='epochs', ylabel='loss', title='Loss curve')
+  ax1.grid()
+  ax1.legend()
+  # ax1.set_ylim(-1.1, 1.1)
+
+  ax2.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
+  ax2.set(xlabel='epochs', ylabel='loss', title='Lambda curve')
+  ax2.grid()
+  ax2.legend()
+
+  # ax3.plot(range(1, len(all_loss_totals) + 1), all_thetas, 'y-.', label='thetas')
+  # ax3.set(xlabel='epochs', ylabel='loss', title='Loss curve')
+  # ax3.grid()
+  # ax3.legend()
+
   plt.show()
 
   # Convert action_set_ts to non-tensor action_set when passing back to rest of code
@@ -1020,7 +1040,7 @@ def computeOptimalActionSet(args, objs, factual_instance, recourse_type):
     # [x] first running example of grad descent on cvae
     # [x] flush computational graph to speed up training without hogging memory
     # [x] can we apply lambda grad only when constraint >= 0
-    # [x] loss_objective: use measureActionSetCost
+    # [x] loss_cost: use measureActionSetCost
     # [x] loss_constraint: fix BCE loss > 0.5
     # [x] learn lambda
     # [x] fix nan in theta after some epochs
@@ -1490,6 +1510,7 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
           sampling_handle = sampleCVAE
 
         samples = sampling_handle(args, objs, not_imp_factual_instance, not_imp_samples_df, node, parents, recourse_type)
+        tmp_df = samples.copy()
         tmp_df['recourse_type'] = recourse_type # add column
         total_df = pd.concat([total_df, tmp_df]) # concat to overall
 
@@ -1570,7 +1591,7 @@ if __name__ == "__main__":
     # ('m0_true', '*'), \
     # ('m1_alin', 'v'), \
     # ('m1_akrr', '^'), \
-    ('m1_gaus', 'D'), \
+    # ('m1_gaus', 'D'), \
     # ('m1_cvae', 'x'), \
     # ('m2_true', 'o'), \
     ('m2_gaus', 's'), \
