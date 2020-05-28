@@ -109,6 +109,11 @@ def loadSCM(scm_class, experiment_folder_name = None):
   elif scm_class == 'sanity-2-cos-exp-add':
     structural_equations['x2'] = lambda n_samples, x1 : 2 * np.cos(3 * x1) * np.exp(-0.3 * x1**2) + n_samples
 
+  # ============================================================================
+  # ABOVE: 2-variable sanity models used for checking cond. dist. fit
+  # BELOW: 3+variable sanity models used in paper
+  # ============================================================================
+
   if scm_class == 'sanity-3-lin':
 
     structural_equations = {

@@ -33,9 +33,7 @@ def load_random_data(scm_class, variable_type = 'real'):
   print(f'\t[INFO] Sampling {n} exogenous U variables (d = {d})...')
   U = np.concatenate(
     [
-      np.array(
-        [scm_obj.noises_distributions[node].sample() for _ in range(n)]
-      ).reshape(-1,1)
+      np.array(scm_obj.noises_distributions[node].sample(n)).reshape(-1,1)
       for node in scm_obj.getTopologicalOrdering('exogenous')
     ],
     axis = 1,
@@ -55,12 +53,10 @@ def load_random_data(scm_class, variable_type = 'real'):
     parents = scm_obj.getParentsForNode(node)
     # assuming we're iterating in topological order, parents in X should already be occupied
     assert not X.loc[:,list(parents)].isnull().values.any()
-    for row_idx, row in tqdm(X.iterrows(), total=X.shape[0]):
-      X.loc[row_idx, node] = scm_obj.structural_equations[node](
-        # scm_obj.noises_distributions[node].sample(), # this is more elegant, but we also want to save the U's, so we do the above first
-        U.loc[row_idx, getNoiseStringForNode(node)],
-        *X.loc[row_idx, parents].to_numpy(),
-      )
+    X[node] = scm_obj.structural_equations[node](
+      U[getNoiseStringForNode(node)],
+      *[X[parent] for parent in parents]
+    )
   print(f'\t[INFO] done.')
   print(f'[INFO] done.')
 
