@@ -1282,11 +1282,12 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
       tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance, tmp['optimal_action_set'], 'm0_true')
-      tmp['ic_m1_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_gaus'), 3)
-      tmp['ic_m1_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_cvae'), 3)
       tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
-      tmp['ic_m2_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_gaus'), 3)
-      tmp['ic_m2_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_cvae'), 3)
+      tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], recourse_type), 3)
+      # tmp['ic_m1_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_gaus'), 3)
+      # tmp['ic_m1_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_cvae'), 3)
+      # tmp['ic_m2_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_gaus'), 3)
+      # tmp['ic_m2_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_cvae'), 3)
       tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'])
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
 
@@ -1301,7 +1302,8 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
 
     # Table
     metrics_summary = {}
-    metrics = ['scf_validity', 'ic_m1_gaus', 'ic_m1_cvae', 'ic_m2_true', 'ic_m2_gaus', 'ic_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
+    # metrics = ['scf_validity', 'ic_m1_gaus', 'ic_m1_cvae', 'ic_m2_true', 'ic_m2_gaus', 'ic_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
+    metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime']
 
     for metric in metrics:
       metrics_summary[metric] = []
@@ -1463,7 +1465,6 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
           sampling_handle = sampleCVAE
 
         samples = sampling_handle(args, objs, not_imp_factual_instance, not_imp_samples_df, node, parents, recourse_type)
-        tmp_df = samples.copy()
         tmp_df['recourse_type'] = recourse_type # add column
         total_df = pd.concat([total_df, tmp_df]) # concat to overall
 
