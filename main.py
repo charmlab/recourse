@@ -506,8 +506,9 @@ def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_t
   # [x] get code running
   # [x] speed up, perhaps with Memoization
   # [x] investigate why are we seeing nan samples for 10 training samples?
-  # [ ] confirm same solution for the old/new sampleGP functions on brute-force
-  # [ ] build grad-descent solution on new sampleGP function
+  # [x] confirm same solution for the old/new sampleGP functions on brute-force
+  # [x] build grad-descent solution on new sampleGP function
+  # [ ] find params for grad-descent solution on new sampleGP function
 
 
 def _getSamplesDFTemplate(args, objs, factual_instance, action_set, recourse_type, num_samples):
@@ -758,7 +759,9 @@ def getColumnIndexFromName(args, objs, column_name):
 
 def performGradDescentOptimization(args, objs, factual_instance, intervention_set, recourse_type):
 
-  assert 'cvae' in recourse_type, f'{args.optimization_approach} does not currently support {recourse_type}'
+  assert \
+    'cvae' in recourse_type or 'gaus' in recourse_type, \
+    f'{args.optimization_approach} does not currently support {recourse_type}'
 
   # TODO: @utils.Memoize ???
   def convertDataFrameOfTensorsToSharedTensor(tmp_df, cols):
@@ -780,7 +783,7 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
 
   h = getTorchClassifier(args, objs)
   # initial_action_set, values of this dictionary are tensors which are trained
-  action_set = dict(zip(
+  action_set_ts = dict(zip(
     intervention_set,
     [
       torch.tensor(factual_instance[node], requires_grad=True)
@@ -788,19 +791,20 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
     ]
   ))
 
-  # IMPORTANT: watch ordering of action_set and factual_instance, they are
+  # IMPORTANT: watch ordering of action_set_ts and factual_instance_ts, they are
   # both tensors, but the former are trainable whereas the latter are not.
-  factual_instance = {k: torch.tensor(v) for k, v in factual_instance.items()}
-  factual_df = pd.DataFrame({k : [v] * args.num_mc_samples for k,v in factual_instance.items()})
+  factual_instance_ts = {k: torch.tensor(v) for k, v in factual_instance.items()}
+  factual_df = pd.DataFrame({k : [v] * args.num_mc_samples for k,v in factual_instance_ts.items()})
 
+  # TODO: make input args
   capped_loss = False
-  num_epochs = 2000 # TODO: make input args
+  num_epochs = 500
   lambda_opt = 1 # initial value
   lambda_opt_update_every = 5
   lambda_opt_learning_rate = 0.2
   action_set_learning_rate = 0.1
   print_log_every = lambda_opt_update_every
-  optimizer = torch.optim.Adam(params = list(action_set.values()), lr = action_set_learning_rate)
+  optimizer = torch.optim.Adam(params = list(action_set_ts.values()), lr = action_set_learning_rate)
 
   all_loss_totals = []
   all_loss_objectives = []
@@ -808,13 +812,13 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
   all_loss_constraints = []
 
   start_time = time.time()
-  print(f'\t\t[INFO] initial action set: {str({k : np.around(v.detach().item(), 4) for k,v in action_set.items()})}') # TODO: use pretty print
+  print(f'\t\t[INFO] initial action set: {str({k : np.around(v.detach().item(), 4) for k,v in action_set_ts.items()})}') # TODO: use pretty print
   for epoch in range(1, num_epochs + 1):
 
     # ========================================================================
     # ========================================================================
 
-    samples_df = _getSamplesDFTemplate(args, objs, factual_instance, action_set, recourse_type, args.num_mc_samples)
+    samples_df = _getSamplesDFTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type, args.num_mc_samples)
 
     # Simply traverse the graph in order, and populate nodes as we go!
     # IMPORTANT: DO NOT use SET(topo ordering); it sometimes changes ordering!
@@ -835,18 +839,38 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
         elif recourse_type == 'm2_cvae_ps':
           sample_from = 'reweighted_prior'
 
-        trained_cvae = trainCVAE(args, objs, node, parents)
-        new_samples = trained_cvae.reconstruct(
-          x_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, [node]),
-          pa_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, parents),
-          pa_counter=convertDataFrameOfTensorsToSharedTensor(samples_df, parents),
-          sample_from=sample_from,
-        )
 
-        # split returns a tuple/list of tensors which have listed (!) values
-        samples_df[node] = [elem[0][0] for elem in torch.split(new_samples, 1)]
-        # for idx in range(samples_df.shape[0]):
-        #   samples_df['x3'][idx] = new_samples[0][idx]
+        if 'gaus' in recourse_type:
+          kernel, X_all, model = trainGP(args, objs, node, parents)
+          # ipsh()
+          # X_parents = torch.tensor(samples_df[parents].to_numpy())
+          X_parents = convertDataFrameOfTensorsToSharedTensor(samples_df, parents)
+          if recourse_type == 'm1_gaus': # counterfactual distribution for node
+            # IMPORTANT: Find index of factual instance in dataframe used for training GP
+            #            (earlier, the factual instance was appended as the last instance)
+            tmp_idx = getIndexOfFactualInstanceInDataFrame(
+              factual_instance,
+              processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
+            ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
+            new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'cf', tmp_idx)
+          elif recourse_type == 'm2_gaus': # interventional distribution for node
+            new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
+
+          samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)] # GP torch returns float.64, convert to float32
+
+        elif 'cvae' in recourse_type:
+          trained_cvae = trainCVAE(args, objs, node, parents)
+          new_samples = trained_cvae.reconstruct(
+            x_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, [node]),
+            pa_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, parents),
+            pa_counter=convertDataFrameOfTensorsToSharedTensor(samples_df, parents),
+            sample_from=sample_from,
+          )
+
+          # split returns a tuple/list of tensors which have listed (!) values
+          samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)]
+          # for idx in range(samples_df.shape[0]):
+          #   samples_df['x3'][idx] = new_samples[0][idx]
 
     # TODO: convertDataFrameOfTensorsToSharedTensor does not work if some cols
     # are nan --> so placing this after the loop above once all cols are filled
@@ -870,8 +894,8 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
 
     # DOES NOT WORK ON GENERAL INTERVENTION_SETS!
     # counter_ts = torch.zeros((args.num_mc_samples, len(objs.dataset_obj.getInputAttributeNames())))
-    # counter_ts[:,0] = factual_instance['x1']
-    # counter_ts[:,1] = action_set[int_node] + 0 # +0 important so to have shared gradients passed back into single varable inside action_set
+    # counter_ts[:,0] = factual_instance_ts['x1']
+    # counter_ts[:,1] = action_set_ts[int_node] + 0 # +0 important so to have shared gradients passed back into single varable inside action_set_ts
     # trained_cvae = trainCVAE(args, objs, 'x3', ['x1', 'x2'])
     # counter_ts[:,2] = trained_cvae.reconstruct(
     #   x_factual=factual_ts[:,2].reshape(-1,1), # make dynamic
@@ -883,7 +907,7 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
     # ========================================================================
     # ========================================================================
 
-    loss_objective = measureActionSetCost(args, objs, factual_instance, action_set)
+    loss_objective = measureActionSetCost(args, objs, factual_instance_ts, action_set_ts)
 
     # compute LCB
     pred_labels = h(counter_ts)
@@ -924,7 +948,7 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
       # TODO: use pretty print
       print(
         f'\t\t[INFO] epoch #{epoch:03}: ' \
-        f'optimal action: {str({k : np.around(v.detach().item(), 2) for k,v in action_set.items()})}    ' \
+        f'optimal action: {str({k : np.around(v.detach().item(), 2) for k,v in action_set_ts.items()})}    ' \
         f'loss_total: {loss_total.detach().item():02.6f}    ' \
         f'loss_objective: {loss_objective.detach().item():02.6f}    ' \
         f'lambda_opt: {lambda_opt:02.6f}    ' \
@@ -949,8 +973,8 @@ def performGradDescentOptimization(args, objs, factual_instance, intervention_se
   ax.legend()
   plt.show()
 
-  # Convert to non-tensor action_set for rest of code
-  action_set = {k : v.detach().item() for k,v in action_set.items()}
+  # Convert action_set_ts to non-tensor action_set when passing back to rest of code
+  action_set = {k : v.detach().item() for k,v in action_set_ts.items()}
   return action_set
 
 
