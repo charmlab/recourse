@@ -744,9 +744,9 @@ def getValidInterventionSets(args, objs):
 
 
 def getColumnIndexFromName(args, objs, column_name):
-    # this is index in df, need to -1 to get index in x_counter / do_update,
-    # because the first column of df is 'y'
-    return objs.dataset_obj.data_frame_kurz.columns.get_loc(column_name) - 1
+  # this is index in df, need to -1 to get index in x_counter / do_update,
+  # because the first column of df is 'y'
+  return objs.dataset_obj.data_frame_kurz.columns.get_loc(column_name) - 1
 
 
 def tmpPlot(args, objs, factual_instance, save_path, intervention_set, recourse_type):
@@ -915,18 +915,6 @@ def tmpPlot(args, objs, factual_instance, save_path, intervention_set, recourse_
   ax.grid()
   ax.legend()
   plt.show()
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
@@ -1516,7 +1504,10 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
 
       tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance, tmp['optimal_action_set'], 'm0_true')
       tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
-      tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], recourse_type), 3)
+      if recourse_type in ACCEPTABLE_DISTR_RECOURSE and recourse_type != 'm2_true':
+        tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], recourse_type), 3)
+      else:
+        tmp['ic_rec_type'] = np.NaN
       # tmp['ic_m1_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_gaus'), 3)
       # tmp['ic_m1_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_cvae'), 3)
       # tmp['ic_m2_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_gaus'), 3)
@@ -1776,14 +1767,14 @@ if __name__ == "__main__":
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
-    # ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
+    ('m0_true', '*'), \
+    ('m1_alin', 'v'), \
     # ('m1_akrr', '^'), \
     # ('m1_gaus', 'D'), \
     # ('m1_cvae', 'x'), \
-    # ('m2_true', 'o'), \
-    ('m2_gaus', 's'), \
-    # ('m2_cvae', '+'), \
+    ('m2_true', 'o'), \
+    # ('m2_gaus', 's'), \
+    ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
 
