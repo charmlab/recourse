@@ -1,6 +1,5 @@
 import torch
 import utils
-import time
 
 from debug import ipsh
 
@@ -11,26 +10,29 @@ class RBFKernel():
         self.signal_var = signal_var
         self.lengthscales = lengthscales
 
+    # def eval_sample(self, x1, x2):
+    #     return self.signal_var * torch.exp(-0.5*torch.sum(((x1-x2)/self.lengthscales)**2))
+
+    # https://discuss.pytorch.org/t/efficient-distance-matrix-computation/9065/10
+    # https://github.com/pytorch/pytorch/blob/master/torch/nn/functional.py#L3598
     def eval_sample(self, x1, x2):
-        return self.signal_var * torch.exp(-0.5*torch.sum(((x1-x2)/self.lengthscales)**2))
+        return self.signal_var * torch.exp(
+            -0.5 * torch.sum(
+                torch.pow(
+                    (x1[:, None] - x2) / self.lengthscales,
+                    2, # power exponent
+                ),
+                2, # sum over second dimension
+            )
+        )
 
     def eval(self, x1, x2):
         n1, d1 = x1.shape
         n2, d2 = x2.shape
         assert d1 == d2
         assert isinstance(x1, torch.Tensor) and isinstance(x2, torch.Tensor)
+        return self.eval_sample(x1, x2)
 
-        # start_time = time.time()
-        tmp = torch.stack([
-            torch.stack([
-                self.eval_sample(x1[i], x2[j])
-                for j in range(n2)
-            ], axis = 0)
-            for i in range(n1)
-        ], axis = 1).squeeze().T # for some reason this gives a NxM x 1 from the nested stacks
-        # print("--- %s seconds ---" % (time.time() - start_time))
-        # ipsh()
-        return tmp
 
 def get_optimized_rbf_kernel(m):
     input_dim = torch.tensor(m.input_dim)
@@ -38,7 +40,6 @@ def get_optimized_rbf_kernel(m):
     lengthscales = torch.tensor(m.kern.lengthscale)
     return RBFKernel(input_dim, signal_var, lengthscales)
 
-@utils.Memoize
 def get_inverse_covariance(K, noise_var):
     return torch.inverse(K + noise_var * torch.eye(K.shape[0]))
 

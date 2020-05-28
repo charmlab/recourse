@@ -486,8 +486,6 @@ def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_t
 
   kernel, X_all, model = trainGP(args, objs, node, parents)
   X_parents = torch.tensor(samples_df[parents].to_numpy())
-  # import autograd.numpy as np
-  # X_parents = np.array(samples_df[parents].to_numpy())
 
   if recourse_type == 'm1_gaus': # counterfactual distribution for node
     # IMPORTANT: Find index of factual instance in dataframe used for training GP
@@ -501,13 +499,12 @@ def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_t
     new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
 
   samples_df[node] = new_samples.numpy()
-  # samples_df[node] = new_samples
   samples_df = deprocessDataFrameOrDict(args, objs, samples_df, PROCESSING_GAUS)
   return samples_df
 
   # TODOS:
   # [x] get code running
-  # [ ] speed up, perhaps with Memoization
+  # [x] speed up, perhaps with Memoization
   # [ ] investigate why are we seeing nan samples for 10 training samples?
   # [ ] confirm same solution for the old/new sampleGP functions on brute-force
   # [ ] build grad-descent solution on new sampleGP function
