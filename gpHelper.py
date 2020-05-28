@@ -93,6 +93,9 @@ def get_predictive_distribution(pred_mean, pred_var, noise_var,
 
 def sample_from_Gaussian_with_reparametrisation_trick(mean, var):
     assert mean.shape == var.shape
+    if torch.any(torch.isnan(torch.sqrt(var))):
+        # investigate why are we seeing nan samples for 10 training samples?
+        raise Exception(f'Sqrt of variance is -1, why?!.')
     return mean + torch.randn(mean.shape[0],1) * torch.sqrt(var) # np.random.randn
 
 def sample_from_GP_model(m, X_new, distribution_type='iv', factual_instance=None):
