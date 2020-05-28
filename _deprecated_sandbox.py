@@ -70,3 +70,133 @@
 #   pyplot.show()
 
 
+
+
+# x = torch.randn(3,2)
+# x.requires_grad_(True)
+# t = [tmp + 1 for tmp in x]
+# t[0].sum().backward()
+# print(x.grad)
+
+
+
+# a = torch.tensor(2.)
+# a.requires_grad_(True)
+# b = a + 10
+# c = a * 10
+# d = torch.stack((b,c))
+
+
+# a.grad = None
+# b.backward()
+# print(a.grad) # expect 1
+
+# a.grad = None
+# c.backward()
+# print(a.grad) # expect 10
+
+# a.grad = None
+# torch.mean(d).backward() # expect 5.5
+# print(a.grad)
+
+
+
+
+
+
+
+# def getCounterfactualTemplate(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set):
+
+#   add if not bool action_set like below
+
+#   counterfactual_template = dict.fromkeys(
+#     dataset_obj.getInputAttributeNames(),
+#     np.NaN,
+#   )
+
+#   # get intervention and conditioning sets
+#   intervention_set = set(action_set.keys())
+
+#   # intersection_of_non_descendents_of_intervened_upon_variables
+#   conditioning_set = set.intersection(*[
+#     causal_model_obj.getNonDescendentsForNode(node)
+#     for node in intervention_set
+#   ])
+
+#   # assert there is no intersection
+#   assert set.intersection(intervention_set, conditioning_set) == set()
+
+#   # set values in intervention and conditioning sets
+#   for node in conditioning_set:
+#     counterfactual_template[node] = factual_instance[node]
+
+#   for node in intervention_set:
+#     counterfactual_template[node] = action_set[node]
+
+#   return counterfactual_template
+
+# def getSamplesDataFrame(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set, num_samples):
+#   if not bool(action_set): # if action_set is empty, CFE = F
+#     return pd.DataFrame(dict(zip(
+#       dataset_obj.getInputAttributeNames(),
+#       [num_samples * [factual_instance[node]] for node in dataset_obj.getInputAttributeNames()],
+#     )))
+
+#   counterfactual_template = getCounterfactualTemplate(dataset_obj, classifier_obj, causal_model_obj, factual_instance, action_set)
+
+#   # this dataframe has populated columns set to intervention or conditioning values
+#   # and has NaN columns that will be set accordingly.
+#   samples_df = pd.DataFrame(dict(zip(
+#     dataset_obj.getInputAttributeNames(),
+#     [num_samples * [counterfactual_template[node]] for node in dataset_obj.getInputAttributeNames()],
+#   )))
+
+#   return samples_df
+
+
+
+# getStructuralEquation
+# getConditionalDensity
+
+
+
+
+
+
+
+
+
+
+# tmp_df = {}
+#   tmp_df['recourse_type'] = []
+#   tmp_df['value_x1'] = []
+#   tmp_df['sample_x2'] = []
+#   for k1,v1 in per_value_x1_results.items():
+#     for k2,v2 in v1.items():
+#       for elem in v2:
+#         tmp_df['recourse_type'].append(k2)
+#         tmp_df['value_x1'].append(k1)
+#         tmp_df['sample_x2'].append(elem)
+#   tmp_df = pd.DataFrame.from_dict(tmp_df)
+
+#   # likely_value_x1 = [
+#   #   elem
+#   #   for elem in np.unique(tmp_df['value_x1'])
+#   #   if scm_obj.noises_distributions['u1'].pdf(elem) > 0.05
+#   # ]
+#   # tmp_df = tmp_df[tmp_df['value_x1'].isin(likely_value_x1)] # filter to rows with highly likely value_x1
+
+#   # ipsh()
+#   # for elem in likely_value_x1:
+#   #   samples_x2_for_likely_x1 = tmp_df[tmp_df['value_x1'] == elem]
+#   #   print(
+#   #     f'value_x1: {elem}\n',
+#   #     samples_x2_for_likely_x1.groupby('recourse_type')['sample_x2'].mean(),
+#   #     # samples_x2_for_likely_x1.groupby('recourse_type')['sample_x2'].std()
+#   #   )
+
+#   ax = sns.boxplot(x="value_x1", y="sample_x2", hue="recourse_type", data=tmp_df, palette="Set3", showmeans=True)
+#   # TODO: average over high dens pdf, and show a separate plot/table for the average over things...
+#   # ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
+#   # pyplot.show()
+#   pyplot.savefig(f'{experiment_folder_name}/_sanity_3.pdf')
