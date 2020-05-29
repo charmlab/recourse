@@ -203,6 +203,40 @@ def getOriginalDataFrame(objs, num_samples, with_meta = False):
     return pd.concat([X_train, X_test], axis = 0)[:num_samples]
 
 
+def getMinimumObservableInstance(args, objs, factual_instance):
+  # TODO: if we end up using this, it is important to keep in mind the processing
+  # that is use when calling a specific recourse type because we would have to then
+  # perhaps find the MO instance in the original data, but then initialize the action
+  # set using the processed value...
+
+  X_all = getOriginalDataFrame(objs, args.num_train_samples)
+  # compute distances between factual instance and all instances in X_all
+  tmp = np.array(list(factual_instance.values())).reshape(1,-1)[:,None] - X_all.to_numpy()
+  tmp = tmp.squeeze()
+  min_cost = 1e10
+  min_observable_dict = None
+  print(f'\t\t[INFO] Searching for minimum observable instance...', end = '')
+  for idx in range(tmp.shape[0]):
+    # CLOSEST INSTANCE ON THE OTHER SIDE!!
+    distance_np = tmp[idx,:]
+    distance_dict = dict(zip(
+      objs.scm_obj.getTopologicalOrdering(),
+      observable_np,
+    ))
+    if \
+      getPrediction(args, objs, factual_instance) != \
+      getPrediction(args, objs, distance_dict):
+      if np.linalg.norm(observable_np) < min_cost:
+        min_cost = np.linalg.norm(observable_np)
+        min_observable_idx = idx
+        min_observable_dict = dict(zip(
+          objs.scm_obj.getTopologicalOrdering(),
+          X_all.iloc[min_observable_idx],
+        ))
+  print(f'found at index #{min_observable_idx}. Initializing `action_set_ts` using these values.')
+  return min_observable_dict
+
+
 def getNoiseStringForNode(node):
   assert node[0] == 'x'
   return 'u' + node[1:]
@@ -750,33 +784,162 @@ def getColumnIndexFromName(args, objs, column_name):
   return objs.dataset_obj.data_frame_kurz.columns.get_loc(column_name) - 1
 
 
+def convertDataFrameOfTensorsToSharedTensor(tmp_df, cols):
+  assert isinstance(tmp_df, pd.DataFrame) # not series
+  return torch.stack([
+      torch.stack(
+        tuple(
+          tmp_df[col].to_numpy()
+        )
+      )
+      for col in cols
+  ], axis = 1)
+  # return torch.stack([
+  #     torch.stack([tmp_df.iloc[j,i]
+  #         for j in range(tmp_df.shape[0])
+  #     ], axis = 0)
+  #     for i in range(tmp_df.shape[1])
+  # ], axis = 1)
+
+
+def _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, recourse_type):
+
+  if recourse_type in ACCEPTABLE_POINT_RECOURSE:
+    samples_df = _getSamplesDFTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type, 1)
+  if recourse_type in ACCEPTABLE_DISTR_RECOURSE:
+    samples_df = _getSamplesDFTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type, args.num_mc_samples)
+
+  # Simply traverse the graph in order, and populate nodes as we go!
+  # IMPORTANT: DO NOT use SET(topo ordering); it sometimes changes ordering!
+  for node in objs.scm_obj.getTopologicalOrdering():
+    # set variable if value not yet set through intervention or conditioning
+    if samples_df[node].isnull().values.any():
+      parents = objs.scm_obj.getParentsForNode(node)
+      # root nodes MUST always be set through intervention or conditioning
+      assert len(parents) > 0
+      # Confirm parents columns are present/have assigned values in samples_df
+      assert not samples_df.loc[:,list(parents)].isnull().values.any()
+
+      if recourse_type == 'm1_alin':
+
+        # TODO: processing deprocessing takes too much time!
+        # TODO: poor naming (perhaps we need functions for each sampling method that takes an np, ts arguemnt...)
+        processed_samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_SKLEARN)
+        processed_factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_SKLEARN)
+
+        trained_model = trainRidge(args, objs, node, parents).best_estimator_
+        X_parents = convertDataFrameOfTensorsToSharedTensor(processed_samples_df, parents)
+
+        # Step 1. [abduction]
+        # TODO: we don't need structural_equation here... get the noise posterior some other way.
+        structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
+        noise = _getAbductionNoise(args, objs, node, parents, processed_factual_instance, structural_equation)
+
+        # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
+        # N/A
+
+        # Step 3. [prediction]: first get the regressed value, then get noise
+        coef_ = torch.tensor(trained_model.coef_.astype('float32'))
+        intercept_ = torch.tensor(trained_model.intercept_.astype('float32'))
+        new_samples = torch.matmul(coef_, X_parents.T) + intercept_
+        assert np.isclose(
+          new_samples.item(),
+          trained_model.predict(X_parents.detach().numpy()).item(),
+        )
+        new_samples = new_samples + noise
+
+        # add back to dataframe
+        processed_samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)]
+        samples_df = deprocessDataFrameOrDict(args, objs, processed_samples_df, PROCESSING_SKLEARN)
+
+      elif recourse_type == 'm1_akrr':
+
+        # TODO: processing deprocessing takes too much time!
+        # TODO: poor naming (perhaps we need functions for each sampling method that takes an np, ts arguemnt...)
+        processed_samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_SKLEARN)
+        processed_factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_SKLEARN)
+
+        trained_model = trainKernelRidge(args, objs, node, parents).best_estimator_
+        X_parents = convertDataFrameOfTensorsToSharedTensor(processed_samples_df, parents)
+
+        # step 1. [abduction]
+        # TODO: we don't need structural_equation here... get the noise posterior some other way.
+        structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
+        noise = _getAbductionNoise(args, objs, node, parents, processed_factual_instance, structural_equation)
+
+        # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
+        # N/A
+
+        # Step 3. [prediction]: first get the regressed value, then get noise
+        new_samples = krrHelper.sample_from_KRR_model(trained_model, X_parents)
+        assert np.isclose(
+          new_samples.item(),
+          trained_model.predict(X_parents.detach().numpy()).item(),
+        )
+        new_samples = new_samples + noise
+
+        # add back to dataframe
+        processed_samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)]
+        samples_df = deprocessDataFrameOrDict(args, objs, processed_samples_df, PROCESSING_SKLEARN)
+
+      elif recourse_type in {'m1_gaus', 'm2_gaus'}:
+
+        # TODO: add normlization (raw)
+        kernel, X_all, model = trainGP(args, objs, node, parents)
+        # X_parents = torch.tensor(samples_df[parents].to_numpy())
+        X_parents = convertDataFrameOfTensorsToSharedTensor(samples_df, parents)
+        if recourse_type == 'm1_gaus': # counterfactual distribution for node
+          # IMPORTANT: Find index of factual instance in dataframe used for training GP
+          #            (earlier, the factual instance was appended as the last instance)
+          tmp_idx = getIndexOfFactualInstanceInDataFrame(
+            factual_instance,
+            processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
+          ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
+          new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'cf', tmp_idx)
+        elif recourse_type == 'm2_gaus': # interventional distribution for node
+          new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
+
+        samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)] # GP torch returns float.64, convert to float32
+
+      elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
+
+        # TODO: add normlization (raw)
+        # TODO: this would change according to other recourse types
+        if recourse_type == 'm1_cvae':
+          sample_from = 'posterior'
+        elif recourse_type == 'm2_cvae':
+          sample_from = 'prior'
+        elif recourse_type == 'm2_cvae_ps':
+          sample_from = 'reweighted_prior'
+
+        trained_cvae = trainCVAE(args, objs, node, parents)
+        new_samples = trained_cvae.reconstruct(
+          x_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, [node]),
+          pa_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, parents),
+          pa_counter=convertDataFrameOfTensorsToSharedTensor(samples_df, parents),
+          sample_from=sample_from,
+        )
+
+        # split returns a tuple/list of tensors which have listed (!) values
+        samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)]
+        # for idx in range(samples_df.shape[0]):
+        #   samples_df['x3'][idx] = new_samples[0][idx]
+
+  # TODO: convertDataFrameOfTensorsToSharedTensor does not work if some cols
+  # are nan --> so running this code once all cols of samples_df are populated
+  counter_ts = convertDataFrameOfTensorsToSharedTensor(samples_df, objs.scm_obj.getTopologicalOrdering())
+  return counter_ts
+
+
 def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
   assert \
-    'cvae' in recourse_type or 'gaus' in recourse_type, \
+    recourse_type not in {'m0_true', 'm2_true'}, \
     f'{args.optimization_approach} does not currently support {recourse_type}'
-
-  # TODO: @utils.Memoize ???
-  def convertDataFrameOfTensorsToSharedTensor(tmp_df, cols):
-    assert isinstance(tmp_df, pd.DataFrame) # not series
-    return torch.stack([
-        torch.stack(
-          tuple(
-            tmp_df[col].to_numpy()
-          )
-        )
-        for col in cols
-    ], axis = 1)
-    # return torch.stack([
-    #     torch.stack([tmp_df.iloc[j,i]
-    #         for j in range(tmp_df.shape[0])
-    #     ], axis = 0)
-    #     for i in range(tmp_df.shape[1])
-    # ], axis = 1)
 
   range_x1 = objs.dataset_obj.data_frame_kurz.describe()['x1']
   tmp_linspace = np.linspace(range_x1['min'], range_x1['max'], 100).astype('float32')
-  action_sets = [
+  action_sets = [ # TODO: write for general intervention
     {'x1': torch.tensor(value_x1)}
     for value_x1 in tmp_linspace
   ]
@@ -785,7 +948,6 @@ def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervent
   # both tensors, but the former are trainable whereas the latter are not.
   factual_instance_ts = {k: torch.tensor(v) for k, v in factual_instance.items()}
   factual_df = pd.DataFrame({k : [v] * args.num_mc_samples for k,v in factual_instance_ts.items()})
-
 
   h = getTorchClassifier(args, objs)
   # TODO: make input args
@@ -809,78 +971,46 @@ def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervent
   for idx, action_set_ts in enumerate(action_sets):
     print(f'idx: {idx}')
 
-    samples_df = _getSamplesDFTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type, args.num_mc_samples)
+    # ========================================================================
+    # CONSTRUCT COMPUTATION GRAPH
+    # ========================================================================
 
-    # Simply traverse the graph in order, and populate nodes as we go!
-    # IMPORTANT: DO NOT use SET(topo ordering); it sometimes changes ordering!
-    for node in objs.scm_obj.getTopologicalOrdering():
-      # set variable if value not yet set through intervention or conditioning
-      if samples_df[node].isnull().values.any():
-        parents = objs.scm_obj.getParentsForNode(node)
-        # root nodes MUST always be set through intervention or conditioning
-        assert len(parents) > 0
-        # Confirm parents columns are present/have assigned values in samples_df
-        assert not samples_df.loc[:,list(parents)].isnull().values.any()
+    counter_ts = _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, recourse_type)
 
-        # TODO: this would change according to other recourse types
-        if recourse_type == 'm1_cvae':
-          sample_from = 'posterior'
-        elif recourse_type == 'm2_cvae':
-          sample_from = 'prior'
-        elif recourse_type == 'm2_cvae_ps':
-          sample_from = 'reweighted_prior'
+    # DOES NOT WORK ON GENERAL INTERVENTION_SETS!
+    # counter_ts = torch.zeros((args.num_mc_samples, len(objs.dataset_obj.getInputAttributeNames())))
+    # counter_ts[:,0] = factual_instance_ts['x1']
+    # counter_ts[:,1] = action_set_ts[int_node] + 0 # +0 important so to have shared gradients passed back into single varable inside action_set_ts
+    # trained_cvae = trainCVAE(args, objs, 'x3', ['x1', 'x2'])
+    # counter_ts[:,2] = trained_cvae.reconstruct(
+    #   x_factual=factual_ts[:,2].reshape(-1,1), # make dynamic
+    #   pa_factual=factual_ts[:,0:2],
+    #   pa_counter=counter_ts[:,0:2],
+    #   sample_from='prior',
+    # ).T
 
-        if 'gaus' in recourse_type:
-          kernel, X_all, model = trainGP(args, objs, node, parents)
-          # X_parents = torch.tensor(samples_df[parents].to_numpy())
-          X_parents = convertDataFrameOfTensorsToSharedTensor(samples_df, parents)
-          if recourse_type == 'm1_gaus': # counterfactual distribution for node
-            # IMPORTANT: Find index of factual instance in dataframe used for training GP
-            #            (earlier, the factual instance was appended as the last instance)
-            tmp_idx = getIndexOfFactualInstanceInDataFrame(
-              factual_instance,
-              processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
-            ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
-            new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'cf', tmp_idx)
-          elif recourse_type == 'm2_gaus': # interventional distribution for node
-            new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
-
-          samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)] # GP torch returns float.64, convert to float32
-
-        elif 'cvae' in recourse_type:
-          trained_cvae = trainCVAE(args, objs, node, parents)
-          new_samples = trained_cvae.reconstruct(
-            x_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, [node]),
-            pa_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, parents),
-            pa_counter=convertDataFrameOfTensorsToSharedTensor(samples_df, parents),
-            sample_from=sample_from,
-          )
-
-          # split returns a tuple/list of tensors which have listed (!) values
-          samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)]
-          # for idx in range(samples_df.shape[0]):
-          #   samples_df['x3'][idx] = new_samples[0][idx]
-
-    # TODO: convertDataFrameOfTensorsToSharedTensor does not work if some cols
-    # are nan --> so placing this after the loop above once all cols are filled
-    counter_ts = convertDataFrameOfTensorsToSharedTensor(samples_df, scm_obj.getTopologicalOrdering())
+    # ========================================================================
+    # COMPUTE LOSS
+    # ========================================================================
 
     loss_cost = measureActionSetCost(args, objs, factual_instance_ts, action_set_ts)
 
-    # compute LCB
+    # get classifier
+    h = getTorchClassifier(args, objs)
     pred_labels = h(counter_ts)
-    # When all predictions are the same (likely because all sampled points are
-    # the same, likely because we are outside of the manifold OR, e.g., when we
-    # intervene on all nodes and the initial epoch returns same samples), then
-    # torch.std() will be 0 and therefore there is no gradinet to pass back; in
-    # turn this results in torch.std() giving nan and ruining the training!
-    #     tmp = torch.ones((10,1), requires_grad=True)
-    #     torch.std(tmp).backward()
-    #     print(tmp.grad)
-    # https://github.com/pytorch/pytorch/issues/4320
-    # SOLUTION: remove torch.std() when this term is small to prevent passing nans.
-    if torch.std(pred_labels) < 1e-10:
-      # print(f'\t\t[INFO] Removing variance term due to very small variance breaking gradient.')
+
+    # compute LCB
+    if torch.isnan(torch.std(pred_labels)) or torch.std(pred_labels) < 1e-10:
+      # When all predictions are the same (likely because all sampled points are
+      # the same, likely because we are outside of the manifold OR, e.g., when we
+      # intervene on all nodes and the initial epoch returns same samples), then
+      # torch.std() will be 0 and therefore there is no gradinet to pass back; in
+      # turn this results in torch.std() giving nan and ruining the training!
+      #     tmp = torch.ones((10,1), requires_grad=True)
+      #     torch.std(tmp).backward()
+      #     print(tmp.grad)
+      # https://github.com/pytorch/pytorch/issues/4320
+      # SOLUTION: remove torch.std() when this term is small to prevent passing nans.
       value_lcb = torch.mean(pred_labels)
     else:
       value_lcb = torch.mean(pred_labels) - args.lambda_lcb * torch.std(pred_labels)
@@ -888,6 +1018,9 @@ def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervent
     loss_constraint = (0.5 - value_lcb)
     if capped_loss:
       loss_constraint = torch.nn.functional.relu(loss_constraint)
+
+    # for fixed lambda, optimize theta (grad descent)
+    loss_total = loss_cost + lambda_opt * loss_constraint
 
     # ========================================================================
     # ========================================================================
@@ -914,68 +1047,16 @@ def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervent
   ax.set(xlabel='theta', ylabel='loss', title='Losses vs Theta')
   ax.grid()
   ax.legend()
-  plt.show()
+  # plt.show()
+  plt.savefig(f'{save_path}/loss_landscape_{str(intervention_set)}.pdf')
+  plt.close()
 
 
 def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
   assert \
-    'cvae' in recourse_type or 'gaus' in recourse_type or 'alin' in recourse_type or 'akrr' in recourse_type, \
+    recourse_type not in {'m0_true', 'm2_true'}, \
     f'{args.optimization_approach} does not currently support {recourse_type}'
-
-  # TODO: @utils.Memoize ???
-  def convertDataFrameOfTensorsToSharedTensor(tmp_df, cols):
-    assert isinstance(tmp_df, pd.DataFrame) # not series
-    return torch.stack([
-        torch.stack(
-          tuple(
-            tmp_df[col].to_numpy()
-          )
-        )
-        for col in cols
-    ], axis = 1)
-    # return torch.stack([
-    #     torch.stack([tmp_df.iloc[j,i]
-    #         for j in range(tmp_df.shape[0])
-    #     ], axis = 0)
-    #     for i in range(tmp_df.shape[1])
-    # ], axis = 1)
-
-  h = getTorchClassifier(args, objs)
-  # initial_action_set, values of this dictionary are tensors which are trained
-  # action_set_ts = dict(zip(
-  #   intervention_set,
-  #   [
-  #     torch.tensor(factual_instance[node], requires_grad=True)
-  #     for node in intervention_set
-  #   ]
-  # ))
-
-  # find minimum observerable instance, and choose the node there..
-  X_all = getOriginalDataFrame(objs, args.num_train_samples) # TODO: THIS SHOULD BE PROCESSED ACCORDING TO THE RECOURSE TYPE
-  tmp = np.array(list(factual_instance.values())).reshape(1,-1)[:,None] - X_all.to_numpy()
-  tmp = tmp.squeeze()
-  min_cost = 1e10
-  min_observable_dict = None
-  print(f'\t\t[INFO] Searching for minimum observable instance...', end = '')
-  for idx in range(tmp.shape[0]):
-    # CLOSEST INSTANCE ON THE OTHER SIDE!!
-    observable_np = tmp[idx,:]
-    observable_factual_instance = dict(zip(
-      objs.scm_obj.getTopologicalOrdering(),
-      observable_np,
-    ))
-    if \
-      getPrediction(args, objs, factual_instance) != \
-      getPrediction(args, objs, observable_factual_instance):
-      if np.linalg.norm(observable_np) < min_cost:
-        min_cost = np.linalg.norm(observable_np)
-        min_observable_idx = idx
-        min_observable_dict = observable_factual_instance = dict(zip(
-          objs.scm_obj.getTopologicalOrdering(),
-          X_all.iloc[min_observable_idx],
-        ))
-  print(f'found at index #{min_observable_idx}. Initializing `action_set_ts` using these values.')
 
   action_set_ts = dict(zip(
     intervention_set,
@@ -984,13 +1065,12 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
         # np.random.randn(),
         # objs.dataset_obj.data_frame_kurz.describe()[node]['min'].astype('float32'),
         factual_instance[node],
-        # min_observable_dict[node],
+        # getMinimumObservableInstance(args, objs, factual_instance)[node],
         requires_grad=True,
       )
       for node in intervention_set
     ]
   ))
-
 
   # IMPORTANT: watch ordering of action_set_ts and factual_instance_ts, they are
   # both tensors, but the former are trainable whereas the latter are not.
@@ -1022,148 +1102,10 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     lambda_opt_learning_rate = lambda_opt_learning_rate_initial * .99**epoch
 
     # ========================================================================
+    # CONSTRUCT COMPUTATION GRAPH
     # ========================================================================
 
-    if recourse_type in ACCEPTABLE_POINT_RECOURSE:
-      samples_df = _getSamplesDFTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type, 1)
-    if recourse_type in ACCEPTABLE_DISTR_RECOURSE:
-      samples_df = _getSamplesDFTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type, args.num_mc_samples)
-
-    # Simply traverse the graph in order, and populate nodes as we go!
-    # IMPORTANT: DO NOT use SET(topo ordering); it sometimes changes ordering!
-    for node in objs.scm_obj.getTopologicalOrdering():
-      # set variable if value not yet set through intervention or conditioning
-      if samples_df[node].isnull().values.any():
-        parents = objs.scm_obj.getParentsForNode(node)
-        # root nodes MUST always be set through intervention or conditioning
-        assert len(parents) > 0
-        # Confirm parents columns are present/have assigned values in samples_df
-        assert not samples_df.loc[:,list(parents)].isnull().values.any()
-
-        if recourse_type == 'm1_alin':
-
-          # TODO: processing deprocessing takes too much time!
-          # TODO: poor naming (perhaps we need functions for each sampling method that takes an np, ts arguemnt...)
-          processed_samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_SKLEARN)
-          processed_factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_SKLEARN)
-
-          trained_model = trainRidge(args, objs, node, parents).best_estimator_
-          X_parents = convertDataFrameOfTensorsToSharedTensor(processed_samples_df, parents)
-
-          # Step 1. [abduction]
-          # TODO: we don't need structural_equation here... get the noise posterior some other way.
-          structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
-          noise = _getAbductionNoise(args, objs, node, parents, processed_factual_instance, structural_equation)
-
-          # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
-          # N/A
-
-          # Step 3. [prediction]: first get the regressed value, then get noise
-          coef_ = torch.tensor(trained_model.coef_.astype('float32'))
-          intercept_ = torch.tensor(trained_model.intercept_.astype('float32'))
-          new_samples = torch.matmul(coef_, X_parents.T) + intercept_
-          assert np.isclose(
-            new_samples.item(),
-            trained_model.predict(X_parents.detach().numpy()).item(),
-          )
-          new_samples = new_samples + noise
-
-          # add back to dataframe
-          processed_samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)]
-          samples_df = deprocessDataFrameOrDict(args, objs, processed_samples_df, PROCESSING_SKLEARN)
-
-        elif recourse_type == 'm1_akrr':
-
-          # TODO: processing deprocessing takes too much time!
-          # TODO: poor naming (perhaps we need functions for each sampling method that takes an np, ts arguemnt...)
-          processed_samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_SKLEARN)
-          processed_factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_SKLEARN)
-
-          trained_model = trainKernelRidge(args, objs, node, parents).best_estimator_
-          X_parents = convertDataFrameOfTensorsToSharedTensor(processed_samples_df, parents)
-
-          # step 1. [abduction]
-          # TODO: we don't need structural_equation here... get the noise posterior some other way.
-          structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
-          noise = _getAbductionNoise(args, objs, node, parents, processed_factual_instance, structural_equation)
-
-          # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
-          # N/A
-
-          # Step 3. [prediction]: first get the regressed value, then get noise
-          new_samples = krrHelper.sample_from_KRR_model(trained_model, X_parents)
-          assert np.isclose(
-            new_samples.item(),
-            trained_model.predict(X_parents.detach().numpy()).item(),
-          )
-          new_samples = new_samples + noise
-
-          # add back to dataframe
-          processed_samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)]
-          samples_df = deprocessDataFrameOrDict(args, objs, processed_samples_df, PROCESSING_SKLEARN)
-
-        elif recourse_type in {'m1_gaus', 'm2_gaus'}:
-
-          # TODO: add normlization (raw)
-          kernel, X_all, model = trainGP(args, objs, node, parents)
-          # X_parents = torch.tensor(samples_df[parents].to_numpy())
-          X_parents = convertDataFrameOfTensorsToSharedTensor(samples_df, parents)
-          if recourse_type == 'm1_gaus': # counterfactual distribution for node
-            # IMPORTANT: Find index of factual instance in dataframe used for training GP
-            #            (earlier, the factual instance was appended as the last instance)
-            tmp_idx = getIndexOfFactualInstanceInDataFrame(
-              factual_instance,
-              processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
-            ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
-            new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'cf', tmp_idx)
-          elif recourse_type == 'm2_gaus': # interventional distribution for node
-            new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
-
-          samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)] # GP torch returns float.64, convert to float32
-
-        elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
-
-          # TODO: add normlization (raw)
-          # TODO: this would change according to other recourse types
-          if recourse_type == 'm1_cvae':
-            sample_from = 'posterior'
-          elif recourse_type == 'm2_cvae':
-            sample_from = 'prior'
-          elif recourse_type == 'm2_cvae_ps':
-            sample_from = 'reweighted_prior'
-
-          trained_cvae = trainCVAE(args, objs, node, parents)
-          new_samples = trained_cvae.reconstruct(
-            x_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, [node]),
-            pa_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, parents),
-            pa_counter=convertDataFrameOfTensorsToSharedTensor(samples_df, parents),
-            sample_from=sample_from,
-          )
-
-          # split returns a tuple/list of tensors which have listed (!) values
-          samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)]
-          # for idx in range(samples_df.shape[0]):
-          #   samples_df['x3'][idx] = new_samples[0][idx]
-
-    # TODO: convertDataFrameOfTensorsToSharedTensor does not work if some cols
-    # are nan --> so placing this after the loop above once all cols are filled
-    counter_ts = convertDataFrameOfTensorsToSharedTensor(samples_df, scm_obj.getTopologicalOrdering())
-
-    # TODO: time analysis to speed up passing back of gradients?
-    # start_time = time.time()
-    # for i in range(1000):
-    #   counter_ts = convertDataFrameOfTensorsToSharedTensor(samples_df, scm_obj.getTopologicalOrdering())
-    # end_time = time.time()
-    # print(f'\n[INFO] Done (total run-time: {end_time - start_time}).')
-
-    # start_time = time.time()
-    # for i in range(1000):
-    #   samples_df['x3'] = [elem[0][0] for elem in torch.split(new_samples, 1)]
-    # end_time = time.time()
-    # print(f'\n[INFO] Done (total run-time: {end_time - start_time}).')
-
-    # ========================================================================
-    # ========================================================================
+    counter_ts = _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, recourse_type)
 
     # DOES NOT WORK ON GENERAL INTERVENTION_SETS!
     # counter_ts = torch.zeros((args.num_mc_samples, len(objs.dataset_obj.getInputAttributeNames())))
@@ -1178,25 +1120,27 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     # ).T
 
     # ========================================================================
+    # COMPUTE LOSS
     # ========================================================================
 
     loss_cost = measureActionSetCost(args, objs, factual_instance_ts, action_set_ts)
 
-    # compute LCB
+    # get classifier
+    h = getTorchClassifier(args, objs)
     pred_labels = h(counter_ts)
-    # When all predictions are the same (likely because all sampled points are
-    # the same, likely because we are outside of the manifold OR, e.g., when we
-    # intervene on all nodes and the initial epoch returns same samples), then
-    # torch.std() will be 0 and therefore there is no gradinet to pass back; in
-    # turn this results in torch.std() giving nan and ruining the training!
-    #     tmp = torch.ones((10,1), requires_grad=True)
-    #     torch.std(tmp).backward()
-    #     print(tmp.grad)
-    # https://github.com/pytorch/pytorch/issues/4320
-    # SOLUTION: remove torch.std() when this term is small to prevent passing nans.
 
+    # compute LCB
     if torch.isnan(torch.std(pred_labels)) or torch.std(pred_labels) < 1e-10:
-      # print(f'\t\t[INFO] Removing variance term due to very small variance breaking gradient.')
+      # When all predictions are the same (likely because all sampled points are
+      # the same, likely because we are outside of the manifold OR, e.g., when we
+      # intervene on all nodes and the initial epoch returns same samples), then
+      # torch.std() will be 0 and therefore there is no gradinet to pass back; in
+      # turn this results in torch.std() giving nan and ruining the training!
+      #     tmp = torch.ones((10,1), requires_grad=True)
+      #     torch.std(tmp).backward()
+      #     print(tmp.grad)
+      # https://github.com/pytorch/pytorch/issues/4320
+      # SOLUTION: remove torch.std() when this term is small to prevent passing nans.
       value_lcb = torch.mean(pred_labels)
     else:
       value_lcb = torch.mean(pred_labels) - args.lambda_lcb * torch.std(pred_labels)
@@ -1205,23 +1149,27 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     if capped_loss:
       loss_constraint = torch.nn.functional.relu(loss_constraint)
 
-    # ========================================================================
-    # ========================================================================
-
     # for fixed lambda, optimize theta (grad descent)
     loss_total = loss_cost + lambda_opt * loss_constraint
+
+    # ========================================================================
+    # OPTIMIZE
+    # ========================================================================
 
     # once every few epochs, optimize theta (grad ascent) manually (w/o pytorch)
     if epoch % lambda_opt_update_every == 0:
       lambda_opt = lambda_opt + lambda_opt_learning_rate * loss_constraint.detach()
-      # lambda_opt_learning_rate = lambda_opt_learning_rate_initial/epoch
       # lambda_opt_learning_rate = lambda_opt_learning_rate_initial / epoch
 
     optimizer.zero_grad()
     loss_total.backward()
     optimizer.step()
+
+    # ========================================================================
+    # LOGS / IMAGES
+    # ========================================================================
+
     if args.debug_flag and epoch % print_log_every == 0:
-      # TODO: use pretty print
       print(
         f'\t\t[INFO] epoch #{epoch:03}: ' \
         f'optimal action: {str({k : np.around(v.detach().item(), 2) for k,v in action_set_ts.items()})}    ' \
@@ -1235,18 +1183,10 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     all_loss_costs.append(loss_cost.item())
     all_lambda_opts.append(lambda_opt)
     all_loss_constraints.append(loss_constraint.detach().item())
-    # all_thetas.append() # show in 1d or 2d
 
     if epoch % 100 == 0:
-      # fig, ax = plt.subplots()
-      # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
-      # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_costs, 'g--', label='loss objectives')
-      # ax.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
-      # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
 
-      # fig, (ax1, ax2, ax3) = plt.subplots(1,3)
       fig, (ax1, ax2) = plt.subplots(2,1, sharex=True)
-      # ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
       ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_costs, 'g--', label='loss costs')
       ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
       ax1.set(xlabel='epochs', ylabel='loss', title='Loss curve')
@@ -1258,14 +1198,8 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
       ax2.grid()
       ax2.legend()
 
-      # ax3.plot(range(1, len(all_loss_totals) + 1), all_thetas, 'y-.', label='thetas')
-      # ax3.set(xlabel='epochs', ylabel='loss', title='Loss curve')
-      # ax3.grid()
-      # ax3.legend()
-
-      # plt.show()
       plt.savefig(f'{save_path}/{str(intervention_set)}.pdf')
-
+      plt.close()
 
   end_time = time.time()
   if args.debug_flag:
@@ -1348,8 +1282,8 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
 
     # Thursday:
     # [ ] implement grad based for m0/m2_true
-    # [ ] implement grad based for m1_alin
-    # [ ] implement grad based for m1_akrr
+    # [x] implement grad based for m1_alin
+    # [x] implement grad based for m1_akrr
     # [ ] merge all repetitive code to work for numpy and tensors gracefully (e.g., process/deprocessDf, samplingInnerLoop, etc.)
     # [ ] select hyperparms (initial values, learning rate, etc.) across settings: intervention nodes, recourse types (incl'd learned cvae model), factual instances, scms, etc.
     # [ ] select hyperparms (initial values, learning rate, etc.) in comparison with brute_force
@@ -1582,6 +1516,7 @@ def experiment5(args, objs, experiment_folder_name, factual_instances_dict, expe
   plt.subplots_adjust(right=0.85)
   # plt.show()
   plt.savefig(f'{experiment_folder_name}/_comparison.pdf')
+  plt.close()
 
 
 def experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
@@ -1708,6 +1643,7 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
   # fig.tight_layout()
   # # plt.show()
   # plt.savefig(f'{experiment_folder_name}/comparison.pdf')
+  plt.close()
 
 
 # DEPRECATED def experiment7
@@ -1776,6 +1712,7 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
       # )
       ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
       plt.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
+      plt.close()
 
     elif len(parents) == 2:
       # distribution plot
@@ -1812,6 +1749,7 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
 
       ax = sns.boxplot(x='recourse_type', y=node, data=total_df, palette='Set3', showmeans=True)
       plt.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
+      plt.close()
 
 
 if __name__ == "__main__":
