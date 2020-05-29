@@ -74,10 +74,16 @@ def loadClassifier(args, experiment_folder_name):
 def getTorchClassifier(args, objs):
   fixed_model_w = objs.classifier_obj.coef_
   fixed_model_b = objs.classifier_obj.intercept_
+  # fixed_model = lambda x: torch.sigmoid(
+  #     torch.nn.functional.linear(
+  #       x,
+  #       torch.from_numpy(fixed_model_w).float(),
+  #   ) + float(fixed_model_b)
+  # )
   fixed_model = lambda x: torch.sigmoid(
-      torch.nn.functional.linear(
-        x,
-        torch.from_numpy(fixed_model_w).float(),
+    torch.nn.functional.linear(
+      x,
+      torch.from_numpy(fixed_model_w).float(),
     ) + float(fixed_model_b)
   )
   return fixed_model
@@ -123,7 +129,7 @@ def getIndexOfFactualInstanceInDataFrame(factual_instance, data_frame):
   return enumeration_idx
 
 
-def processTensor(args, objs, obj, processing_type, column_names):
+def processTensorOrDictOfTensors(args, objs, obj, processing_type, column_names):
 
   # To process a tensor (unlike a dict/dataframe), the getColumnIndicesFromNames
   # returns indices by always assuming that the entire tensor is present
@@ -131,6 +137,16 @@ def processTensor(args, objs, obj, processing_type, column_names):
 
   if processing_type == 'raw':
     return obj
+
+  assert \
+    isinstance(obj, torch.Tensor) or \
+    (
+      isinstance(obj, dict) and \
+      np.all([
+        isinstance(value, torch.Tensor)
+        for value in list(obj.values())
+      ])
+    ), f'Datatype `{obj.__class__}` not supported for processing.'
 
   iterate_over = column_names
   obj = obj.clone()
@@ -156,13 +172,23 @@ def processTensor(args, objs, obj, processing_type, column_names):
   return obj
 
 
-def deprocessTensor(args, objs, obj, processing_type, column_names):
+def deprocessTensorOrDictOfTensors(args, objs, obj, processing_type, column_names):
   # To process a tensor (unlike a dict/dataframe), the getColumnIndicesFromNames
   # returns indices by always assuming that the entire tensor is present
   assert len(column_names) == len(objs.dataset_obj.getInputAttributeNames())
 
   if processing_type == 'raw':
     return obj
+
+  assert \
+    isinstance(obj, torch.Tensor) or \
+    (
+      isinstance(obj, dict) and \
+      np.all([
+        isinstance(value, torch.Tensor)
+        for value in list(obj.values())
+      ])
+    ), f'Datatype `{obj.__class__}` not supported for processing.'
 
   iterate_over = column_names
   obj = obj.clone()
@@ -198,6 +224,8 @@ def processDataFrameOrDict(args, objs, obj, processing_type):
     iterate_over = obj.keys()
   elif isinstance(obj, pd.DataFrame):
     iterate_over = obj.columns
+  else:
+    raise Exception(f'Datatype `{obj.__class__}` not supported for processing.')
 
   obj = obj.copy() # so as not to change the underlying object
   for node in iterate_over:
@@ -230,6 +258,8 @@ def deprocessDataFrameOrDict(args, objs, obj, processing_type):
     iterate_over = obj.keys()
   elif isinstance(obj, pd.DataFrame):
     iterate_over = obj.columns
+  else:
+    raise Exception(f'Datatype `{obj.__class__}` not supported for processing.')
 
   obj = obj.copy() # so as not to change the underlying object
   for node in iterate_over:
@@ -480,7 +510,7 @@ def _getAbductionNoise(args, objs, node, parents, factual_instance, structural_e
   )
 
 
-def sampleTrue(args, objs, factual_instance, samples_df, node, parents, recourse_type):
+def sampleTrue(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type):
   # Step 1. [abduction]: compute noise or load from dataset using factual_instance
   # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
   # Step 3. [prediction]: run through structural equation using noise and parents from samples_df
@@ -516,7 +546,7 @@ def sampleTrue(args, objs, factual_instance, samples_df, node, parents, recourse
   return samples_df
 
 
-def _sampleRidgeKernelRidge(args, objs, factual_instance, samples_df, node, parents, recourse_type, train_handle):
+def _sampleRidgeKernelRidge(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type, train_handle):
   samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_SKLEARN)
   factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_SKLEARN)
 
@@ -535,31 +565,20 @@ def _sampleRidgeKernelRidge(args, objs, factual_instance, samples_df, node, pare
   return samples_df
 
 
-def sampleRidge(args, objs, factual_instance, samples_df, node, parents, recourse_type):
-  return _sampleRidgeKernelRidge(args, objs, factual_instance, samples_df, node, parents, recourse_type, trainRidge)
+def sampleRidge(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type):
+  return _sampleRidgeKernelRidge(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type, trainRidge)
 
 
-def sampleKernelRidge(args, objs, factual_instance, samples_df, node, parents, recourse_type):
-  return _sampleRidgeKernelRidge(args, objs, factual_instance, samples_df, node, parents, recourse_type, trainKernelRidge)
+def sampleKernelRidge(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type):
+  return _sampleRidgeKernelRidge(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type, trainKernelRidge)
 
 
-def sampleCVAE(args, objs, factual_instance, samples_df, node, parents, recourse_type, trained_cvae = None):
+def sampleCVAE(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type, trained_cvae = None):
   samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_CVAE)
   factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_CVAE)
 
-  if trained_cvae is None: # UGLY CODE
+  if trained_cvae is None: # amir: UGLY CODE
     trained_cvae = trainCVAE(args, objs, node, parents)
-  num_samples = samples_df.shape[0]
-
-  x_factual = pd.DataFrame(dict(zip(
-    [node],
-    [num_samples * [factual_instance[node]] for node in [node]],
-  )))
-  pa_factual = pd.DataFrame(dict(zip(
-    parents,
-    [num_samples * [factual_instance[node]] for node in parents],
-  )))
-  pa_counter = samples_df[parents]
 
   if recourse_type == 'm1_cvae':
     sample_from = 'posterior'
@@ -569,9 +588,9 @@ def sampleCVAE(args, objs, factual_instance, samples_df, node, parents, recourse
     sample_from = 'reweighted_prior'
 
   new_samples = trained_cvae.reconstruct(
-    x_factual=x_factual,
-    pa_factual=pa_factual,
-    pa_counter=pa_counter,
+    x_factual=factual_df[[node]],
+    pa_factual=factual_df[parents],
+    pa_counter=samples_df[parents],
     sample_from=sample_from,
   )
   new_samples = new_samples.rename(columns={0: node}) # bad code amir, this violates abstraction!
@@ -580,7 +599,7 @@ def sampleCVAE(args, objs, factual_instance, samples_df, node, parents, recourse
   return samples_df
 
 
-def sampleGP(args, objs, factual_instance, samples_df, node, parents, recourse_type):
+def sampleGP(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type):
   samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_GAUS)
   factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_GAUS)
 
@@ -636,13 +655,17 @@ def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 
 
   counterfactual_template = _getCounterfactualTemplate(args, objs, factual_instance, action_set, recourse_type)
 
+  factual_df = pd.DataFrame(dict(zip(
+    objs.dataset_obj.getInputAttributeNames(),
+    [num_samples * [factual_instance[node]] for node in objs.dataset_obj.getInputAttributeNames()],
+  )))
   # this dataframe has populated columns set to intervention or conditioning values
   # and has NaN columns that will be set accordingly.
   samples_df = pd.DataFrame(dict(zip(
     objs.dataset_obj.getInputAttributeNames(),
-    [num_samples * [counterfactual_template[node] + 0] for node in objs.dataset_obj.getInputAttributeNames()],
-  ))) # +0 important, specifically for tensor based elements, so we don't copy
-      # an existing object in the computational graph, but we create a new node
+    [num_samples * [counterfactual_template[node]] for node in objs.dataset_obj.getInputAttributeNames()],
+  )))
+
 
   # Simply traverse the graph in order, and populate nodes as we go!
   # IMPORTANT: DO NOT use SET(topo ordering); it sometimes changes ordering!
@@ -672,6 +695,7 @@ def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 
         args,
         objs,
         factual_instance,
+        factual_df,
         samples_df,
         node,
         parents,
@@ -682,6 +706,146 @@ def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 
     'Ordering of column names in samples_df has change unexpectedly'
   # samples_df = samples_df[objs.dataset_obj.getInputAttributeNames()]
   return samples_df
+
+
+def _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, recourse_type):
+
+  counterfactual_template_ts = _getCounterfactualTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type)
+
+  if recourse_type in ACCEPTABLE_POINT_RECOURSE:
+    num_samples = 1
+  if recourse_type in ACCEPTABLE_DISTR_RECOURSE:
+    num_samples = args.num_mc_samples
+
+  # Initialize factual_ts, samples_ts
+  factual_ts = torch.zeros((args.num_mc_samples, len(objs.dataset_obj.getInputAttributeNames())))
+  samples_ts = torch.zeros((args.num_mc_samples, len(objs.dataset_obj.getInputAttributeNames())))
+  for node in objs.scm_obj.getTopologicalOrdering():
+    factual_ts[:, getColumnIndicesFromNames(args, objs, [node])] = factual_instance_ts[node] + 0 # + 0 not needed because not trainable but leaving in..
+    # +0 important, specifically for tensor based elements, so we don't copy
+    # an existing object in the computational graph, but we create a new node
+    samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = counterfactual_template_ts[node] + 0
+
+  # Simply traverse the graph in order, and populate nodes as we go!
+  # IMPORTANT: DO NOT use SET(topo ordering); it sometimes changes ordering!
+  for node in objs.scm_obj.getTopologicalOrdering():
+    # set variable if value not yet set through intervention or conditioning
+    if torch.any(torch.isnan(samples_ts[:, getColumnIndicesFromNames(args, objs, [node])])):
+      parents = objs.scm_obj.getParentsForNode(node)
+      # root nodes MUST always be set through intervention or conditioning
+      assert len(parents) > 0
+      # Confirm parents columns are present/have assigned values in samples_ts
+      assert not torch.any(torch.isnan(samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]))
+
+      if recourse_type == 'm1_alin':
+        raise Exception(f'AMIR: TODO')
+
+        # TODO: processing deprocessing takes too much time!??
+        # TODO: does this process/deprocess work correclty? gradients OK?
+        samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN)
+        factual_instance_ts = processTensorOrDictOfTensors(args, objs, factual_instance_ts, PROCESSING_SKLEARN)
+
+        trained_model = trainRidge(args, objs, node, parents).best_estimator_
+        X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
+
+        # Step 1. [abduction]
+        # TODO: we don't need structural_equation here... get the noise posterior some other way.
+        structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
+        noise = _getAbductionNoise(args, objs, node, parents, factual_instance_ts, structural_equation)
+
+        # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_ts columns
+        # N/A
+
+        # Step 3. [prediction]: first get the regressed value, then get noise
+        coef_ = torch.tensor(trained_model.coef_.astype('float32'))
+        intercept_ = torch.tensor(trained_model.intercept_.astype('float32'))
+        new_samples = torch.matmul(coef_, X_parents.T) + intercept_
+        assert np.isclose( # a simple check to make sure manual sklearn is working correct
+          new_samples.item(),
+          trained_model.predict(X_parents.detach().numpy()).item(),
+        )
+        new_samples = new_samples + noise
+
+        # add back to dataframe
+        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
+        samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN)
+
+      elif recourse_type == 'm1_akrr':
+        raise Exception(f'AMIR: TODO')
+
+        # TODO: processing deprocessing takes too much time!??
+        # TODO: does this process/deprocess work correclty? gradients OK?
+        samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN)
+        factual_instance_ts = processTensorOrDictOfTensors(args, objs, factual_instance_ts, PROCESSING_SKLEARN)
+
+        trained_model = trainKernelRidge(args, objs, node, parents).best_estimator_
+        X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
+
+        # step 1. [abduction]
+        # TODO: we don't need structural_equation here... get the noise posterior some other way.
+        structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
+        noise = _getAbductionNoise(args, objs, node, parents, factual_instance_ts, structural_equation)
+
+        # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_ts columns
+        # N/A
+
+        # Step 3. [prediction]: first get the regressed value, then get noise
+        new_samples = krrHelper.sample_from_KRR_model(trained_model, X_parents)
+        assert np.isclose( # a simple check to make sure manual sklearn is working correct
+          new_samples.item(),
+          trained_model.predict(X_parents.detach().numpy()).item(),
+        )
+        new_samples = new_samples + noise
+
+        # add back to dataframe
+        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
+        samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN)
+
+      elif recourse_type in {'m1_gaus', 'm2_gaus'}:
+
+        # TODO: add processing (raw)
+        kernel, X_all, model = trainGP(args, objs, node, parents)
+        X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
+        if recourse_type == 'm1_gaus': # counterfactual distribution for node
+          raise Exception(f'AMIR: TODO')
+          # IMPORTANT: Find index of factual instance in dataframe used for training GP
+          #            (earlier, the factual instance was appended as the last instance)
+          tmp_idx = getIndexOfFactualInstanceInDataFrame(
+            factual_instance_ts, # TODO: we only have factual_instance_ts here... and think about processing..
+            processTensorOrDictOfTensors(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
+          ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
+          new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'cf', tmp_idx)
+        elif recourse_type == 'm2_gaus': # interventional distribution for node
+          new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
+
+        # TODO: add deprocessing (raw)
+        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
+
+      elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
+
+        # TODO: add processing (raw)
+        # samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN)
+        # factual_ts = processTensorOrDictOfTensors(args, objs, factual_ts, PROCESSING_SKLEARN)
+
+        if recourse_type == 'm1_cvae':
+          sample_from = 'posterior'
+        elif recourse_type == 'm2_cvae':
+          sample_from = 'prior'
+        elif recourse_type == 'm2_cvae_ps':
+          sample_from = 'reweighted_prior'
+
+        trained_cvae = trainCVAE(args, objs, node, parents)
+        new_samples = trained_cvae.reconstruct(
+          x_factual=factual_ts[:, getColumnIndicesFromNames(args, objs, [node])],
+          pa_factual=factual_ts[:, getColumnIndicesFromNames(args, objs, parents)],
+          pa_counter=samples_ts[:, getColumnIndicesFromNames(args, objs, parents)],
+          sample_from=sample_from,
+        )
+        # TODO: add deprocessing (raw)
+        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
+        # samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN)
+
+  return samples_ts
 
 
 def computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type):
@@ -855,179 +1019,18 @@ def getColumnIndicesFromNames(args, objs, column_names):
   return column_indices
 
 
-def convertDataFrameOfTensorsToSharedTensor(tmp_df, cols):
-  assert isinstance(tmp_df, pd.DataFrame) # not series
-  return torch.stack([
-      torch.stack(
-        tuple(
-          tmp_df[col].to_numpy()
-        )
-      )
-      for col in cols
-  ], axis = 1)
-  # return torch.stack([
-  #     torch.stack([tmp_df.iloc[j,i]
-  #         for j in range(tmp_df.shape[0])
-  #     ], axis = 0)
-  #     for i in range(tmp_df.shape[1])
-  # ], axis = 1)
-
-
-def _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, recourse_type):
-
-  # IMPORTANT: for traversing, always ONLY use either:
-  #     * objs.dataset_obj.getInputAttributeNames()
-  #     * objs.scm_obj.getTopologicalOrdering()
-  # but NOT, e.g., for key in factual_instance.keys(), whose ordering may differ!
-  assert \
-    list(objs.scm_obj.getTopologicalOrdering()) == \
-    list(objs.dataset_obj.getInputAttributeNames())
-
-  counterfactual_template_ts = _getCounterfactualTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type)
-
-  if recourse_type in ACCEPTABLE_POINT_RECOURSE:
-    num_samples = 1
-  if recourse_type in ACCEPTABLE_DISTR_RECOURSE:
-    num_samples = args.num_mc_samples
-
-  # Initialize factual_ts, samples_ts
-  factual_ts = torch.zeros((args.num_mc_samples, len(objs.dataset_obj.getInputAttributeNames())))
-  samples_ts = torch.zeros((args.num_mc_samples, len(objs.dataset_obj.getInputAttributeNames())))
-  for node in objs.scm_obj.getTopologicalOrdering():
-    factual_ts[:, getColumnIndicesFromNames(args, objs, [node])] = factual_instance_ts[node] + 0 # + 0 not needed because not trainable but leaving in..
-    # +0 important, specifically for tensor based elements, so we don't copy
-    # an existing object in the computational graph, but we create a new node
-    samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = counterfactual_template_ts[node] + 0
-
-  # Simply traverse the graph in order, and populate nodes as we go!
-  # IMPORTANT: DO NOT use SET(topo ordering); it sometimes changes ordering!
-  for node in objs.scm_obj.getTopologicalOrdering():
-    # set variable if value not yet set through intervention or conditioning
-    if torch.any(torch.isnan(samples_ts[:, getColumnIndicesFromNames(args, objs, [node])])):
-      parents = objs.scm_obj.getParentsForNode(node)
-      # root nodes MUST always be set through intervention or conditioning
-      assert len(parents) > 0
-      # Confirm parents columns are present/have assigned values in samples_ts
-      assert not torch.any(torch.isnan(samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]))
-
-      if recourse_type == 'm1_alin':
-        raise Exception(f'AMIR: TODO')
-
-        # TODO: processing deprocessing takes too much time!??
-        # TODO: does this process/deprocess work correclty? gradients OK?
-        processed_samples_ts = processTensor(args, objs, samples_ts, PROCESSING_SKLEARN)
-        processed_factual_instance = processTensor(args, objs, factual_instance, PROCESSING_SKLEARN)
-
-        trained_model = trainRidge(args, objs, node, parents).best_estimator_
-        X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
-
-        # Step 1. [abduction]
-        # TODO: we don't need structural_equation here... get the noise posterior some other way.
-        structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
-        noise = _getAbductionNoise(args, objs, node, parents, processed_factual_instance, structural_equation)
-
-        # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_ts columns
-        # N/A
-
-        # Step 3. [prediction]: first get the regressed value, then get noise
-        coef_ = torch.tensor(trained_model.coef_.astype('float32'))
-        intercept_ = torch.tensor(trained_model.intercept_.astype('float32'))
-        new_samples = torch.matmul(coef_, X_parents.T) + intercept_
-        assert np.isclose( # a simple check to make sure manual sklearn is working correct
-          new_samples.item(),
-          trained_model.predict(X_parents.detach().numpy()).item(),
-        )
-        new_samples = new_samples + noise
-
-        # add back to dataframe
-        processed_samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
-        samples_ts = deprocessTensor(args, objs, processed_samples_ts, PROCESSING_SKLEARN)
-
-      elif recourse_type == 'm1_akrr':
-        raise Exception(f'AMIR: TODO')
-
-        # TODO: processing deprocessing takes too much time!??
-        # TODO: does this process/deprocess work correclty? gradients OK?
-        processed_samples_ts = processTensor(args, objs, samples_ts, PROCESSING_SKLEARN)
-        processed_factual_instance = processTensor(args, objs, factual_instance, PROCESSING_SKLEARN)
-
-        trained_model = trainKernelRidge(args, objs, node, parents).best_estimator_
-        X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
-
-        # step 1. [abduction]
-        # TODO: we don't need structural_equation here... get the noise posterior some other way.
-        structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
-        noise = _getAbductionNoise(args, objs, node, parents, processed_factual_instance, structural_equation)
-
-        # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_ts columns
-        # N/A
-
-        # Step 3. [prediction]: first get the regressed value, then get noise
-        new_samples = krrHelper.sample_from_KRR_model(trained_model, X_parents)
-        assert np.isclose( # a simple check to make sure manual sklearn is working correct
-          new_samples.item(),
-          trained_model.predict(X_parents.detach().numpy()).item(),
-        )
-        new_samples = new_samples + noise
-
-        # add back to dataframe
-        processed_samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
-        samples_ts = deprocessTensor(args, objs, processed_samples_ts, PROCESSING_SKLEARN)
-
-      elif recourse_type in {'m1_gaus', 'm2_gaus'}:
-
-        # TODO: add processing (raw)
-        kernel, X_all, model = trainGP(args, objs, node, parents)
-        X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
-        if recourse_type == 'm1_gaus': # counterfactual distribution for node
-          raise Exception(f'AMIR: TODO')
-          # IMPORTANT: Find index of factual instance in dataframe used for training GP
-          #            (earlier, the factual instance was appended as the last instance)
-          tmp_idx = getIndexOfFactualInstanceInDataFrame(
-            factual_instance, # TODO: we only have factual_instance_ts here... and think about processing..
-            processTensor(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
-          ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
-          new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'cf', tmp_idx)
-        elif recourse_type == 'm2_gaus': # interventional distribution for node
-          new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
-
-        # TODO: add deprocessing (raw)
-        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
-
-      elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
-
-        # TODO: add processing (raw)
-        if recourse_type == 'm1_cvae':
-          sample_from = 'posterior'
-        elif recourse_type == 'm2_cvae':
-          sample_from = 'prior'
-        elif recourse_type == 'm2_cvae_ps':
-          sample_from = 'reweighted_prior'
-
-        trained_cvae = trainCVAE(args, objs, node, parents)
-        new_samples = trained_cvae.reconstruct(
-          x_factual=factual_ts[:, getColumnIndicesFromNames(args, objs, [node])],
-          pa_factual=factual_ts[:, getColumnIndicesFromNames(args, objs, parents)],
-          pa_counter=samples_ts[:, getColumnIndicesFromNames(args, objs, parents)],
-          sample_from=sample_from,
-        )
-        # TODO: add deprocessing (raw)
-        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
-
-  return samples_ts
-
-
 def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
   assert \
     recourse_type not in {'m0_true', 'm2_true'}, \
     f'{args.optimization_approach} does not currently support {recourse_type}'
 
+  # TODO: don't just do 'x1'
   range_x1 = objs.dataset_obj.data_frame_kurz.describe()['x1']
-  tmp_linspace = np.linspace(range_x1['min'], range_x1['max'], 100).astype('float32')
+  all_thetas = np.linspace(range_x1['min'], range_x1['max'], 100).astype('float32')
   action_sets = [ # TODO: write for general intervention
     {'x1': torch.tensor(value_x1)}
-    for value_x1 in tmp_linspace
+    for value_x1 in all_thetas
   ]
 
   # IMPORTANT: watch ordering of action_set_ts and factual_instance_ts, they are
@@ -1037,21 +1040,13 @@ def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervent
   h = getTorchClassifier(args, objs)
   # TODO: make input args
   capped_loss = False
-  num_epochs = 500
   lambda_opt = 1 # initial value
-  lambda_opt_update_every = 50
-  lambda_opt_learning_rate = 0.5
-  action_set_learning_rate = 0.1
-  print_log_every = lambda_opt_update_every
-  # optimizer = torch.optim.Adam(params = list(action_set_ts.values()), lr = action_set_learning_rate)
 
   all_loss_totals_1 = []
   all_loss_totals_2 = []
   all_loss_totals_3 = []
   all_loss_costs = []
-  all_lambda_opts = []
   all_loss_constraints = []
-  # all_thetas = []
 
   for idx, action_set_ts in enumerate(action_sets):
     print(f'idx: {idx}')
@@ -1107,16 +1102,14 @@ def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervent
     all_loss_totals_2.append(loss_total_2.detach().item())
     all_loss_totals_3.append(loss_total_3.detach().item())
     all_loss_costs.append(loss_cost.item())
-    all_lambda_opts.append(lambda_opt)
     all_loss_constraints.append(loss_constraint.detach().item())
-    # all_thetas.append() # show in 1d or 2d
 
   fig, ax = plt.subplots()
-  ax.plot(tmp_linspace, all_loss_totals_1, '-', label='loss totals 1')
-  ax.plot(tmp_linspace, all_loss_totals_2, '-', label='loss totals 2')
-  ax.plot(tmp_linspace, all_loss_totals_3, '-', label='loss totals 3')
-  ax.plot(tmp_linspace, all_loss_costs, 'g--', label='loss costs')
-  ax.plot(tmp_linspace, all_loss_constraints, 'r:', label='loss constraints')
+  ax.plot(all_thetas, all_loss_totals_1, '-', label='loss totals 1')
+  ax.plot(all_thetas, all_loss_totals_2, '-', label='loss totals 2')
+  ax.plot(all_thetas, all_loss_totals_3, '-', label='loss totals 3')
+  ax.plot(all_thetas, all_loss_costs, 'g--', label='loss costs')
+  ax.plot(all_thetas, all_loss_constraints, 'r:', label='loss constraints')
   ax.set(xlabel='theta', ylabel='loss', title='Losses vs Theta')
   ax.grid()
   ax.legend()
@@ -1151,12 +1144,12 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 
   # TODO: make input args
   capped_loss = False
-  num_epochs = 1000
-  lambda_opt = 100 # initial value
-  lambda_opt_update_every = 1
-  # lambda_opt_learning_rate = 0.1
+  num_epochs = 2500
+  lambda_opt = 1 # initial value
+  lambda_opt_update_every = 50
+  lambda_opt_learning_rate = 0.5
   action_set_learning_rate = 0.1
-  lambda_opt_learning_rate_initial = 10
+  # lambda_opt_learning_rate_initial = 10
   print_log_every = lambda_opt_update_every
   optimizer = torch.optim.Adam(params = list(action_set_ts.values()), lr = action_set_learning_rate)
 
@@ -1171,7 +1164,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     print(f'\t\t[INFO] initial action set: {str({k : np.around(v.detach().item(), 4) for k,v in action_set_ts.items()})}') # TODO: use pretty print
   for epoch in tqdm(range(1, num_epochs + 1)):
     # lambda_opt_learning_rate = lambda_opt_learning_rate_initial / epoch
-    lambda_opt_learning_rate = lambda_opt_learning_rate_initial * .99**epoch
+    # lambda_opt_learning_rate = lambda_opt_learning_rate_initial * .99**epoch
 
     # ========================================================================
     # CONSTRUCT COMPUTATION GRAPH
@@ -1457,6 +1450,7 @@ def getNegativelyPredictedInstances(args, objs):
   # training set for GP, and hence a posterior over noise for it is computed
   # (i.e., we can cache).
 
+  # TODO: iterate over validation set, not training set!
   # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
   X_all = getOriginalDataFrame(objs, args.num_train_samples)
   factual_instances_dict = {}
@@ -1862,7 +1856,14 @@ if __name__ == "__main__":
   scm_obj = loadCausalModel(args, experiment_folder_name)
   dataset_obj = loadDataset(args, experiment_folder_name)
   classifier_obj = loadClassifier(args, experiment_folder_name)
-  assert set(dataset_obj.getInputAttributeNames()) == set(scm_obj.getTopologicalOrdering())
+  # IMPORTANT: for traversing, always ONLY use either:
+  #     * objs.dataset_obj.getInputAttributeNames()
+  #     * objs.scm_obj.getTopologicalOrdering()
+  # DO NOT USE, e.g., for key in factual_instance.keys(), whose ordering may differ!
+  assert \
+    list(scm_obj.getTopologicalOrdering()) == \
+    list(dataset_obj.getInputAttributeNames())
+
   # TODO: add more assertions for columns of dataset matching the classifer?
   objs = AttrDict({
     'scm_obj': scm_obj,
@@ -1888,7 +1889,7 @@ if __name__ == "__main__":
     # ('m1_gaus', 'D'), \
     # ('m1_cvae', 'x'), \
     # ('m2_true', 'o'), \
-    ('m2_gaus', 's'), \
+    # ('m2_gaus', 's'), \
     ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
