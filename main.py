@@ -18,12 +18,13 @@ from datetime import datetime
 from attrdict import AttrDict
 
 import GPy
-import gpHelper
 import mmd
 import utils
 import loadSCM
 import loadData
 import loadModel
+import gpHelper
+import krrHelper
 
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Ridge
@@ -262,6 +263,10 @@ def trainKernelRidge(args, objs, node, parents):
   }
   model = GridSearchCV(KernelRidge(), param_grid=param_grid)
   model.fit(X_all[parents], X_all[[node]])
+   # amir: i am not proud of this, but for some reason sklearn includes the
+   # X_fit_ covariates but not labels (this is needed later if we want to
+   # avoid using.predict() and call from krr manually)
+  model.best_estimator_.Y_fit_ = X_all[[node]].to_numpy()
   return model
 
 
@@ -915,7 +920,7 @@ def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervent
 def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
   assert \
-    'cvae' in recourse_type or 'gaus' in recourse_type or 'alin' in recourse_type, \
+    'cvae' in recourse_type or 'gaus' in recourse_type or 'alin' in recourse_type or 'akrr' in recourse_type, \
     f'{args.optimization_approach} does not currently support {recourse_type}'
 
   # TODO: @utils.Memoize ???
@@ -998,16 +1003,56 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
           processed_samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_SKLEARN)
           processed_factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_SKLEARN)
 
-          trained_model = trainRidge(args, objs, node, parents)
-          coef_ = torch.tensor(trained_model.best_estimator_.coef_.astype('float32'))
-          intercept_ = torch.tensor(trained_model.best_estimator_.intercept_.astype('float32'))
-          X_parents = convertDataFrameOfTensorsToSharedTensor(samples_df, parents)
+          trained_model = trainRidge(args, objs, node, parents).best_estimator_
+          X_parents = convertDataFrameOfTensorsToSharedTensor(processed_samples_df, parents)
 
-          # don't forget the abducted noise
+          # Step 1. [abduction]
+          # TODO: we don't need structural_equation here... get the noise posterior some other way.
           structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
           noise = _getAbductionNoise(args, objs, node, parents, processed_factual_instance, structural_equation)
 
-          new_samples = torch.mm(coef_, X_parents.T) + intercept_ + noise
+          # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
+          # N/A
+
+          # Step 3. [prediction]: first get the regressed value, then get noise
+          coef_ = torch.tensor(trained_model.coef_.astype('float32'))
+          intercept_ = torch.tensor(trained_model.intercept_.astype('float32'))
+          new_samples = torch.matmul(coef_, X_parents.T) + intercept_
+          assert np.isclose(
+            new_samples.item(),
+            trained_model.predict(X_parents.detach().numpy()).item(),
+          )
+          new_samples = new_samples + noise
+
+          # add back to dataframe
+          processed_samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)]
+          samples_df = deprocessDataFrameOrDict(args, objs, processed_samples_df, PROCESSING_SKLEARN)
+
+        elif recourse_type == 'm1_akrr':
+
+          # TODO: processing deprocessing takes too much time!
+          # TODO: poor naming (perhaps we need functions for each sampling method that takes an np, ts arguemnt...)
+          processed_samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_SKLEARN)
+          processed_factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_SKLEARN)
+
+          trained_model = trainKernelRidge(args, objs, node, parents).best_estimator_
+          X_parents = convertDataFrameOfTensorsToSharedTensor(processed_samples_df, parents)
+
+          # step 1. [abduction]
+          # TODO: we don't need structural_equation here... get the noise posterior some other way.
+          structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
+          noise = _getAbductionNoise(args, objs, node, parents, processed_factual_instance, structural_equation)
+
+          # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
+          # N/A
+
+          # Step 3. [prediction]: first get the regressed value, then get noise
+          new_samples = krrHelper.sample_from_KRR_model(trained_model, X_parents)
+          assert np.isclose(
+            new_samples.item(),
+            trained_model.predict(X_parents.detach().numpy()).item(),
+          )
+          new_samples = new_samples + noise
 
           # add back to dataframe
           processed_samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)]
@@ -1015,6 +1060,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 
         elif recourse_type in {'m1_gaus', 'm2_gaus'}:
 
+          # TODO: add normlization (raw)
           kernel, X_all, model = trainGP(args, objs, node, parents)
           # X_parents = torch.tensor(samples_df[parents].to_numpy())
           X_parents = convertDataFrameOfTensorsToSharedTensor(samples_df, parents)
@@ -1033,6 +1079,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 
         elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
 
+          # TODO: add normlization (raw)
           # TODO: this would change according to other recourse types
           if recourse_type == 'm1_cvae':
             sample_from = 'posterior'
@@ -1492,7 +1539,7 @@ def experiment5(args, objs, experiment_folder_name, factual_instances_dict, expe
 def experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' optimal action set: figure + table '''
 
-  os.mkdir(f'{experiment_folder_name}/optimization_results')
+  os.mkdir(f'{experiment_folder_name}/_optimization_results')
 
   per_instance_results = {}
   for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
@@ -1507,7 +1554,7 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
     for recourse_type in recourse_types:
 
       tmp = {}
-      save_path = f'{experiment_folder_name}/optimization_results/{recourse_type}_factual_instance_{factual_instance_idx}'
+      save_path = f'{experiment_folder_name}/_optimization_results/{recourse_type}_factual_instance_{factual_instance_idx}'
       os.mkdir(save_path)
 
       start_time = time.time()
@@ -1790,8 +1837,8 @@ if __name__ == "__main__":
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
     # ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
+    # ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
     # ('m1_gaus', 'D'), \
     # ('m1_cvae', 'x'), \
     # ('m2_true', 'o'), \
