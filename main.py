@@ -943,13 +943,54 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 
   h = getTorchClassifier(args, objs)
   # initial_action_set, values of this dictionary are tensors which are trained
+  # action_set_ts = dict(zip(
+  #   intervention_set,
+  #   [
+  #     torch.tensor(factual_instance[node], requires_grad=True)
+  #     for node in intervention_set
+  #   ]
+  # ))
+
+  # find minimum observerable instance, and choose the node there..
+  X_all = getOriginalDataFrame(objs, args.num_train_samples) # TODO: THIS SHOULD BE PROCESSED ACCORDING TO THE RECOURSE TYPE
+  tmp = np.array(list(factual_instance.values())).reshape(1,-1)[:,None] - X_all.to_numpy()
+  tmp = tmp.squeeze()
+  min_cost = 1e10
+  min_observable_dict = None
+  print(f'\t\t[INFO] Searching for minimum observable instance...', end = '')
+  for idx in range(tmp.shape[0]):
+    # CLOSEST INSTANCE ON THE OTHER SIDE!!
+    observable_np = tmp[idx,:]
+    observable_factual_instance = dict(zip(
+      objs.scm_obj.getTopologicalOrdering(),
+      observable_np,
+    ))
+    if \
+      getPrediction(args, objs, factual_instance) != \
+      getPrediction(args, objs, observable_factual_instance):
+      if np.linalg.norm(observable_np) < min_cost:
+        min_cost = np.linalg.norm(observable_np)
+        min_observable_idx = idx
+        min_observable_dict = observable_factual_instance = dict(zip(
+          objs.scm_obj.getTopologicalOrdering(),
+          X_all.iloc[min_observable_idx],
+        ))
+  print(f'found at index #{min_observable_idx}. Initializing `action_set_ts` using these values.')
+
   action_set_ts = dict(zip(
     intervention_set,
     [
-      torch.tensor(factual_instance[node], requires_grad=True)
+      torch.tensor(
+        # np.random.randn(),
+        # objs.dataset_obj.data_frame_kurz.describe()[node]['min'].astype('float32'),
+        factual_instance[node],
+        # min_observable_dict[node],
+        requires_grad=True,
+      )
       for node in intervention_set
     ]
   ))
+
 
   # IMPORTANT: watch ordering of action_set_ts and factual_instance_ts, they are
   # both tensors, but the former are trainable whereas the latter are not.
@@ -959,10 +1000,11 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   # TODO: make input args
   capped_loss = False
   num_epochs = 1000
-  lambda_opt = 1 # initial value
-  lambda_opt_update_every = 50
-  lambda_opt_learning_rate = 0.5
+  lambda_opt = 100 # initial value
+  lambda_opt_update_every = 1
+  # lambda_opt_learning_rate = 0.1
   action_set_learning_rate = 0.1
+  lambda_opt_learning_rate_initial = 10
   print_log_every = lambda_opt_update_every
   optimizer = torch.optim.Adam(params = list(action_set_ts.values()), lr = action_set_learning_rate)
 
@@ -976,6 +1018,8 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   if args.debug_flag:
     print(f'\t\t[INFO] initial action set: {str({k : np.around(v.detach().item(), 4) for k,v in action_set_ts.items()})}') # TODO: use pretty print
   for epoch in tqdm(range(1, num_epochs + 1)):
+    # lambda_opt_learning_rate = lambda_opt_learning_rate_initial / epoch
+    lambda_opt_learning_rate = lambda_opt_learning_rate_initial * .99**epoch
 
     # ========================================================================
     # ========================================================================
@@ -1170,6 +1214,8 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     # once every few epochs, optimize theta (grad ascent) manually (w/o pytorch)
     if epoch % lambda_opt_update_every == 0:
       lambda_opt = lambda_opt + lambda_opt_learning_rate * loss_constraint.detach()
+      # lambda_opt_learning_rate = lambda_opt_learning_rate_initial/epoch
+      # lambda_opt_learning_rate = lambda_opt_learning_rate_initial / epoch
 
     optimizer.zero_grad()
     loss_total.backward()
@@ -1191,37 +1237,39 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     all_loss_constraints.append(loss_constraint.detach().item())
     # all_thetas.append() # show in 1d or 2d
 
+    if epoch % 100 == 0:
+      # fig, ax = plt.subplots()
+      # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
+      # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_costs, 'g--', label='loss objectives')
+      # ax.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
+      # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
+
+      # fig, (ax1, ax2, ax3) = plt.subplots(1,3)
+      fig, (ax1, ax2) = plt.subplots(2,1, sharex=True)
+      # ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
+      ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_costs, 'g--', label='loss costs')
+      ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
+      ax1.set(xlabel='epochs', ylabel='loss', title='Loss curve')
+      ax1.grid()
+      ax1.legend()
+
+      ax2.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
+      ax2.set(xlabel='epochs', ylabel='loss', title='Lambda curve')
+      ax2.grid()
+      ax2.legend()
+
+      # ax3.plot(range(1, len(all_loss_totals) + 1), all_thetas, 'y-.', label='thetas')
+      # ax3.set(xlabel='epochs', ylabel='loss', title='Loss curve')
+      # ax3.grid()
+      # ax3.legend()
+
+      # plt.show()
+      plt.savefig(f'{save_path}/{str(intervention_set)}.pdf')
+
+
   end_time = time.time()
   if args.debug_flag:
     print(f'\t\t[INFO] Done (total run-time: {end_time - start_time}).\n\n')
-
-  # fig, ax = plt.subplots()
-  # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
-  # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_costs, 'g--', label='loss objectives')
-  # ax.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
-  # ax.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
-
-  # fig, (ax1, ax2, ax3) = plt.subplots(1,3)
-  fig, (ax1, ax2) = plt.subplots(2,1, sharex=True)
-  # ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
-  ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_costs, 'g--', label='loss costs')
-  ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
-  ax1.set(xlabel='epochs', ylabel='loss', title='Loss curve')
-  ax1.grid()
-  ax1.legend()
-
-  ax2.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
-  ax2.set(xlabel='epochs', ylabel='loss', title='Lambda curve')
-  ax2.grid()
-  ax2.legend()
-
-  # ax3.plot(range(1, len(all_loss_totals) + 1), all_thetas, 'y-.', label='thetas')
-  # ax3.set(xlabel='epochs', ylabel='loss', title='Loss curve')
-  # ax3.grid()
-  # ax3.legend()
-
-  # plt.show()
-  plt.savefig(f'{save_path}/{str(intervention_set)}.pdf')
 
   # Convert action_set_ts to non-tensor action_set when passing back to rest of code
   action_set = {k : v.detach().item() for k,v in action_set_ts.items()}
@@ -1261,7 +1309,7 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
     min_cost = 1e10
     min_cost_action_set = {}
     for idx, intervention_set in enumerate(valid_intervention_sets):
-      print(f'\n\t[INFO] intervention set #{idx}/{len(valid_intervention_sets)}: {str(intervention_set)}')
+      print(f'\n\t[INFO] intervention set #{idx+1}/{len(valid_intervention_sets)}: {str(intervention_set)}')
       # plotOptimizationLandscape(args, objs, factual_instance, save_path, intervention_set, recourse_type)
       action_set = performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type)
       if constraint_handle(args, objs, factual_instance, action_set, recourse_type):
@@ -1838,11 +1886,11 @@ if __name__ == "__main__":
   experimental_setups = [
     # ('m0_true', '*'), \
     # ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
+    # ('m1_akrr', '^'), \
     # ('m1_gaus', 'D'), \
     # ('m1_cvae', 'x'), \
     # ('m2_true', 'o'), \
-    # ('m2_gaus', 's'), \
+    ('m2_gaus', 's'), \
     # ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
