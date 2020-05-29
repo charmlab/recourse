@@ -106,4 +106,4 @@ def sample_from_GP_model(m, X_new, distribution_type='iv', factual_instance=None
     pred_mean, pred_var = get_pred_post_noiseless(X_new, X_train, Y_train, kernel, inv_cov)
     mean, var = get_predictive_distribution(pred_mean, pred_var, noise_var, distribution_type, inv_cov, Y_train, factual_instance)
     Y_new = sample_from_Gaussian_with_reparametrisation_trick(mean, var)
-    return Y_new
+    return Y_new.float()
