@@ -422,7 +422,7 @@ def _sampleRidgeKernelRidge(args, objs, factual_instance, samples_df, node, pare
   trained_model = train_handle(args, objs, node, parents)
   structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
   for row_idx, row in samples_df.iterrows():
-    noise = _getAbductionNoise(args, objs, node, parents, factual_instance, structural_equation),
+    noise = _getAbductionNoise(args, objs, node, parents, factual_instance, structural_equation)
     samples_df.loc[row_idx, node] = structural_equation(
       noise,
       *samples_df.loc[row_idx, parents].to_numpy(),
@@ -745,7 +745,7 @@ def getColumnIndexFromName(args, objs, column_name):
   return objs.dataset_obj.data_frame_kurz.columns.get_loc(column_name) - 1
 
 
-def tmpPlot(args, objs, factual_instance, save_path, intervention_set, recourse_type):
+def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
   assert \
     'cvae' in recourse_type or 'gaus' in recourse_type, \
@@ -827,7 +827,6 @@ def tmpPlot(args, objs, factual_instance, save_path, intervention_set, recourse_
 
         if 'gaus' in recourse_type:
           kernel, X_all, model = trainGP(args, objs, node, parents)
-          # ipsh()
           # X_parents = torch.tensor(samples_df[parents].to_numpy())
           X_parents = convertDataFrameOfTensorsToSharedTensor(samples_df, parents)
           if recourse_type == 'm1_gaus': # counterfactual distribution for node
@@ -916,7 +915,7 @@ def tmpPlot(args, objs, factual_instance, save_path, intervention_set, recourse_
 def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
   assert \
-    'cvae' in recourse_type or 'gaus' in recourse_type, \
+    'cvae' in recourse_type or 'gaus' in recourse_type or 'alin' in recourse_type, \
     f'{args.optimization_approach} does not currently support {recourse_type}'
 
   # TODO: @utils.Memoize ???
@@ -976,7 +975,10 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     # ========================================================================
     # ========================================================================
 
-    samples_df = _getSamplesDFTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type, args.num_mc_samples)
+    if recourse_type in ACCEPTABLE_POINT_RECOURSE:
+      samples_df = _getSamplesDFTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type, 1)
+    if recourse_type in ACCEPTABLE_DISTR_RECOURSE:
+      samples_df = _getSamplesDFTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type, args.num_mc_samples)
 
     # Simply traverse the graph in order, and populate nodes as we go!
     # IMPORTANT: DO NOT use SET(topo ordering); it sometimes changes ordering!
@@ -989,17 +991,31 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
         # Confirm parents columns are present/have assigned values in samples_df
         assert not samples_df.loc[:,list(parents)].isnull().values.any()
 
-        # TODO: this would change according to other recourse types
-        if recourse_type == 'm1_cvae':
-          sample_from = 'posterior'
-        elif recourse_type == 'm2_cvae':
-          sample_from = 'prior'
-        elif recourse_type == 'm2_cvae_ps':
-          sample_from = 'reweighted_prior'
+        if recourse_type == 'm1_alin':
 
-        if 'gaus' in recourse_type:
+          # TODO: processing deprocessing takes too much time!
+          # TODO: poor naming (perhaps we need functions for each sampling method that takes an np, ts arguemnt...)
+          processed_samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_SKLEARN)
+          processed_factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_SKLEARN)
+
+          trained_model = trainRidge(args, objs, node, parents)
+          coef_ = torch.tensor(trained_model.best_estimator_.coef_.astype('float32'))
+          intercept_ = torch.tensor(trained_model.best_estimator_.intercept_.astype('float32'))
+          X_parents = convertDataFrameOfTensorsToSharedTensor(samples_df, parents)
+
+          # don't forget the abducted noise
+          structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
+          noise = _getAbductionNoise(args, objs, node, parents, processed_factual_instance, structural_equation)
+
+          new_samples = torch.mm(coef_, X_parents.T) + intercept_ + noise
+
+          # add back to dataframe
+          processed_samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)]
+          samples_df = deprocessDataFrameOrDict(args, objs, processed_samples_df, PROCESSING_SKLEARN)
+
+        elif recourse_type in {'m1_gaus', 'm2_gaus'}:
+
           kernel, X_all, model = trainGP(args, objs, node, parents)
-          # ipsh()
           # X_parents = torch.tensor(samples_df[parents].to_numpy())
           X_parents = convertDataFrameOfTensorsToSharedTensor(samples_df, parents)
           if recourse_type == 'm1_gaus': # counterfactual distribution for node
@@ -1015,7 +1031,16 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 
           samples_df[node] = [elem[0][0].float() for elem in torch.split(new_samples, 1)] # GP torch returns float.64, convert to float32
 
-        elif 'cvae' in recourse_type:
+        elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
+
+          # TODO: this would change according to other recourse types
+          if recourse_type == 'm1_cvae':
+            sample_from = 'posterior'
+          elif recourse_type == 'm2_cvae':
+            sample_from = 'prior'
+          elif recourse_type == 'm2_cvae_ps':
+            sample_from = 'reweighted_prior'
+
           trained_cvae = trainCVAE(args, objs, node, parents)
           new_samples = trained_cvae.reconstruct(
             x_factual=convertDataFrameOfTensorsToSharedTensor(factual_df, [node]),
@@ -1078,7 +1103,8 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     #     print(tmp.grad)
     # https://github.com/pytorch/pytorch/issues/4320
     # SOLUTION: remove torch.std() when this term is small to prevent passing nans.
-    if torch.std(pred_labels) < 1e-10:
+
+    if torch.isnan(torch.std(pred_labels)) or torch.std(pred_labels) < 1e-10:
       # print(f'\t\t[INFO] Removing variance term due to very small variance breaking gradient.')
       value_lcb = torch.mean(pred_labels)
     else:
@@ -1130,7 +1156,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 
   # fig, (ax1, ax2, ax3) = plt.subplots(1,3)
   fig, (ax1, ax2) = plt.subplots(2,1, sharex=True)
-  ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
+  # ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_totals, 'b-', label='loss totals')
   ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_costs, 'g--', label='loss costs')
   ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
   ax1.set(xlabel='epochs', ylabel='loss', title='Loss curve')
@@ -1189,7 +1215,7 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
     min_cost_action_set = {}
     for idx, intervention_set in enumerate(valid_intervention_sets):
       print(f'\n\t[INFO] intervention set #{idx}/{len(valid_intervention_sets)}: {str(intervention_set)}')
-      # tmpPlot(args, objs, factual_instance, save_path, intervention_set, recourse_type)
+      # plotOptimizationLandscape(args, objs, factual_instance, save_path, intervention_set, recourse_type)
       action_set = performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type)
       if constraint_handle(args, objs, factual_instance, action_set, recourse_type):
         cost_of_action_set = measureActionSetCost(args, objs, factual_instance, action_set)
@@ -1713,7 +1739,7 @@ if __name__ == "__main__":
   parser.add_argument('--num_mc_samples', type=int, default=300)
   parser.add_argument('--debug_flag', type=bool, default=False)
   parser.add_argument('--max_intervention_cardinality', type=int, default=3)
-  parser.add_argument('--optimization_approach', type=str, default='brute_force')
+  parser.add_argument('-o', '--optimization_approach', type=str, default='brute_force')
 
   args = parser.parse_args()
 
@@ -1763,12 +1789,12 @@ if __name__ == "__main__":
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
-    ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
+    # ('m0_true', '*'), \
+    ('m1_alin', 'v'), \
     # ('m1_akrr', '^'), \
     # ('m1_gaus', 'D'), \
     # ('m1_cvae', 'x'), \
-    ('m2_true', 'o'), \
+    # ('m2_true', 'o'), \
     # ('m2_gaus', 's'), \
     # ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
