@@ -76,10 +76,14 @@ def getTorchClassifier(args, objs):
   return fixed_model
 
 
-def measureActionSetCost(args, objs, factual_instance, action_set):
+def measureActionSetCost(args, objs, factual_instance, action_set, processing_type = 'raw'):
   # TODO: add support for categorical data + measured in normalized space over all features
 
-  ranges = objs.dataset_obj.getVariableRanges()
+  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), processing_type)
+  ranges = dict(zip(
+    X_all.columns,
+    [np.max(X_all[col]) - np.min(X_all[col]) for col in X_all.columns],
+  ))
   if \
     np.all([isinstance(elem, float) for elem in factual_instance.values()]) and \
     np.all([isinstance(elem, float) for elem in action_set.values()]):
@@ -987,10 +991,14 @@ def getValidInterventionSets(args, objs):
 
 def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
-  def saveLossCurve(save_path, intervention_set, all_loss_totals, all_loss_costs, all_lambda_opts, all_loss_constraints):
+  def saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_loss_totals, all_loss_costs, all_lambda_opts, all_loss_constraints):
     fig, (ax1, ax2) = plt.subplots(2,1, sharex=True)
     ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_costs, 'g--', label='loss costs')
     ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
+    ax1.plot(best_action_set_epoch, all_loss_costs[best_action_set_epoch-1], 'b*')
+    ax1.plot(best_action_set_epoch, all_loss_constraints[best_action_set_epoch-1], 'b*')
+    ax1.text(best_action_set_epoch, all_loss_costs[best_action_set_epoch-1], f'{all_loss_costs[best_action_set_epoch-1]:.3f}', fontsize=8)
+    ax1.text(best_action_set_epoch, all_loss_constraints[best_action_set_epoch-1], f'{all_loss_constraints[best_action_set_epoch-1]:.3f}', fontsize=8)
     ax1.set(xlabel='epochs', ylabel='loss', title='Loss curve')
     ax1.grid()
     ax1.set_ylim(-1,1)
@@ -1040,11 +1048,12 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   # TODO: make input args
   min_valid_cost = 1e6  # some large number
   no_decrease_in_min_valid_cost = 0
-  early_stopping_K = 5
+  early_stopping_K = 50
   best_action_set_ts = action_set_ts.copy()
+  best_action_set_epoch = 1
 
   capped_loss = False
-  num_epochs = 2500
+  num_epochs = 5000
   lambda_opt = 1 # initial value
   lambda_opt_update_every = 50
   lambda_opt_learning_rate = 0.5
@@ -1077,7 +1086,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     # COMPUTE LOSS
     # ========================================================================
 
-    loss_cost = measureActionSetCost(args, objs, factual_instance_ts, action_set_ts)
+    loss_cost = measureActionSetCost(args, objs, factual_instance_ts, action_set_ts, tmp_processing_type)
 
     # get classifier
     h = getTorchClassifier(args, objs)
@@ -1116,12 +1125,13 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
       if loss_cost.detach() < min_valid_cost:
         min_valid_cost = loss_cost.detach()
         best_action_set_ts = action_set_ts.copy()
+        best_action_set_epoch = epoch
       else:
         no_decrease_in_min_valid_cost += 1
 
     # stop if past K valid thetas did not improve upon best previous cost
     if no_decrease_in_min_valid_cost > early_stopping_K:
-      saveLossCurve(save_path, intervention_set, all_loss_totals, all_loss_costs, all_lambda_opts, all_loss_constraints)
+      saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_loss_totals, all_loss_costs, all_lambda_opts, all_loss_constraints)
       break
 
     # ========================================================================
@@ -1157,7 +1167,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     all_loss_constraints.append(loss_constraint.detach().item())
 
     if epoch % 100 == 0:
-      saveLossCurve(save_path, intervention_set, all_loss_totals, all_loss_costs, all_lambda_opts, all_loss_constraints)
+      saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_loss_totals, all_loss_costs, all_lambda_opts, all_loss_constraints)
 
   end_time = time.time()
   if args.debug_flag:
@@ -1767,6 +1777,7 @@ if __name__ == "__main__":
     f'__nmc_{args.num_mc_samples}' + \
     f'__nrecourse_{args.num_recourse_samples}' + \
     f'__lambda_lcb_{args.lambda_lcb}' + \
+    f'__opt_{args.optimization_approach}' + \
     f'__pid{args.process_id}'
   experiment_folder_name = f"_experiments/{datetime.now().strftime('%Y.%m.%d_%H.%M.%S')}__{setup_name}"
   os.mkdir(f'{experiment_folder_name}')
@@ -1808,13 +1819,13 @@ if __name__ == "__main__":
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
     ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
-    ('m1_gaus', 'D'), \
-    ('m1_cvae', 'x'), \
-    ('m2_true', 'o'), \
-    ('m2_gaus', 's'), \
-    ('m2_cvae', '+'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
+    # ('m1_gaus', 'D'), \
+    # ('m1_cvae', 'x'), \
+    # ('m2_true', 'o'), \
+    # ('m2_gaus', 's'), \
+    # ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
 
