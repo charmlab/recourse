@@ -1086,7 +1086,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
       # When all predictions are the same (likely because all sampled points are
       # the same, likely because we are outside of the manifold OR, e.g., when we
       # intervene on all nodes and the initial epoch returns same samples), then
-      # torch.std() will be 0 and therefore there is no gradinet to pass back; in
+      # torch.std() will be 0 and therefore there is no gradient to pass back; in
       # turn this results in torch.std() giving nan and ruining the training!
       #     tmp = torch.ones((10,1), requires_grad=True)
       #     torch.std(tmp).backward()
@@ -1740,7 +1740,7 @@ if __name__ == "__main__":
   parser.add_argument('--num_validation_samples', type=int, default=250)
   parser.add_argument('--num_recourse_samples', type=int, default=30)
   parser.add_argument('--num_display_samples', type=int, default=15)
-  parser.add_argument('--num_mc_samples', type=int, default=300)
+  parser.add_argument('--num_mc_samples', type=int, default=100)
   parser.add_argument('--debug_flag', type=bool, default=False)
   parser.add_argument('--max_intervention_cardinality', type=int, default=3)
   parser.add_argument('-o', '--optimization_approach', type=str, default='brute_force')
