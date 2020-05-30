@@ -50,8 +50,7 @@ ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cva
 #     self.endogenous_dict = endogenous_dict
 #     self.exogenous_dict = exogenous_dict
 
-# PROCESSING_SKLEARN = 'standardize'
-PROCESSING_SKLEARN = 'raw' # TODO: fix runtime for grad descent on standardization...
+PROCESSING_SKLEARN = 'standardize'
 PROCESSING_GAUS = 'raw'
 PROCESSING_CVAE = 'raw'
 
@@ -745,7 +744,7 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
           *[samples_ts[:, getColumnIndicesFromNames(args, objs, [parent])] for parent in parents],
         )
 
-      elif recourse_type in {'m1_akrr', 'm1_akrr'}:
+      elif recourse_type in {'m1_alin', 'm1_akrr'}:
 
         if recourse_type == 'm1_alin':
           training_handle = trainRidge
@@ -753,12 +752,6 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
         elif recourse_type == 'm1_akrr':
           training_handle = trainKernelRidge
           sampling_handle = skHelper.sample_from_KRR_model
-
-        # TODO: processing deprocessing takes too much time!??
-        # TODO: does this process/deprocess work correclty? gradients OK?
-        samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN, list(objs.scm_obj.getTopologicalOrdering()))
-        # factual_instance_ts = processTensorOrDictOfTensors(args, objs, factual_instance_ts, PROCESSING_SKLEARN, list(objs.scm_obj.getTopologicalOrdering()))
-        factual_instance_ts = processDataFrameOrDict(args, objs, factual_instance_ts, PROCESSING_SKLEARN) # TODO: change process function
 
         trained_model = training_handle(args, objs, node, parents).best_estimator_
         X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
@@ -782,13 +775,8 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
 
         # add back to dataframe
         samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
-        samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN, list(objs.scm_obj.getTopologicalOrdering()))
 
       elif recourse_type in {'m1_gaus', 'm2_gaus'}:
-
-        samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_GAUS, list(objs.scm_obj.getTopologicalOrdering()))
-        # factual_instance_ts = processTensorOrDictOfTensors(args, objs, factual_instance_ts, PROCESSING_GAUS, list(objs.scm_obj.getTopologicalOrdering()))
-        factual_instance_ts = processDataFrameOrDict(args, objs, factual_instance_ts, PROCESSING_GAUS) # TODO: change process function
 
         kernel, X_all, model = trainGP(args, objs, node, parents)
         X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
@@ -807,12 +795,8 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
           new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
 
         samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
-        samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_GAUS, list(objs.scm_obj.getTopologicalOrdering()))
 
       elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
-
-        samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_CVAE, list(objs.scm_obj.getTopologicalOrdering()))
-        factual_ts = processTensorOrDictOfTensors(args, objs, factual_ts, PROCESSING_CVAE, list(objs.scm_obj.getTopologicalOrdering()))
 
         if recourse_type == 'm1_cvae':
           sample_from = 'posterior'
@@ -829,7 +813,6 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
           sample_from=sample_from,
         )
         samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
-        samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_CVAE, list(objs.scm_obj.getTopologicalOrdering()))
 
   return samples_ts
 
@@ -1017,7 +1000,7 @@ def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervent
 
   # IMPORTANT: watch ordering of action_set_ts and factual_instance_ts, they are
   # both tensors, but the former are trainable whereas the latter are not.
-  factual_instance_ts = {k: torch.tensor(v) for k, v in factual_instance.items()}
+  factual_instance_ts = {k: torch.tensor(v).float() for k, v in factual_instance.items()}
 
   h = getTorchClassifier(args, objs)
   # TODO: make input args
@@ -1102,6 +1085,24 @@ def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervent
 
 def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
+  # IMPORTANT: if you process factual_instance here, then action_set_ts and
+  #            factual_instance_ts will also be normalized down-stream. Then
+  #            at the end of this method, simply deprocess action_set_ts. One
+  #            thing to note is the computation of distance may not be [0,1]
+  #            in the processed settings (TODO?)
+  if recourse_type in {'m0_true', 'm2_true'}:
+    tmp_processing_type = 'raw'
+  elif recourse_type in {'m1_alin', 'm1_akrr'}:
+    tmp_processing_type = PROCESSING_SKLEARN
+  elif recourse_type in {'m1_gaus', 'm2_gaus'}:
+    tmp_processing_type = PROCESSING_GAUS
+  elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
+    tmp_processing_type = PROCESSING_CVAE
+  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), tmp_processing_type)
+
+  # IMPORTANT: action_set_ts includes trainable params, but factual_instance_ts does not.
+  factual_instance_ts = {k: torch.tensor(v, dtype=torch.float32) for k, v in factual_instance.items()}
+
   action_set_ts = dict(zip(
     intervention_set,
     [
@@ -1111,14 +1112,11 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
         factual_instance[node],
         # getMinimumObservableInstance(args, objs, factual_instance)[node],
         requires_grad=True,
-      )
+        dtype=torch.float32,
+      ) # DO NOT USE .float(), this will create a new tensor (and can't optimize over non-leaf nodes)
       for node in intervention_set
     ]
   ))
-
-  # IMPORTANT: watch ordering of action_set_ts and factual_instance_ts, they are
-  # both tensors, but the former are trainable whereas the latter are not.
-  factual_instance_ts = {k: torch.tensor(v) for k, v in factual_instance.items()}
 
   # TODO: make input args
   capped_loss = False
@@ -1222,7 +1220,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
       ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
       ax1.set(xlabel='epochs', ylabel='loss', title='Loss curve')
       ax1.grid()
-      ax.set_ylim(-1,1)
+      ax1.set_ylim(-1,1)
       ax1.legend()
 
       ax2.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
@@ -1239,6 +1237,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 
   # Convert action_set_ts to non-tensor action_set when passing back to rest of code
   action_set = {k : v.detach().item() for k,v in action_set_ts.items()}
+  action_set = deprocessDataFrameOrDict(args, objs, action_set, tmp_processing_type)
   return action_set
 
 

@@ -42,8 +42,8 @@ def sample_from_KRR_model(model, X_new):
 
 
 def sample_from_LIN_model(model, X_new):
-    coef_ = torch.tensor(model.coef_)
-    intercept_ = torch.tensor(model.intercept_)
+    coef_ = torch.tensor(model.coef_, dtype=torch.float32)
+    intercept_ = torch.tensor(model.intercept_, dtype=torch.float32)
     Y_new = torch.matmul(coef_, X_new.T) + intercept_
     return Y_new.float()
 
