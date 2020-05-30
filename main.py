@@ -84,7 +84,7 @@ def getTorchClassifier(args, objs):
     torch.nn.functional.linear(
       x,
       torch.from_numpy(fixed_model_w).float(),
-    ) + float(fixed_model_b)
+    ) * 0.05 + float(fixed_model_b)
   )
   return fixed_model
 
