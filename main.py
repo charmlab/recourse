@@ -1597,6 +1597,8 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
     factual_instance_idx = f'sample_{key}'
     factual_instance = value
 
+    os.mkdir(f'{experiment_folder_name}/_optimization_results/factual_instance_{factual_instance_idx}')
+
     print(f'\n\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
 
     per_instance_results[factual_instance_idx] = {}
@@ -1605,8 +1607,6 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
     for recourse_type in recourse_types:
 
       tmp = {}
-      save_path = f'{experiment_folder_name}/_optimization_results/factual_instance_{factual_instance_idx}'
-      os.mkdir(save_path)
       save_path = f'{experiment_folder_name}/_optimization_results/factual_instance_{factual_instance_idx}/{recourse_type}'
       os.mkdir(save_path)
 
@@ -1900,13 +1900,13 @@ if __name__ == "__main__":
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
     ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
-    # ('m1_gaus', 'D'), \
-    # ('m1_cvae', 'x'), \
-    # ('m2_true', 'o'), \
-    # ('m2_gaus', 's'), \
-    # ('m2_cvae', '+'), \
+    ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
+    ('m1_gaus', 'D'), \
+    ('m1_cvae', 'x'), \
+    ('m2_true', 'o'), \
+    ('m2_gaus', 's'), \
+    ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
 
