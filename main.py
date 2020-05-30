@@ -1041,6 +1041,8 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   min_valid_cost = 1e6  # some large number
   no_decrease_in_min_valid_cost = 0
   early_stopping_K = 5
+  best_action_set_ts = action_set_ts.copy()
+
   capped_loss = False
   num_epochs = 2500
   lambda_opt = 1 # initial value
@@ -1113,6 +1115,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
       # check if cost decreased from previous best
       if loss_cost.detach() < min_valid_cost:
         min_valid_cost = loss_cost.detach()
+        best_action_set_ts = action_set_ts.copy()
       else:
         no_decrease_in_min_valid_cost += 1
 
@@ -1160,8 +1163,12 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   if args.debug_flag:
     print(f'\t\t[INFO] Done (total run-time: {end_time - start_time}).\n\n')
 
-  # Convert action_set_ts to non-tensor action_set when passing back to rest of code
-  action_set = {k : v.detach().item() for k,v in action_set_ts.items()}
+  # Convert action_set_ts to non-tensor action_set when passing back to rest of code.
+  # best_action_set_ts may or may not be result of early stopping, but it will
+  # either be the initial value (which was zero-cost, at the factual instance),
+  # or it will be the best_action_set seen so far (smallest cost and valid const)
+  # whether or not it triggered K times to initiate early stopping.
+  action_set = {k : v.detach().item() for k,v in best_action_set_ts.items()}
   action_set = deprocessDataFrameOrDict(args, objs, action_set, tmp_processing_type)
   return action_set
 
