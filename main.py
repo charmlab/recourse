@@ -983,6 +983,23 @@ def getValidInterventionSets(args, objs):
 
 def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
+  def saveLossCurve(save_path, intervention_set, all_loss_totals, all_loss_costs, all_lambda_opts, all_loss_constraints):
+    fig, (ax1, ax2) = plt.subplots(2,1, sharex=True)
+    ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_costs, 'g--', label='loss costs')
+    ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
+    ax1.set(xlabel='epochs', ylabel='loss', title='Loss curve')
+    ax1.grid()
+    ax1.set_ylim(-1,1)
+    ax1.legend()
+
+    ax2.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
+    ax2.set(xlabel='epochs', ylabel='loss', title='Lambda curve')
+    ax2.grid()
+    ax2.legend()
+
+    plt.savefig(f'{save_path}/{str(intervention_set)}.pdf')
+    plt.close()
+
   # IMPORTANT: if you process factual_instance here, then action_set_ts and
   #            factual_instance_ts will also be normalized down-stream. Then
   #            at the end of this method, simply deprocess action_set_ts. One
@@ -1017,8 +1034,11 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   ))
 
   # TODO: make input args
+  min_valid_cost = 1e6  # some large number
+  no_decrease_in_min_valid_cost = 0
+  early_stopping_K = 5
   capped_loss = False
-  num_epochs = 1000
+  num_epochs = 2500
   lambda_opt = 1 # initial value
   lambda_opt_update_every = 50
   lambda_opt_learning_rate = 0.5
@@ -1045,6 +1065,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     # ========================================================================
 
     samples_ts = _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, action_set_ts, recourse_type)
+
 
     # ========================================================================
     # COMPUTE LOSS
@@ -1080,6 +1101,23 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     loss_total = loss_cost + lambda_opt * loss_constraint
 
     # ========================================================================
+    # EARLY STOPPING
+    # ========================================================================
+
+    # check if constraint is satisfied
+    if value_lcb.detach() > 0.5:
+      # check if cost decreased from previous best
+      if loss_cost.detach() < min_valid_cost:
+        min_valid_cost = loss_cost.detach()
+      else:
+        no_decrease_in_min_valid_cost += 1
+
+    # stop if past K valid thetas did not improve upon best previous cost
+    if no_decrease_in_min_valid_cost > early_stopping_K:
+      saveLossCurve(save_path, intervention_set, all_loss_totals, all_loss_costs, all_lambda_opts, all_loss_constraints)
+      break
+
+    # ========================================================================
     # OPTIMIZE
     # ========================================================================
 
@@ -1112,22 +1150,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     all_loss_constraints.append(loss_constraint.detach().item())
 
     if epoch % 100 == 0:
-
-      fig, (ax1, ax2) = plt.subplots(2,1, sharex=True)
-      ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_costs, 'g--', label='loss costs')
-      ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
-      ax1.set(xlabel='epochs', ylabel='loss', title='Loss curve')
-      ax1.grid()
-      ax1.set_ylim(-1,1)
-      ax1.legend()
-
-      ax2.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
-      ax2.set(xlabel='epochs', ylabel='loss', title='Lambda curve')
-      ax2.grid()
-      ax2.legend()
-
-      plt.savefig(f'{save_path}/{str(intervention_set)}.pdf')
-      plt.close()
+      saveLossCurve(save_path, intervention_set, all_loss_totals, all_loss_costs, all_lambda_opts, all_loss_constraints)
 
   end_time = time.time()
   if args.debug_flag:
@@ -1172,7 +1195,7 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
     min_cost = 1e10
     min_cost_action_set = {}
     for idx, intervention_set in enumerate(valid_intervention_sets):
-      print(f'\n\t[INFO] intervention set #{idx+1}/{len(valid_intervention_sets)}: {str(intervention_set)}')
+      # print(f'\n\t[INFO] intervention set #{idx+1}/{len(valid_intervention_sets)}: {str(intervention_set)}')
       # plotOptimizationLandscape(args, objs, factual_instance, save_path, intervention_set, recourse_type)
       action_set = performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type)
       if constraint_handle(args, objs, factual_instance, action_set, recourse_type):
@@ -1769,9 +1792,9 @@ if __name__ == "__main__":
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
-    ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
+    # ('m0_true', '*'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
     ('m1_gaus', 'D'), \
     ('m1_cvae', 'x'), \
     ('m2_true', 'o'), \
