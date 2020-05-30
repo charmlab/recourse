@@ -25,7 +25,7 @@ def load_random_data(scm_class, variable_type = 'real'):
 
   scm_obj = loadSCM.loadSCM(scm_class)
 
-  d = len(scm_obj.structural_equations.keys())
+  d = len(scm_obj.structural_equations_np.keys())
 
   print(f'\n\n[INFO] Creating dataset using scm class `{scm_class}`...')
 
@@ -53,7 +53,7 @@ def load_random_data(scm_class, variable_type = 'real'):
     parents = scm_obj.getParentsForNode(node)
     # assuming we're iterating in topological order, parents in X should already be occupied
     assert not X.loc[:,list(parents)].isnull().values.any()
-    X[node] = scm_obj.structural_equations[node](
+    X[node] = scm_obj.structural_equations_np[node](
       U[getNoiseStringForNode(node)],
       *[X[parent] for parent in parents]
     )

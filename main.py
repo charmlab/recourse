@@ -523,7 +523,7 @@ def sampleTrue(args, objs, factual_instance, factual_df, samples_df, node, paren
   # Step 1. [abduction]: compute noise or load from dataset using factual_instance
   # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
   # Step 3. [prediction]: run through structural equation using noise and parents from samples_df
-  structural_equation = objs.scm_obj.structural_equations[node]
+  structural_equation = objs.scm_obj.structural_equations_np[node]
 
   if recourse_type == 'm0_true':
 
@@ -743,7 +743,7 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
 
       if recourse_type in {'m0_true', 'm2_true'}:
 
-        structural_equation = objs.scm_obj.structural_equations[node]
+        structural_equation = objs.scm_obj.structural_equations_ts[node]
 
         if recourse_type == 'm0_true':
           # may be scalar, which will be case as pd.series when being summed.
@@ -1843,13 +1843,13 @@ if __name__ == "__main__":
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
     ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
-    ('m1_gaus', 'D'), \
-    ('m1_cvae', 'x'), \
-    ('m2_true', 'o'), \
-    ('m2_gaus', 's'), \
-    ('m2_cvae', '+'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
+    # ('m1_gaus', 'D'), \
+    # ('m1_cvae', 'x'), \
+    # ('m2_true', 'o'), \
+    # ('m2_gaus', 's'), \
+    # ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
 
