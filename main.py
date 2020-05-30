@@ -1049,7 +1049,8 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   min_valid_cost = 1e6  # some large number
   no_decrease_in_min_valid_cost = 0
   early_stopping_K = 50
-  best_action_set_ts = action_set_ts.copy()
+  # DO NOT USE .copy() on the dict, the same value objects (i.e., the same trainable tensor will be used!)
+  best_action_set_ts = {k : v.clone().detach() for k,v in action_set_ts.items()}
   best_action_set_epoch = 1
 
   capped_loss = False
@@ -1124,7 +1125,8 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
       # check if cost decreased from previous best
       if loss_cost.detach() < min_valid_cost:
         min_valid_cost = loss_cost.detach()
-        best_action_set_ts = action_set_ts.copy()
+        # DO NOT USE .copy() on the dict, the same value objects (i.e., the same trainable tensor will be used!)
+        best_action_set_ts = {k : v.clone().detach() for k,v in action_set_ts.items()}
         best_action_set_epoch = epoch
       else:
         no_decrease_in_min_valid_cost += 1
