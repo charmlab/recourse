@@ -24,7 +24,7 @@ import loadSCM
 import loadData
 import loadModel
 import gpHelper
-import krrHelper
+import skHelper
 
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Ridge
@@ -541,14 +541,19 @@ def sampleTrue(args, objs, factual_instance, factual_df, samples_df, node, paren
   return samples_df
 
 
-def _sampleRidgeKernelRidge(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type, train_handle):
+def sampleRidgeKernelRidge(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type):
   samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_SKLEARN)
   factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_SKLEARN)
 
   # Step 1. [abduction]: compute noise or load from dataset using factual_instance
   # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
   # Step 3. [prediction]: run through structural equation using noise and parents from samples_df
-  trained_model = train_handle(args, objs, node, parents)
+  if recourse_type == 'm1_alin':
+    trained_model = trainRidge(args, objs, node, parents)
+  elif recourse_type == 'm1_akrr':
+    trained_model = trainKernelRidge(args, objs, node, parents)
+  else:
+    raise Exception(f'{recourse_type} not recognized.')
   structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
   for row_idx, row in samples_df.iterrows():
     noise = _getAbductionNoise(args, objs, node, parents, factual_instance, structural_equation)
@@ -558,14 +563,6 @@ def _sampleRidgeKernelRidge(args, objs, factual_instance, factual_df, samples_df
     )
   samples_df = deprocessDataFrameOrDict(args, objs, samples_df, PROCESSING_SKLEARN)
   return samples_df
-
-
-def sampleRidge(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type):
-  return _sampleRidgeKernelRidge(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type, trainRidge)
-
-
-def sampleKernelRidge(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type):
-  return _sampleRidgeKernelRidge(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type, trainKernelRidge)
 
 
 def sampleCVAE(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type, trained_cvae = None):
@@ -676,10 +673,8 @@ def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 
         print(f'Sampling `{recourse_type}` from {getConditionalString(node, parents)}')
       if recourse_type in {'m0_true', 'm2_true'}:
         sampling_handle = sampleTrue
-      elif recourse_type == 'm1_alin':
-        sampling_handle = sampleRidge
-      elif recourse_type == 'm1_akrr':
-        sampling_handle = sampleKernelRidge
+      elif recourse_type in {'m1_alin', 'm1_akrr'}:
+        sampling_handle = sampleRidgeKernelRidge
       elif recourse_type in {'m1_gaus', 'm2_gaus'}:
         sampling_handle = sampleGP
       elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
@@ -732,27 +727,32 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
       # Confirm parents columns are present/have assigned values in samples_ts
       assert not torch.any(torch.isnan(samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]))
 
-      if recourse_type == 'm0_true':
+      if recourse_type in {'m0_true', 'm2_true'}:
 
         structural_equation = objs.scm_obj.structural_equations[node]
-        noise_pred = _getAbductionNoise(args, objs, node, parents, factual_instance_ts, structural_equation)
-        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = structural_equation(
-          noise_pred, # may be scalar, which will be case as pd.series when being summed.
-          *[samples_ts[:, getColumnIndicesFromNames(args, objs, [parent])] for parent in parents],
-        )
 
-      elif recourse_type == 'm2_true':
+        if recourse_type == 'm0_true':
+          # may be scalar, which will be case as pd.series when being summed.
+          noise_pred = _getAbductionNoise(args, objs, node, parents, factual_instance_ts, structural_equation)
+          noises = noise_pred
+        elif recourse_type == 'm2_true':
+          noises = torch.tensor(
+            objs.scm_obj.noises_distributions[getNoiseStringForNode(node)].sample(samples_ts.shape[0])
+          ).reshape(-1,1)
 
-        structural_equation = objs.scm_obj.structural_equations[node]
-        noises = torch.tensor(
-          objs.scm_obj.noises_distributions[getNoiseStringForNode(node)].sample(samples_ts.shape[0])
-        ).reshape(-1,1)
         samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = structural_equation(
           noises,
           *[samples_ts[:, getColumnIndicesFromNames(args, objs, [parent])] for parent in parents],
         )
 
-      elif recourse_type == 'm1_alin':
+      elif recourse_type in {'m1_akrr', 'm1_akrr'}:
+
+        if recourse_type == 'm1_alin':
+          training_handle = trainRidge
+          sampling_handle = skHelper.sample_from_LIN_model
+        elif recourse_type == 'm1_akrr':
+          training_handle = trainKernelRidge
+          sampling_handle = skHelper.sample_from_KRR_model
 
         # TODO: processing deprocessing takes too much time!??
         # TODO: does this process/deprocess work correclty? gradients OK?
@@ -760,7 +760,7 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
         # factual_instance_ts = processTensorOrDictOfTensors(args, objs, factual_instance_ts, PROCESSING_SKLEARN, list(objs.scm_obj.getTopologicalOrdering()))
         factual_instance_ts = processDataFrameOrDict(args, objs, factual_instance_ts, PROCESSING_SKLEARN) # TODO: change process function
 
-        trained_model = trainRidge(args, objs, node, parents).best_estimator_
+        trained_model = training_handle(args, objs, node, parents).best_estimator_
         X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
 
         # Step 1. [abduction]
@@ -772,41 +772,7 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
         # N/A
 
         # Step 3. [prediction]: first get the regressed value, then get noise
-        coef_ = torch.tensor(trained_model.coef_.astype('float32'))
-        intercept_ = torch.tensor(trained_model.intercept_.astype('float32'))
-        new_samples = torch.matmul(coef_, X_parents.T) + intercept_
-        assert np.isclose( # a simple check to make sure manual sklearn is working correct
-          new_samples.item(),
-          trained_model.predict(X_parents.detach().numpy()).item(),
-          atol = 1e-3,
-        )
-        new_samples = new_samples + noise
-
-        # add back to dataframe
-        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
-        samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN, list(objs.scm_obj.getTopologicalOrdering()))
-
-      elif recourse_type == 'm1_akrr':
-
-        # TODO: processing deprocessing takes too much time!??
-        # TODO: does this process/deprocess work correclty? gradients OK?
-        samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN, list(objs.scm_obj.getTopologicalOrdering()))
-        # factual_instance_ts = processTensorOrDictOfTensors(args, objs, factual_instance_ts, PROCESSING_SKLEARN, list(objs.scm_obj.getTopologicalOrdering()))
-        factual_instance_ts = processDataFrameOrDict(args, objs, factual_instance_ts, PROCESSING_SKLEARN) # TODO: change process function
-
-        trained_model = trainKernelRidge(args, objs, node, parents).best_estimator_
-        X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
-
-        # step 1. [abduction]
-        # TODO: we don't need structural_equation here... get the noise posterior some other way.
-        structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
-        noise = _getAbductionNoise(args, objs, node, parents, factual_instance_ts, structural_equation)
-
-        # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_ts columns
-        # N/A
-
-        # Step 3. [prediction]: first get the regressed value, then get noise
-        new_samples = krrHelper.sample_from_KRR_model(trained_model, X_parents)
+        new_samples = sampling_handle(trained_model, X_parents)
         assert np.isclose( # a simple check to make sure manual sklearn is working correct
           new_samples.item(),
           trained_model.predict(X_parents.detach().numpy()).item(),
@@ -832,7 +798,7 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
           #            (earlier, the factual instance was appended as the last instance)
           # DO NOT DO THIS: conversion from float64 to torch and back will make it impossible to find the instance idx
           # factual_instance = {k:v.detach().item() for k,v in factual_instance_ts.items()}
-          tmp_idx = getIndexOfFactualInstanceInDataFrame(
+          tmp_idx = getIndexOfFactualInstanceInDataFrame( # TODO: write this as ts function as well?
             factual_instance,
             processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
           ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
@@ -840,7 +806,6 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
         elif recourse_type == 'm2_gaus': # interventional distribution for node
           new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
 
-        # TODO: add deprocessing (raw)
         samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
         samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_GAUS, list(objs.scm_obj.getTopologicalOrdering()))
 
@@ -863,7 +828,6 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
           pa_counter=samples_ts[:, getColumnIndicesFromNames(args, objs, parents)],
           sample_from=sample_from,
         )
-        # TODO: add deprocessing (raw)
         samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
         samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_CVAE, list(objs.scm_obj.getTopologicalOrdering()))
 
@@ -1258,6 +1222,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
       ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
       ax1.set(xlabel='epochs', ylabel='loss', title='Loss curve')
       ax1.grid()
+      ax.set_ylim(-1,1)
       ax1.legend()
 
       ax2.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
@@ -1348,7 +1313,7 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
     #     [ ] find params for grad-descent solution on new sampleGP function
 
     # Thursday:
-    # [ ] implement grad based for m0/m2_true
+    # [x] implement grad based for m0/m2_true
     # [x] implement grad based for m1_alin
     # [x] implement grad based for m1_akrr
     # [ ] merge all repetitive code to work for numpy and tensors gracefully (e.g., process/deprocessDf, samplingInnerLoop, etc.)
@@ -1464,9 +1429,17 @@ def getNegativelyPredictedInstances(args, objs):
   # training set for GP, and hence a posterior over noise for it is computed
   # (i.e., we can cache).
 
-  # TODO: iterate over validation set, not training set!
-  # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1
+
+  # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1; do not use
+  # processDataFrameOrDict because classifier is trained on original data
   X_all = getOriginalDataFrame(objs, args.num_train_samples)
+
+  # X_all = getOriginalDataFrame(objs, args.num_train_samples + args.num_validation_samples)
+  # # CANNOT DO THIS:Iterate over validation set, not training set
+  # # REASON: for m0_true we need the index of the factual instance to get noise
+  # # variable for abduction and for m1_gaus we need the index as well.
+  # X_all = X_all.iloc[args.num_train_samples:]
+
   factual_instances_dict = {}
   tmp_counter = 1
   for factual_instance_idx, row in X_all.iterrows():
@@ -1947,15 +1920,6 @@ if __name__ == "__main__":
 
   # sanity check
   # visualizeDatasetAndFixedModel(args, objs)
-
-
-
-# TODO:
-# merge exp5,6,8
-# to confirm training correct -->for each child/parent, save m2 comparison (regression, no intervention) + report MSE/VAR between m2 methods (good choice of hyperparams)
-# (=? intervention on parent node given value of sweep?)
-# show 9 interventions on parent
-# show table
 
 
 
