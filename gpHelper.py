@@ -40,6 +40,7 @@ def get_optimized_rbf_kernel(m):
     lengthscales = torch.tensor(m.kern.lengthscale)
     return RBFKernel(input_dim, signal_var, lengthscales)
 
+@utils.Memoize
 def get_inverse_covariance(K, noise_var):
     return torch.inverse(K + noise_var * torch.eye(K.shape[0]))
 

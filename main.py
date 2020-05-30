@@ -407,7 +407,7 @@ def trainCVAE(args, objs, node, parents):
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples  + args.num_validation_samples), PROCESSING_CVAE)
 
   # sweep_lambda_kld = [0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
-  sweep_lambda_kld = [0.5, 0.1, 0.05]
+  sweep_lambda_kld = [0.5, 0.1, 0.05, 0.01, 0.005]
   # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
   sweep_encoder_layer_sizes = [
     [1, 3, 3],
@@ -417,8 +417,8 @@ def trainCVAE(args, objs, node, parents):
     [2, 1],
     [1 + len(parents), 1],
     [2, 2, 1],
-    # [3, 3, 1],
-    # [5, 5, 1],
+    [3, 3, 1],
+    [5, 5, 1],
   ]
 
   trained_models = {}
@@ -452,7 +452,7 @@ def trainCVAE(args, objs, node, parents):
     }))
 
     # # TODO: remove after models.py is corrected
-    return trained_cvae
+    # return trained_cvae
 
     # run mmd to verify whether training is good or not (ON VALIDATION SET)
     X_val = X_all[args.num_train_samples:].copy()
@@ -466,8 +466,12 @@ def trainCVAE(args, objs, node, parents):
     X_pred_posterior[node] = pd.DataFrame(recon_node_validation.numpy(), columns=[node])
 
     not_imp_factual_instance = dict.fromkeys(objs.scm_obj.getTopologicalOrdering(), -1)
+    not_imp_factual_df = pd.DataFrame(dict(zip(
+      objs.dataset_obj.getInputAttributeNames(),
+      [X_true.shape[0] * [not_imp_factual_instance[node]] for node in objs.dataset_obj.getInputAttributeNames()],
+    )))
     not_imp_samples_df = X_true.copy()
-    X_pred_prior = sampleCVAE(args, objs, not_imp_factual_instance, not_imp_samples_df, node, parents, 'm2_cvae', trained_cvae = trained_cvae)
+    X_pred_prior = sampleCVAE(args, objs, not_imp_factual_instance, not_imp_factual_df, not_imp_samples_df, node, parents, 'm2_cvae', trained_cvae = trained_cvae)
 
     X_pred = X_pred_prior
 
@@ -1688,6 +1692,10 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
       X_true = X_val[parents + [node]]
 
       not_imp_factual_instance = dict.fromkeys(objs.scm_obj.getTopologicalOrdering(), -1)
+      not_imp_factual_df = pd.DataFrame(dict(zip(
+        objs.dataset_obj.getInputAttributeNames(),
+        [X_true.shape[0] * [not_imp_factual_instance[node]] for node in objs.dataset_obj.getInputAttributeNames()],
+      )))
       not_imp_samples_df = X_true.copy()
 
       # add samples from validation set itself (the true data):
@@ -1705,7 +1713,7 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
         elif recourse_type == 'm2_cvae':
           sampling_handle = sampleCVAE
 
-        samples = sampling_handle(args, objs, not_imp_factual_instance, not_imp_samples_df, node, parents, recourse_type)
+        samples = sampling_handle(args, objs, not_imp_factual_instance, not_imp_factual_df, not_imp_samples_df, node, parents, recourse_type)
         tmp_df = samples.copy()
         tmp_df['recourse_type'] = recourse_type # add column
         total_df = pd.concat([total_df, tmp_df]) # concat to overall
@@ -1728,7 +1736,7 @@ if __name__ == "__main__":
   parser.add_argument('--norm_type', type=int, default=2)
   parser.add_argument('--lambda_lcb', type=int, default=1)
   parser.add_argument('--grid_search_bins', type=int, default=5)
-  parser.add_argument('--num_train_samples', type=int, default=1000)
+  parser.add_argument('--num_train_samples', type=int, default=250)
   parser.add_argument('--num_validation_samples', type=int, default=250)
   parser.add_argument('--num_recourse_samples', type=int, default=30)
   parser.add_argument('--num_display_samples', type=int, default=15)
@@ -1792,9 +1800,9 @@ if __name__ == "__main__":
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
-    # ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
+    ('m0_true', '*'), \
+    ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
     ('m1_gaus', 'D'), \
     ('m1_cvae', 'x'), \
     ('m2_true', 'o'), \

@@ -1,6 +1,6 @@
 SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
-LAMBDA_LCB_VALUES = [0,1,2]
-NUM_MC_SAMPLES_VALUES = [100, 300, 1000]
+LAMBDA_LCB_VALUES = np.linspace(0,2.5,11)
+NUM_MC_SAMPLES_VALUES = [300]
 REPEAT_COUNT = 1
 
 request_memory = 8192
