@@ -1001,7 +1001,10 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     ax1.text(best_action_set_epoch, all_loss_constraints[best_action_set_epoch-1], f'{all_loss_constraints[best_action_set_epoch-1]:.3f}', fontsize=8)
     ax1.set(xlabel='epochs', ylabel='loss', title='Loss curve')
     ax1.grid()
-    ax1.set_ylim(-1,1)
+    ax1.set_ylim(
+      min(-1, ax1.get_ylim()[0]),
+      max(+1, ax1.get_ylim()[1]),
+    )
     ax1.legend()
 
     ax2.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
