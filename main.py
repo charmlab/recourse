@@ -991,26 +991,41 @@ def getValidInterventionSets(args, objs):
 
 def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
-  def saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_loss_totals, all_loss_costs, all_lambda_opts, all_loss_constraints):
-    fig, (ax1, ax2) = plt.subplots(2,1, sharex=True)
-    ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_costs, 'g--', label='loss costs')
-    ax1.plot(range(1, len(all_loss_totals) + 1), all_loss_constraints, 'r:', label='loss constraints')
-    ax1.plot(best_action_set_epoch, all_loss_costs[best_action_set_epoch-1], 'b*')
-    ax1.plot(best_action_set_epoch, all_loss_constraints[best_action_set_epoch-1], 'b*')
-    ax1.text(best_action_set_epoch, all_loss_costs[best_action_set_epoch-1], f'{all_loss_costs[best_action_set_epoch-1]:.3f}', fontsize=8)
-    ax1.text(best_action_set_epoch, all_loss_constraints[best_action_set_epoch-1], f'{all_loss_constraints[best_action_set_epoch-1]:.3f}', fontsize=8)
-    ax1.set(xlabel='epochs', ylabel='loss', title='Loss curve')
-    ax1.grid()
-    ax1.set_ylim(
-      min(-1, ax1.get_ylim()[0]),
-      max(+1, ax1.get_ylim()[1]),
-    )
-    ax1.legend()
+  def saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_logs):
+    fig, axes = plt.subplots(2 + len(intervention_set), 1, sharex=True)
 
-    ax2.plot(range(1, len(all_loss_totals) + 1), all_lambda_opts, 'y-.', label='lambda_opt')
-    ax2.set(xlabel='epochs', ylabel='loss', title='Lambda curve')
-    ax2.grid()
-    ax2.legend()
+    axes[0].plot(all_logs['epochs'], all_logs['loss_cost'], 'g--', label='loss costs')
+    axes[0].plot(all_logs['epochs'], all_logs['loss_constraint'], 'r:', label='loss constraints')
+    axes[0].plot(best_action_set_epoch, all_logs['loss_cost'][best_action_set_epoch-1], 'b*')
+    axes[0].plot(best_action_set_epoch, all_logs['loss_constraint'][best_action_set_epoch-1], 'b*')
+    axes[0].text(best_action_set_epoch, all_logs['loss_cost'][best_action_set_epoch-1], f"{all_logs['loss_cost'][best_action_set_epoch-1]:.3f}", fontsize='xx-small')
+    axes[0].text(best_action_set_epoch, all_logs['loss_constraint'][best_action_set_epoch-1], f"{all_logs['loss_constraint'][best_action_set_epoch-1]:.3f}", fontsize='xx-small')
+    axes[0].set_ylabel('loss', fontsize='xx-small')
+    axes[0].set_title('Loss curve', fontsize='xx-small')
+    axes[0].grid()
+    axes[0].set_ylim(
+      min(-1, axes[0].get_ylim()[0]),
+      max(+1, axes[0].get_ylim()[1]),
+    )
+    axes[0].legend(fontsize='xx-small')
+
+    axes[1].plot(range(1, len(all_logs['loss_total']) + 1), all_logs['lambda_opt'], 'y-', label='lambda_opt')
+    axes[1].set_ylabel('lambda', fontsize='xx-small')
+    axes[1].grid()
+    axes[1].legend(fontsize='xx-small')
+
+    for idx, node in enumerate(intervention_set):
+      # print intervention values
+      tmp = [
+        elem[node].item()
+        for elem in all_logs['action_set_ts']
+      ]
+      axes[idx+2].plot(all_logs['epochs'], tmp, 'b-', label='lambda_opt')
+      axes[idx+2].set_ylabel(node, fontsize='xx-small')
+      if idx == len(intervention_set) - 1:
+        axes[idx+2].set_xlabel('epochs', fontsize='xx-small')
+      axes[idx+2].grid()
+      axes[idx+2].legend(fontsize='xx-small')
 
     plt.savefig(f'{save_path}/{str(intervention_set)}.pdf')
     plt.close()
@@ -1051,7 +1066,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   # TODO: make input args
   min_valid_cost = 1e6  # some large number
   no_decrease_in_min_valid_cost = 0
-  early_stopping_K = 50
+  early_stopping_K = 10
   # DO NOT USE .copy() on the dict, the same value objects (i.e., the same trainable tensor will be used!)
   best_action_set_ts = {k : v.clone().detach() for k,v in action_set_ts.items()}
   best_action_set_epoch = 1
@@ -1059,18 +1074,20 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   capped_loss = False
   num_epochs = 5000
   lambda_opt = 1 # initial value
-  lambda_opt_update_every = 50
+  lambda_opt_update_every = 25
   lambda_opt_learning_rate = 0.5
   action_set_learning_rate = 0.1
   # lambda_opt_learning_rate_initial = 10
   print_log_every = lambda_opt_update_every
   optimizer = torch.optim.Adam(params = list(action_set_ts.values()), lr = action_set_learning_rate)
 
-  all_loss_totals = []
-  all_loss_costs = []
-  all_lambda_opts = []
-  all_loss_constraints = []
-  all_thetas = []
+  all_logs = {}
+  all_logs['epochs'] = []
+  all_logs['loss_total'] = []
+  all_logs['loss_cost'] = []
+  all_logs['lambda_opt'] = []
+  all_logs['loss_constraint'] = []
+  all_logs['action_set_ts'] = []
 
   start_time = time.time()
   if args.debug_flag:
@@ -1084,7 +1101,6 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     # ========================================================================
 
     samples_ts = _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, action_set_ts, recourse_type)
-
 
     # ========================================================================
     # COMPUTE LOSS
@@ -1136,7 +1152,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 
     # stop if past K valid thetas did not improve upon best previous cost
     if no_decrease_in_min_valid_cost > early_stopping_K:
-      saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_loss_totals, all_loss_costs, all_lambda_opts, all_loss_constraints)
+      saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_logs)
       break
 
     # ========================================================================
@@ -1147,6 +1163,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     if epoch % lambda_opt_update_every == 0:
       lambda_opt = lambda_opt + lambda_opt_learning_rate * loss_constraint.detach()
       # lambda_opt_learning_rate = lambda_opt_learning_rate_initial / epoch
+
 
     optimizer.zero_grad()
     loss_total.backward()
@@ -1166,13 +1183,15 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
         f'loss_constraint: {loss_constraint.detach().item():02.6f}    ' \
         f'value_lcb: {value_lcb.detach().item():02.6f}    ' \
       )
-    all_loss_totals.append(loss_total.detach().item())
-    all_loss_costs.append(loss_cost.item())
-    all_lambda_opts.append(lambda_opt)
-    all_loss_constraints.append(loss_constraint.detach().item())
+    all_logs['epochs'].append(epoch)
+    all_logs['loss_total'].append(loss_total.detach().item())
+    all_logs['loss_cost'].append(loss_cost.detach().item())
+    all_logs['lambda_opt'].append(lambda_opt)
+    all_logs['loss_constraint'].append(loss_constraint.detach().item())
+    all_logs['action_set_ts'].append({k : v.clone().detach() for k,v in action_set_ts.items()})
 
     if epoch % 100 == 0:
-      saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_loss_totals, all_loss_costs, all_lambda_opts, all_loss_constraints)
+      saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_logs)
 
   end_time = time.time()
   if args.debug_flag:
@@ -1509,14 +1528,14 @@ def experiment5(args, objs, experiment_folder_name, factual_instances_dict, expe
 def experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' optimal action set: figure + table '''
 
-  os.mkdir(f'{experiment_folder_name}/_optimization_results')
+  os.mkdir(f'{experiment_folder_name}/_optimization_curves')
 
   per_instance_results = {}
   for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
     factual_instance_idx = f'sample_{key}'
     factual_instance = value
 
-    os.mkdir(f'{experiment_folder_name}/_optimization_results/factual_instance_{factual_instance_idx}')
+    os.mkdir(f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_idx}')
 
     print(f'\n\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
 
@@ -1526,7 +1545,7 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
     for recourse_type in recourse_types:
 
       tmp = {}
-      save_path = f'{experiment_folder_name}/_optimization_results/factual_instance_{factual_instance_idx}/{recourse_type}'
+      save_path = f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_idx}/{recourse_type}'
       os.mkdir(save_path)
 
       start_time = time.time()
@@ -1824,13 +1843,13 @@ if __name__ == "__main__":
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
     ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
-    # ('m1_gaus', 'D'), \
-    # ('m1_cvae', 'x'), \
-    # ('m2_true', 'o'), \
-    # ('m2_gaus', 's'), \
-    # ('m2_cvae', '+'), \
+    ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
+    ('m1_gaus', 'D'), \
+    ('m1_cvae', 'x'), \
+    ('m2_true', 'o'), \
+    ('m2_gaus', 's'), \
+    ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
 
