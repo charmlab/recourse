@@ -50,7 +50,8 @@ ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cva
 #     self.endogenous_dict = endogenous_dict
 #     self.exogenous_dict = exogenous_dict
 
-PROCESSING_SKLEARN = 'standardize'
+# PROCESSING_SKLEARN = 'standardize'
+PROCESSING_SKLEARN = 'raw' # TODO: fix runtime for grad descent on standardization...
 PROCESSING_GAUS = 'raw'
 PROCESSING_CVAE = 'raw'
 
@@ -74,12 +75,6 @@ def loadClassifier(args, experiment_folder_name):
 def getTorchClassifier(args, objs):
   fixed_model_w = objs.classifier_obj.coef_
   fixed_model_b = objs.classifier_obj.intercept_
-  # fixed_model = lambda x: torch.sigmoid(
-  #     torch.nn.functional.linear(
-  #       x,
-  #       torch.from_numpy(fixed_model_w).float(),
-  #   ) + float(fixed_model_b)
-  # )
   fixed_model = lambda x: torch.sigmoid(
     torch.nn.functional.linear(
       x,
@@ -708,7 +703,7 @@ def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 
   return samples_df
 
 
-def _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, recourse_type):
+def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, action_set_ts, recourse_type):
 
   counterfactual_template_ts = _getCounterfactualTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type)
 
@@ -718,8 +713,8 @@ def _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, rec
     num_samples = args.num_mc_samples
 
   # Initialize factual_ts, samples_ts
-  factual_ts = torch.zeros((args.num_mc_samples, len(objs.dataset_obj.getInputAttributeNames())))
-  samples_ts = torch.zeros((args.num_mc_samples, len(objs.dataset_obj.getInputAttributeNames())))
+  factual_ts = torch.zeros((num_samples, len(objs.dataset_obj.getInputAttributeNames())))
+  samples_ts = torch.zeros((num_samples, len(objs.dataset_obj.getInputAttributeNames())))
   for node in objs.scm_obj.getTopologicalOrdering():
     factual_ts[:, getColumnIndicesFromNames(args, objs, [node])] = factual_instance_ts[node] + 0 # + 0 not needed because not trainable but leaving in..
     # +0 important, specifically for tensor based elements, so we don't copy
@@ -738,12 +733,12 @@ def _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, rec
       assert not torch.any(torch.isnan(samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]))
 
       if recourse_type == 'm1_alin':
-        raise Exception(f'AMIR: TODO')
 
         # TODO: processing deprocessing takes too much time!??
         # TODO: does this process/deprocess work correclty? gradients OK?
-        samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN)
-        factual_instance_ts = processTensorOrDictOfTensors(args, objs, factual_instance_ts, PROCESSING_SKLEARN)
+        samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN, list(objs.scm_obj.getTopologicalOrdering()))
+        # factual_instance_ts = processTensorOrDictOfTensors(args, objs, factual_instance_ts, PROCESSING_SKLEARN, list(objs.scm_obj.getTopologicalOrdering()))
+        factual_instance_ts = processDataFrameOrDict(args, objs, factual_instance_ts, PROCESSING_SKLEARN) # TODO: change process function
 
         trained_model = trainRidge(args, objs, node, parents).best_estimator_
         X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
@@ -763,20 +758,21 @@ def _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, rec
         assert np.isclose( # a simple check to make sure manual sklearn is working correct
           new_samples.item(),
           trained_model.predict(X_parents.detach().numpy()).item(),
+          atol = 1e-3,
         )
         new_samples = new_samples + noise
 
         # add back to dataframe
         samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
-        samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN)
+        samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN, list(objs.scm_obj.getTopologicalOrdering()))
 
       elif recourse_type == 'm1_akrr':
-        raise Exception(f'AMIR: TODO')
 
         # TODO: processing deprocessing takes too much time!??
         # TODO: does this process/deprocess work correclty? gradients OK?
-        samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN)
-        factual_instance_ts = processTensorOrDictOfTensors(args, objs, factual_instance_ts, PROCESSING_SKLEARN)
+        samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN, list(objs.scm_obj.getTopologicalOrdering()))
+        # factual_instance_ts = processTensorOrDictOfTensors(args, objs, factual_instance_ts, PROCESSING_SKLEARN, list(objs.scm_obj.getTopologicalOrdering()))
+        factual_instance_ts = processDataFrameOrDict(args, objs, factual_instance_ts, PROCESSING_SKLEARN) # TODO: change process function
 
         trained_model = trainKernelRidge(args, objs, node, parents).best_estimator_
         X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
@@ -794,25 +790,31 @@ def _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, rec
         assert np.isclose( # a simple check to make sure manual sklearn is working correct
           new_samples.item(),
           trained_model.predict(X_parents.detach().numpy()).item(),
+          atol = 1e-3,
         )
         new_samples = new_samples + noise
 
         # add back to dataframe
         samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
-        samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN)
+        samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN, list(objs.scm_obj.getTopologicalOrdering()))
 
       elif recourse_type in {'m1_gaus', 'm2_gaus'}:
 
-        # TODO: add processing (raw)
+        samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_GAUS, list(objs.scm_obj.getTopologicalOrdering()))
+        # factual_instance_ts = processTensorOrDictOfTensors(args, objs, factual_instance_ts, PROCESSING_GAUS, list(objs.scm_obj.getTopologicalOrdering()))
+        factual_instance_ts = processDataFrameOrDict(args, objs, factual_instance_ts, PROCESSING_GAUS) # TODO: change process function
+
         kernel, X_all, model = trainGP(args, objs, node, parents)
         X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
+
         if recourse_type == 'm1_gaus': # counterfactual distribution for node
-          raise Exception(f'AMIR: TODO')
           # IMPORTANT: Find index of factual instance in dataframe used for training GP
           #            (earlier, the factual instance was appended as the last instance)
+          # DO NOT DO THIS: conversion from float64 to torch and back will make it impossible to find the instance idx
+          # factual_instance = {k:v.detach().item() for k,v in factual_instance_ts.items()}
           tmp_idx = getIndexOfFactualInstanceInDataFrame(
-            factual_instance_ts, # TODO: we only have factual_instance_ts here... and think about processing..
-            processTensorOrDictOfTensors(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
+            factual_instance,
+            processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
           ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
           new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'cf', tmp_idx)
         elif recourse_type == 'm2_gaus': # interventional distribution for node
@@ -820,12 +822,12 @@ def _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, rec
 
         # TODO: add deprocessing (raw)
         samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
+        samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_GAUS, list(objs.scm_obj.getTopologicalOrdering()))
 
       elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
 
-        # TODO: add processing (raw)
-        # samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN)
-        # factual_ts = processTensorOrDictOfTensors(args, objs, factual_ts, PROCESSING_SKLEARN)
+        samples_ts = processTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_CVAE, list(objs.scm_obj.getTopologicalOrdering()))
+        factual_ts = processTensorOrDictOfTensors(args, objs, factual_ts, PROCESSING_CVAE, list(objs.scm_obj.getTopologicalOrdering()))
 
         if recourse_type == 'm1_cvae':
           sample_from = 'posterior'
@@ -843,7 +845,7 @@ def _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, rec
         )
         # TODO: add deprocessing (raw)
         samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
-        # samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_SKLEARN)
+        samples_ts = deprocessTensorOrDictOfTensors(args, objs, samples_ts, PROCESSING_CVAE, list(objs.scm_obj.getTopologicalOrdering()))
 
   return samples_ts
 
@@ -1055,7 +1057,7 @@ def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervent
     # CONSTRUCT COMPUTATION GRAPH
     # ========================================================================
 
-    samples_ts = _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, recourse_type)
+    samples_ts = _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, action_set_ts, recourse_type)
 
     # ========================================================================
     # COMPUTE LOSS
@@ -1144,7 +1146,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 
   # TODO: make input args
   capped_loss = False
-  num_epochs = 2500
+  num_epochs = 1000
   lambda_opt = 1 # initial value
   lambda_opt_update_every = 50
   lambda_opt_learning_rate = 0.5
@@ -1170,7 +1172,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     # CONSTRUCT COMPUTATION GRAPH
     # ========================================================================
 
-    samples_ts = _samplingInnerLoopTensor(args, objs, factual_instance_ts, action_set_ts, recourse_type)
+    samples_ts = _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, action_set_ts, recourse_type)
 
     # ========================================================================
     # COMPUTE LOSS
@@ -1370,7 +1372,7 @@ def scatterDataset(args, objs, ax):
   X_test_numpy = X_test.to_numpy()
   y_train = y_train.to_numpy()
   y_test = y_test.to_numpy()
-  number_of_samples_to_plot = 100
+  number_of_samples_to_plot = args.num_display_samples
   for idx in range(number_of_samples_to_plot):
     color_train = 'black' if y_train[idx] == 1 else 'magenta'
     color_test = 'black' if y_test[idx] == 1 else 'magenta'
@@ -1591,7 +1593,9 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
     for recourse_type in recourse_types:
 
       tmp = {}
-      save_path = f'{experiment_folder_name}/_optimization_results/{recourse_type}_factual_instance_{factual_instance_idx}'
+      save_path = f'{experiment_folder_name}/_optimization_results/factual_instance_{factual_instance_idx}'
+      os.mkdir(save_path)
+      save_path = f'{experiment_folder_name}/_optimization_results/factual_instance_{factual_instance_idx}/{recourse_type}'
       os.mkdir(save_path)
 
       start_time = time.time()
@@ -1884,12 +1888,12 @@ if __name__ == "__main__":
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
     # ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
-    # ('m1_gaus', 'D'), \
-    # ('m1_cvae', 'x'), \
+    ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
+    ('m1_gaus', 'D'), \
+    ('m1_cvae', 'x'), \
     # ('m2_true', 'o'), \
-    # ('m2_gaus', 's'), \
+    ('m2_gaus', 's'), \
     ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]

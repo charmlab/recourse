@@ -38,7 +38,7 @@ def sample_from_KRR_model(model, X_new):
         Y_train.T,
         torch.matmul(inv_cov, K_new),
     )
-    return Y_new
+    return Y_new.float()
 
 
 
