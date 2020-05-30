@@ -43,13 +43,6 @@ np.random.seed(RANDOM_SEED)
 ACCEPTABLE_POINT_RECOURSE = {'m0_true', 'm1_alin', 'm1_akrr'}
 ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cvae', 'm2_cvae_ps'}
 
-# class Instance(object):
-#   def __init__(self, endogenous_dict, exogenous_dict):
-
-#     # assert()
-#     self.endogenous_dict = endogenous_dict
-#     self.exogenous_dict = exogenous_dict
-
 PROCESSING_SKLEARN = 'standardize'
 PROCESSING_GAUS = 'raw'
 PROCESSING_CVAE = 'raw'
@@ -105,6 +98,20 @@ def measureActionSetCost(args, objs, factual_instance, action_set):
     return torch.norm(deltas, p=args.norm_type)
   else:
     raise Exception(f'Mismatching or unsupport datatypes.')
+
+
+def getColumnIndicesFromNames(args, objs, column_names):
+  # this is index in df, need to -1 to get index in x_counter / do_update,
+  # because the first column of df is 'y' (amir: what if column ordering is
+  # changed? this code breaks abstraction.)
+  column_indices = []
+  for column_name in column_names:
+    tmp_1 = objs.dataset_obj.data_frame_kurz.columns.get_loc(column_name) - 1
+    tmp_2 = list(objs.scm_obj.getTopologicalOrdering()).index(column_name)
+    tmp_3 = list(objs.dataset_obj.getInputAttributeNames()).index(column_name)
+    assert tmp_1 == tmp_2 == tmp_3
+    column_indices.append(tmp_1)
+  return column_indices
 
 
 def getIndexOfFactualInstanceInDataFrame(factual_instance, data_frame):
@@ -972,20 +979,6 @@ def getValidInterventionSets(args, objs):
   ]
 
   return all_intervention_tuples
-
-
-def getColumnIndicesFromNames(args, objs, column_names):
-  # this is index in df, need to -1 to get index in x_counter / do_update,
-  # because the first column of df is 'y' (amir: what if column ordering is
-  # changed? this code breaks abstraction.)
-  column_indices = []
-  for column_name in column_names:
-    tmp_1 = objs.dataset_obj.data_frame_kurz.columns.get_loc(column_name) - 1
-    tmp_2 = list(objs.scm_obj.getTopologicalOrdering()).index(column_name)
-    tmp_3 = list(objs.dataset_obj.getInputAttributeNames()).index(column_name)
-    assert tmp_1 == tmp_2 == tmp_3
-    column_indices.append(tmp_1)
-  return column_indices
 
 
 def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
