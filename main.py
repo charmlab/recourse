@@ -732,7 +732,27 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
       # Confirm parents columns are present/have assigned values in samples_ts
       assert not torch.any(torch.isnan(samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]))
 
-      if recourse_type == 'm1_alin':
+      if recourse_type == 'm0_true':
+
+        structural_equation = objs.scm_obj.structural_equations[node]
+        noise_pred = _getAbductionNoise(args, objs, node, parents, factual_instance_ts, structural_equation)
+        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = structural_equation(
+          noise_pred, # may be scalar, which will be case as pd.series when being summed.
+          *[samples_ts[:, getColumnIndicesFromNames(args, objs, [parent])] for parent in parents],
+        )
+
+      elif recourse_type == 'm2_true':
+
+        structural_equation = objs.scm_obj.structural_equations[node]
+        noises = torch.tensor(
+          objs.scm_obj.noises_distributions[getNoiseStringForNode(node)].sample(samples_ts.shape[0])
+        ).reshape(-1,1)
+        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = structural_equation(
+          noises,
+          *[samples_ts[:, getColumnIndicesFromNames(args, objs, [parent])] for parent in parents],
+        )
+
+      elif recourse_type == 'm1_alin':
 
         # TODO: processing deprocessing takes too much time!??
         # TODO: does this process/deprocess work correclty? gradients OK?
@@ -1023,10 +1043,6 @@ def getColumnIndicesFromNames(args, objs, column_names):
 
 def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
-  assert \
-    recourse_type not in {'m0_true', 'm2_true'}, \
-    f'{args.optimization_approach} does not currently support {recourse_type}'
-
   # TODO: don't just do 'x1'
   range_x1 = objs.dataset_obj.data_frame_kurz.describe()['x1']
   all_thetas = np.linspace(range_x1['min'], range_x1['max'], 100).astype('float32')
@@ -1121,10 +1137,6 @@ def plotOptimizationLandscape(args, objs, factual_instance, save_path, intervent
 
 
 def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
-
-  assert \
-    recourse_type not in {'m0_true', 'm2_true'}, \
-    f'{args.optimization_approach} does not currently support {recourse_type}'
 
   action_set_ts = dict(zip(
     intervention_set,
@@ -1887,14 +1899,14 @@ if __name__ == "__main__":
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
-    # ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
-    ('m1_gaus', 'D'), \
-    ('m1_cvae', 'x'), \
+    ('m0_true', '*'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
+    # ('m1_gaus', 'D'), \
+    # ('m1_cvae', 'x'), \
     # ('m2_true', 'o'), \
-    ('m2_gaus', 's'), \
-    ('m2_cvae', '+'), \
+    # ('m2_gaus', 's'), \
+    # ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
 
