@@ -70,6 +70,7 @@ def loadModelForDataset(model_class, dataset_string, experiment_folder_name = No
     file=log_file,
   )
   model_trained = model_pretrain.fit(X_train, y_train)
+  assert accuracy_score(y_train, model_trained.predict(X_train)) * 100 > 80
   print(f'\tTraining accuracy: %{accuracy_score(y_train, model_trained.predict(X_train)) * 100:.2f}', file=log_file)
   print(f'\tTesting accuracy: %{accuracy_score(y_test, model_trained.predict(X_test)) * 100:.2f}', file=log_file)
   print('[INFO] done.\n', file=log_file)

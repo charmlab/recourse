@@ -13,7 +13,7 @@ np.random.seed(RANDOM_SEED)
 from debug import ipsh
 
 mu_x, sigma_x = 0, 1 # mean and standard deviation for data
-mu_w, sigma_w = 0, 1 # mean and standard deviation for weights
+mu_w, sigma_w = 0, 0.5 # mean and standard deviation for weights
 n = 2500
 
 # from main import getNoiseStringForNode $ TODO: should be from ../main??
@@ -63,12 +63,22 @@ def load_random_data(scm_class, variable_type = 'real'):
   if variable_type == 'integer':
     X = np.round(4 * X)
 
-  # to create a more balanced dataset, do not set b to 0.
-  w = np.random.normal(mu_w, sigma_w, (d, 1))
-  # b = 0 # see below.
-  b = - np.mean(np.dot(X, w))
-  y = (np.sign(np.sign(np.dot(X, w) + b) + 1e-6) + 1) / 2 # add 1e-3 to prevent label 0.5
+  # sample a random hyperplane through the origin
+  w = np.random.rand(d, 1)
+
+  # get the average scale of (w^T)*X (this depends on the scale of the data)
+  scale = 2/np.mean(np.absolute(np.dot(X, w)))
+
+  predictions = 1/(1+np.exp(-scale * np.dot(X, w)))
+  # check that labels are not all 0 or 1
+  assert np.std(predictions) < 0.4
+
+  # sample labels from class probabilities in predictions
+  uniform_rv = np.random.rand(X.shape[0], 1)
+  y = uniform_rv < predictions  # add 1e-3 to prevent label 0.5
+
   y = pd.DataFrame(data=y, columns={'label'})
+
 
   data_frame_non_hot = pd.concat([y,X,U], axis=1)
   return data_frame_non_hot.astype('float64')
