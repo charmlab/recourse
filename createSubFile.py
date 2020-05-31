@@ -31,5 +31,6 @@ for scm_class in SCM_CLASS_VALUES:
            f' --sample_count {NUM_NEG_SAMPLES_PER_BATCH}', \
            f' -p $(Process)', \
         file=sub_file)
+        print('queue', file=sub_file)
         print('\n', file=sub_file)
 
