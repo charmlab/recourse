@@ -1272,7 +1272,7 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
   elif args.optimization_approach == 'grad_descent':
 
     valid_intervention_sets = getValidInterventionSets(args, objs)
-    print(f'\n\t[INFO] Computing optimal `{recourse_type}`: grad descent over {len(valid_intervention_sets)} intervention sets...')
+    print(f'\n\t[INFO] Computing optimal `{recourse_type}`: grad descent over {len(valid_intervention_sets)} intervention sets (max card: {args.max_intervention_cardinality})...')
 
     min_cost = 1e10
     min_cost_action_set = {}
@@ -1898,13 +1898,13 @@ if __name__ == "__main__":
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
     ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
-    # ('m1_gaus', 'D'), \
-    # ('m1_cvae', 'x'), \
-    # ('m2_true', 'o'), \
-    # ('m2_gaus', 's'), \
-    # ('m2_cvae', '+'), \
+    ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
+    ('m1_gaus', 'D'), \
+    ('m1_cvae', 'x'), \
+    ('m2_true', 'o'), \
+    ('m2_gaus', 's'), \
+    ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
 

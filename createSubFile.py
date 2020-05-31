@@ -16,21 +16,17 @@ print(f'request_memory = {request_memory}', file=sub_file)
 print('request_cpus = 2', file=sub_file)
 print('\n' * 2, file=sub_file)
 
-for (
-  scm_class,
-  lambda_lcb,
-  optimization_approach,
-) in tuple(
-  SCM_CLASS_VALUES,
-  LAMBDA_LCB_VALUES,
-  OPTIMIZATION_APPROACHES,
-):
-  print(f'arguments = main.py' + \
-     f' --scm_class {scm_class}' \
-     f' --lambda_lcb {lambda_lcb}' \
-     f' --optimization_approach {optimization_approach}' \
-     f' -p $(Process)', \
-  file=sub_file)
-  print(f'queue {REPEAT_COUNT}', file=sub_file)
-  print('\n', file=sub_file)
+for scm_class in SCM_CLASS_VALUES:
+  for lambda_lcb in LAMBDA_LCB_VALUES:
+    for optimization_approach in OPTIMIZATION_APPROACHES:
+      print(f'arguments = main.py' + \
+         f' --scm_class {scm_class}' \
+         f' --lambda_lcb {lambda_lcb}' \
+         f' --optimization_approach {optimization_approach}' \
+         f' --num_recourse_samples 100'
+         f' --max_intervention_cardinality 3'
+         f' -p $(Process)', \
+      file=sub_file)
+      print(f'queue {REPEAT_COUNT}', file=sub_file)
+      print('\n', file=sub_file)
 
