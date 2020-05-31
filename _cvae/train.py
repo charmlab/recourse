@@ -44,7 +44,7 @@ def train_cvae(args):
         torch.cuda.manual_seed(args.seed)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    writer = SummaryWriter(log_dir = args.debug_folder)
+    # writer = SummaryWriter(log_dir = args.debug_folder)
 
     ts = time.time()
 
