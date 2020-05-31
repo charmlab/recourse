@@ -1,6 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy.stats import norm # norm for univariate; use multivariate_normal otherwise
+from scipy.stats import bernoulli
 
 # univariate distributions
 class BaseDistribution(object):
@@ -59,6 +60,39 @@ class MixtureOfGaussians(BaseDistribution):
       prob * norm(mean, std).pdf(value)
       for (prob, mean, std) in zip(self.probs, self.means, self.stds)
     ])
+
+class Bernoulli(BaseDistribution):
+
+  def __init__(self, prob):
+    assert isinstance(prob, int) or isinstance(prob, float), 'Expected `prob` to be an int or float.'
+    assert prob >= 0 and prob <= 1
+
+    self.prob = prob
+    self.name = f'Bernoulli\t prob={self.prob}'
+
+  def sample(self, size=1):
+    tmp = bernoulli.rvs(self.prob, size=size)
+    return tmp[0] if size == 1 else list(tmp)
+
+  def pdf(self, value):
+    raise Exception(f'not supported yet; code should not come here.')
+    # return norm(self.mean, self.std).pdf(value)
+
+class Poisson(BaseDistribution):
+
+  def __init__(self, p_lambda):
+    assert isinstance(p_lambda, int) or isinstance(p_lambda, float), 'Expected `p_lambda` to be an int or float.'
+    assert p_lambda >= 0
+    self.p_lambda = p_lambda
+    self.name = f'RoundedPoisson\t prob={self.p_lambda}'
+
+  def sample(self, size=1):
+    tmp = np.random.poisson(self.p_lambda, size)
+    return tmp[0] if size == 1 else list(tmp)
+
+  def pdf(self, value):
+    raise Exception(f'not supported yet; code should not come here.')
+    # return norm(self.mean, self.std).pdf(value)
 
 
 # # test
