@@ -72,7 +72,6 @@ def loadClassifier(args, experiment_folder_name):
   # tmp = (1 + np.exp(tmp)) ** (-1)
   # # vs.
   # classifier_obj.predict_proba(X_all[:5])
-  # # ipsh()
   # plt.hist(classifier_obj.predict_proba(X_all)[:,1], bins=100)
   # plt.show()
 
@@ -372,11 +371,6 @@ def prettyPrintDict(my_dict):
   for key, value in my_dict.items():
     my_dict[key] = np.around(value, 3)
   return my_dict
-
-
-def getPredictionBatch(args, objs, instances_df):
-  sklearn_model = objs.classifier_obj
-  return sklearn_model.predict(instances_df)
 
 
 def getPrediction(args, objs, instance):
@@ -899,7 +893,7 @@ def isPointConstraintSatisfied(args, objs, factual_instance, action_set, recours
 
 
 def isDistrConstraintSatisfied(args, objs, factual_instance, action_set, recourse_type):
-  return computeLowerConfidenceBound(args, objs, factual_instance, action_set, recourse_type) >= 0.5
+  return computeLowerConfidenceBound(args, objs, factual_instance, action_set, recourse_type) > 0.5
 
 
 def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recourse_type):
@@ -911,11 +905,12 @@ def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recour
     recourse_type,
     args.num_mc_samples,
   )
-  monte_carlo_predictions = getPredictionBatch(
-    args,
-    objs,
-    monte_carlo_samples_df.to_numpy(),
-  )
+  # monte_carlo_predictions = getPredictionBatch(
+  #   args,
+  #   objs,
+  #   monte_carlo_samples_df.to_numpy(),
+  # ) # gives hard classification
+  monte_carlo_predictions = objs.classifier_obj.predict_proba(monte_carlo_samples_df)[:,1] # class 1 probabilities.
 
   expectation = np.mean(monte_carlo_predictions)
   variance = np.sum(np.power(monte_carlo_predictions - expectation, 2)) / (len(monte_carlo_predictions) - 1)
@@ -1014,11 +1009,6 @@ def getValidInterventionSets(args, objs):
 
 
 def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
-
-  # assert factual instance has prediction = 0
-  assert objs.classifier_obj.predict(
-    np.expand_dims(np.array(list(factual_instance.values())), axis=0)
-  ) == 0
 
   def saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_logs):
     fig, axes = plt.subplots(2 + len(intervention_set), 1, sharex=True)
@@ -1144,7 +1134,6 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     # get classifier
     h = getTorchClassifier(args, objs)
     pred_labels = h(samples_ts)
-    # ipsh()
 
     # compute LCB
     if torch.isnan(torch.std(pred_labels)) or torch.std(pred_labels) < 1e-10:
@@ -1246,6 +1235,11 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 
 def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_type):
 
+  # assert factual instance has prediction = 0
+  assert objs.classifier_obj.predict(
+    np.expand_dims(np.array(list(factual_instance.values())), axis=0)
+  ) == 0
+
   if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     constraint_handle = isPointConstraintSatisfied
   elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
@@ -1296,40 +1290,6 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
           min_cost_action_set = action_set
 
     print(f'\t done (optimal intervention set: {str(min_cost_action_set)}).')
-
-    # TODOs:
-
-    # Tuesday:
-    # [x] convert sklearn to torch classifier
-    # [x] compute sample mean and sample variance (of h_classifier)
-    # [x] first running example of grad descent on cvae
-    # [x] flush computational graph to speed up training without hogging memory
-    # [x] can we apply lambda grad only when constraint >= 0
-    # [x] loss_cost: use measureActionSetCost
-    # [x] loss_constraint: fix BCE loss > 0.5
-    # [x] learn lambda
-    # [x] fix nan in theta after some epochs
-    # [x] add plotting
-
-    # Wednesday:
-    # [x] cleanup models.py
-    # [x] make code dynamic: use dataframes (as auxiliary store of value? think intervention on x1->x2->x3)
-    # [x] investigate loss constraint 0 -> 1 -> 0 (because of not capping ()_+? yes it seems)
-    # [x] see parallels in training of gp, merge torch and autograd implementations
-    #     [x] get code running
-    #     [x] speed up, perhaps with Memoization
-    #     [x] investigate why are we seeing nan samples for 10 training samples?
-    #     [x] confirm same solution for the old/new sampleGP functions on brute-force
-    #     [x] build grad-descent solution on new sampleGP function
-    #     [ ] find params for grad-descent solution on new sampleGP function
-
-    # Thursday:
-    # [x] implement grad based for m0/m2_true
-    # [x] implement grad based for m1_alin
-    # [x] implement grad based for m1_akrr
-    # [ ] merge all repetitive code to work for numpy and tensors gracefully (e.g., process/deprocessDf, samplingInnerLoop, etc.)
-    # [ ] select hyperparms (initial values, learning rate, etc.) across settings: intervention nodes, recourse types (incl'd learned cvae model), factual instances, scms, etc.
-    # [ ] select hyperparms (initial values, learning rate, etc.) in comparison with brute_force
 
   else:
     raise Exception(f'{args.optimization_approach} not recognized.')
