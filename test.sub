@@ -2,17 +2,20 @@ executable = /home/amir/dev/recourse/_venv/bin/python
 error = _cluster_logs/test.$(Process).err
 output = _cluster_logs/test.$(Process).out
 log = _cluster_logs/test.$(Process).log
-request_memory = 8192
-request_cpus = 2
+request_memory = 32768
+request_cpus = 4
 
 
 
-arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach brute_force --num_recourse_samples 100 --max_intervention_cardinality 3 -p $(Process)
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach grad_descent --num_recourse_samples 100 --max_intervention_cardinality 3 -p $(Process)
 queue 1
 
-arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach brute_force --num_recourse_samples 100 --max_intervention_cardinality 3 -p $(Process)
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach grad_descent --num_recourse_samples 100 --max_intervention_cardinality 3 -p $(Process)
 queue 1
 
-arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach brute_force --num_recourse_samples 100 --max_intervention_cardinality 3 -p $(Process)
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach grad_descent --num_recourse_samples 100 --max_intervention_cardinality 3 -p $(Process)
 queue 1
+
 
