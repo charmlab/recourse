@@ -932,7 +932,15 @@ def getValidDiscretizedActionSets(args, objs):
 
   possible_actions_per_node = []
 
-  for attr_name_kurz in objs.dataset_obj.getInputAttributeNames('kurz'):
+  # IMPORTANT: you lose ordering of columns when using setdiff! This should not
+  # matter in this part of the code, but may elsewhere. For alternative, see:
+  # https://stackoverflow.com/questions/46261671/use-numpy-setdiff1d-keeping-the-order
+  intervenable_nodes = np.setdiff1d(
+    objs.dataset_obj.getInputAttributeNames('kurz'),
+    args.non_intervenable_nodes,
+  )
+
+  for attr_name_kurz in intervenable_nodes:
 
     attr_obj = objs.dataset_obj.attributes_kurz[attr_name_kurz]
 
@@ -977,7 +985,7 @@ def getValidDiscretizedActionSets(args, objs):
   ]
 
   all_action_sets = [
-    dict(zip(objs.dataset_obj.getInputAttributeNames(), elem))
+    dict(zip(intervenable_nodes, elem))
     for elem in all_action_tuples
   ]
 
@@ -998,7 +1006,15 @@ def getValidInterventionSets(args, objs):
     s = list(iterable)
     return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(len(s)+1))
 
-  all_intervention_tuples = powerset(objs.dataset_obj.getInputAttributeNames('kurz'))
+  # IMPORTANT: you lose ordering of columns when using setdiff! This should not
+  # matter in this part of the code, but may elsewhere. For alternative, see:
+  # https://stackoverflow.com/questions/46261671/use-numpy-setdiff1d-keeping-the-order
+  intervenable_nodes = np.setdiff1d(
+    objs.dataset_obj.getInputAttributeNames('kurz'),
+    args.non_intervenable_nodes,
+  )
+
+  all_intervention_tuples = powerset(intervenable_nodes)
   all_intervention_tuples = [
     elem for elem in all_intervention_tuples
     if len(elem) <= args.max_intervention_cardinality
@@ -1794,6 +1810,7 @@ if __name__ == "__main__":
   parser.add_argument('--num_display_samples', type=int, default=15)
   parser.add_argument('--num_mc_samples', type=int, default=100)
   parser.add_argument('--debug_flag', type=bool, default=False)
+  parser.add_argument('--non_intervenable_nodes', nargs = '+', type=str, default='')
   parser.add_argument('--max_intervention_cardinality', type=int, default=100)
   parser.add_argument('-o', '--optimization_approach', type=str, default='brute_force')
 
@@ -1836,7 +1853,8 @@ if __name__ == "__main__":
   # is x3 in the example above)
   assert \
     list(scm_obj.getTopologicalOrdering()) == \
-    list(dataset_obj.getInputAttributeNames())
+    list(dataset_obj.getInputAttributeNames()) == \
+    [elem for elem in dataset_obj.data_frame_kurz.columns if 'x' in elem] # super hack amir, but necessary right now (not much time)
 
   # TODO: add more assertions for columns of dataset matching the classifer?
   objs = AttrDict({
@@ -1844,7 +1862,6 @@ if __name__ == "__main__":
     'dataset_obj': dataset_obj,
     'classifier_obj': classifier_obj,
   })
-  # visualizeDatasetAndFixedModel(args, objs)
 
   # TODO: describe scm_obj
   print(f'Describe original data:\n{getOriginalDataFrame(objs, args.num_train_samples).describe()}')
