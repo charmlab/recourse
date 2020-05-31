@@ -122,14 +122,14 @@ def train_cvae(args):
         MSE_validation = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
         KLD_validation = -0.5 * torch.mean(torch.sum(1 + log_var - mean.pow(2) - log_var.exp(), axis=1))
 
-        writer.add_scalars(f'loss/{args.name}', {
-            'MSE_train': MSE_train,
-            'KLD_train': KLD_train,
-            # 'sum_train': MSE_train + KLD_train,
-            'MSE_validation': MSE_validation,
-            'KLD_validation': KLD_validation,
-            # 'sum_validation': MSE_validation + KLD_validation,
-        }, epoch)
+        # writer.add_scalars(f'loss/{args.name}', {
+        #     'MSE_train': MSE_train,
+        #     'KLD_train': KLD_train,
+        #     # 'sum_train': MSE_train + KLD_train,
+        #     'MSE_validation': MSE_validation,
+        #     'KLD_validation': KLD_validation,
+        #     # 'sum_validation': MSE_validation + KLD_validation,
+        # }, epoch)
 
         moving_window_size = 20
         all_mse_validation_losses.append(MSE_validation)
