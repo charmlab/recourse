@@ -1122,7 +1122,10 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   start_time = time.time()
   if args.debug_flag:
     print(f'\t\t[INFO] initial action set: {str({k : np.around(v.detach().item(), 4) for k,v in action_set_ts.items()})}') # TODO: use pretty print
-  for epoch in tqdm(range(1, num_epochs + 1)):
+
+  # https://stackoverflow.com/a/52017595/2759976
+  iterator = tqdm(range(1, num_epochs + 1))
+  for epoch in iterator:
     # lambda_opt_learning_rate = lambda_opt_learning_rate_initial / epoch
     # lambda_opt_learning_rate = lambda_opt_learning_rate_initial * .99**epoch
 
@@ -1185,6 +1188,8 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     # stop if past K valid thetas did not improve upon best previous cost
     if no_decrease_in_min_valid_cost > early_stopping_K:
       saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_logs)
+      # https://stackoverflow.com/a/52017595/2759976
+      iterator.close()
       break
 
     # ========================================================================
@@ -1865,6 +1870,10 @@ if __name__ == "__main__":
   #     * objs.dataset_obj.getInputAttributeNames()
   #     * objs.scm_obj.getTopologicalOrdering()
   # DO NOT USE, e.g., for key in factual_instance.keys(), whose ordering may differ!
+  # IMPORTANT: ordering may be [x3, x2, x1, x4, x5, x6] as is the case of the
+  # 6-variable model.. this is OK b/c the dataset is generated as per this order
+  # and consequently the model is trained as such as well (where the 1st feature
+  # is x3 in the example above)
   assert \
     list(scm_obj.getTopologicalOrdering()) == \
     list(dataset_obj.getInputAttributeNames())
