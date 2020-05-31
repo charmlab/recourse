@@ -90,7 +90,7 @@ def getTorchClassifier(args, objs):
   #   ) * 0.05 + float(fixed_model_b)
   # )
   fixed_model = lambda x: torch.sigmoid(
-    0.05 * (
+    (
       torch.nn.functional.linear(
         x,
         torch.from_numpy(fixed_model_w).float(),
@@ -1884,6 +1884,7 @@ if __name__ == "__main__":
     'dataset_obj': dataset_obj,
     'classifier_obj': classifier_obj,
   })
+  # visualizeDatasetAndFixedModel(args, objs)
 
   # TODO: describe scm_obj
   print(f'Describe original data:\n{getOriginalDataFrame(objs, args.num_train_samples).describe()}')

@@ -132,14 +132,14 @@ def loadSCM(scm_class, experiment_folder_name = None):
 
     structural_equations_np = {
       'x1': lambda n_samples,        :           n_samples,
-      'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
-      'x3': lambda n_samples, x1, x2 : x1 + x2 + n_samples,
+      'x2': lambda n_samples, x1     :  x1 + n_samples,
+      'x3': lambda n_samples, x1, x2 : 0.5 * (x1 + x2) + n_samples,
     }
     structural_equations_ts = structural_equations_np
     noises_distributions = {
       'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
       'u2': Normal(0, 1),
-      'u3': Normal(0, 5),
+      'u3': Normal(0, 1),
     }
 
   elif scm_class == 'sanity-3-anm':
