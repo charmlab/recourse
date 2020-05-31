@@ -83,11 +83,19 @@ def loadClassifier(args, experiment_folder_name):
 def getTorchClassifier(args, objs):
   fixed_model_w = objs.classifier_obj.coef_
   fixed_model_b = objs.classifier_obj.intercept_
+  # fixed_model = lambda x: torch.sigmoid(
+  #   torch.nn.functional.linear(
+  #     x,
+  #     torch.from_numpy(fixed_model_w).float(),
+  #   ) * 0.05 + float(fixed_model_b)
+  # )
   fixed_model = lambda x: torch.sigmoid(
-    torch.nn.functional.linear(
-      x,
-      torch.from_numpy(fixed_model_w).float(),
-    ) * 0.05 + float(fixed_model_b)
+    0.05 * (
+      torch.nn.functional.linear(
+        x,
+        torch.from_numpy(fixed_model_w).float(),
+      ) + float(fixed_model_b)
+    )
   )
   return fixed_model
 
@@ -1817,7 +1825,7 @@ if __name__ == "__main__":
   parser.add_argument('--grid_search_bins', type=int, default=5)
   parser.add_argument('--num_train_samples', type=int, default=250)
   parser.add_argument('--num_validation_samples', type=int, default=250)
-  parser.add_argument('--num_recourse_samples', type=int, default=30)
+  parser.add_argument('--num_recourse_samples', type=int, default=10)
   parser.add_argument('--num_display_samples', type=int, default=15)
   parser.add_argument('--num_mc_samples', type=int, default=100)
   parser.add_argument('--debug_flag', type=bool, default=False)
