@@ -70,12 +70,12 @@ def loadClassifier(args, experiment_folder_name):
   # intercept = classifier_obj.intercept_
   # tmp = np.dot(samples, weights.T) + intercept
   # tmp = (1 + np.exp(tmp)) ** (-1)
-  # vs.
+  # # vs.
   # classifier_obj.predict_proba(X_all[:5])
-
-  # ipsh()
+  # # ipsh()
   # plt.hist(classifier_obj.predict_proba(X_all)[:,1], bins=100)
   # plt.show()
+
   return classifier_obj
 
 
