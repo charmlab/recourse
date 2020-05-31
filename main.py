@@ -1630,7 +1630,9 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
     tmp_df = pd.DataFrame(metrics_summary, recourse_types)
     print(tmp_df)
     tmp_df.to_csv(f'{experiment_folder_name}/_comparison.txt', sep='\t')
-    tmp_df.to_pickle(f'{experiment_folder_name}/_comparison.pkl')
+    with open(f'{experiment_folder_name}/_comparison.txt', 'a') as out_file:
+      out_file.write(f'\nN = {enumeration_idx + 1}')
+    tmp_df.to_pickle(f'{experiment_folder_name}/_comparison')
 
   # TODO: FIX
   # # Figure
@@ -1917,6 +1919,7 @@ if __name__ == "__main__":
   if args.experiment == 5:
     experiment5(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   elif args.experiment == 6:
+    # experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
     experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   elif args.experiment == 8:
     experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
