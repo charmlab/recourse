@@ -7,6 +7,7 @@
 import sys
 import pickle
 import numpy as np
+import pandas as pd
 
 import utils
 import loadData
@@ -46,6 +47,9 @@ def loadModelForDataset(model_class, dataset_string, experiment_folder_name = No
 
   dataset_obj = loadData.loadDataset(dataset_string, return_one_hot = True, load_from_cache = True, debug_flag = False)
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  X_all = pd.concat([X_train, X_test], axis = 0)
+  y_all = pd.concat([y_train, y_test], axis = 0)
+  assert sum(y_all) / len(y_all) == 0.5, 'Expected class balance should be at most 50/50%.'
   feature_names = dataset_obj.getInputAttributeNames('kurz') # easier to read (nothing to do with one-hot vs non-hit!)
 
   if model_class == 'tree':

@@ -60,7 +60,23 @@ def loadDataset(args, experiment_folder_name):
 
 @utils.Memoize
 def loadClassifier(args, experiment_folder_name):
-  return loadModel.loadModelForDataset(args.classifier_class, args.dataset_class, experiment_folder_name)
+  classifier_obj = loadModel.loadModelForDataset(args.classifier_class, args.dataset_class, experiment_folder_name)
+  dataset_obj = loadDataset(args, experiment_folder_name)
+  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+  X_all = pd.concat([X_train, X_test], axis = 0)
+
+  # samples = X_all.iloc[:5].to_numpy()
+  # weights = classifier_obj.coef_
+  # intercept = classifier_obj.intercept_
+  # tmp = np.dot(samples, weights.T) + intercept
+  # tmp = (1 + np.exp(tmp)) ** (-1)
+  # vs.
+  # classifier_obj.predict_proba(X_all[:5])
+
+  # ipsh()
+  # plt.hist(classifier_obj.predict_proba(X_all)[:,1], bins=100)
+  # plt.show()
+  return classifier_obj
 
 
 @utils.Memoize
@@ -991,6 +1007,11 @@ def getValidInterventionSets(args, objs):
 
 def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
 
+  # assert factual instance has prediction = 0
+  assert objs.classifier_obj.predict(
+    np.expand_dims(np.array(list(factual_instance.values())), axis=0)
+  ) == 0
+
   def saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_logs):
     fig, axes = plt.subplots(2 + len(intervention_set), 1, sharex=True)
 
@@ -1070,6 +1091,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   # DO NOT USE .copy() on the dict, the same value objects (i.e., the same trainable tensor will be used!)
   best_action_set_ts = {k : v.clone().detach() for k,v in action_set_ts.items()}
   best_action_set_epoch = 1
+  recourse_satisfied = False
 
   capped_loss = False
   num_epochs = 5000
@@ -1111,6 +1133,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     # get classifier
     h = getTorchClassifier(args, objs)
     pred_labels = h(samples_ts)
+    # ipsh()
 
     # compute LCB
     if torch.isnan(torch.std(pred_labels)) or torch.std(pred_labels) < 1e-10:
@@ -1143,10 +1166,11 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     if value_lcb.detach() > 0.5:
       # check if cost decreased from previous best
       if loss_cost.detach() < min_valid_cost:
-        min_valid_cost = loss_cost.detach()
+        min_valid_cost = loss_cost.detach().item()
         # DO NOT USE .copy() on the dict, the same value objects (i.e., the same trainable tensor will be used!)
         best_action_set_ts = {k : v.clone().detach() for k,v in action_set_ts.items()}
         best_action_set_epoch = epoch
+        recourse_satisfied = True
       else:
         no_decrease_in_min_valid_cost += 1
 
@@ -1204,7 +1228,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   # whether or not it triggered K times to initiate early stopping.
   action_set = {k : v.detach().item() for k,v in best_action_set_ts.items()}
   action_set = deprocessDataFrameOrDict(args, objs, action_set, tmp_processing_type)
-  return action_set
+  return action_set, recourse_satisfied, min_valid_cost
 
 
 def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_type):
@@ -1242,9 +1266,18 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
     for idx, intervention_set in enumerate(valid_intervention_sets):
       # print(f'\n\t[INFO] intervention set #{idx+1}/{len(valid_intervention_sets)}: {str(intervention_set)}')
       # plotOptimizationLandscape(args, objs, factual_instance, save_path, intervention_set, recourse_type)
-      action_set = performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type)
+      action_set, recourse_satisfied, cost_of_action_set = performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type)
       if constraint_handle(args, objs, factual_instance, action_set, recourse_type):
-        cost_of_action_set = measureActionSetCost(args, objs, factual_instance, action_set)
+        assert recourse_satisfied # a bit redundant, but just in case, we check
+                                  # that the MC samples from constraint_handle()
+                                  # on the line above and the MC samples from
+                                  # performGradDescentOptimization() both agree
+                                  # that recourse has been satisfied
+        assert np.isclose( # won't be exact becuase the former is float32 tensor
+          cost_of_action_set,
+          measureActionSetCost(args, objs, factual_instance, action_set),
+          atol = 1e-2,
+        )
         if cost_of_action_set < min_cost:
           min_cost = cost_of_action_set
           min_cost_action_set = action_set
@@ -1409,7 +1442,12 @@ def getNegativelyPredictedInstances(args, objs):
   tmp_counter = 1
   for factual_instance_idx, row in X_all.iterrows():
     factual_instance = row.T.to_dict()
-    if getPrediction(args, objs, factual_instance) == 0:
+    # probability of class 0 should be larger then %50 + eps
+    epsilon = 0.05
+    if objs.classifier_obj.predict_proba(
+      np.expand_dims(np.array(list(factual_instance.values())), axis=0)
+    )[0][0] > 0.50 + epsilon:
+    # if getPrediction(args, objs, factual_instance) == 0:
       tmp_counter += 1
       factual_instances_dict[factual_instance_idx] = factual_instance
     if tmp_counter > args.num_recourse_samples:
@@ -1783,7 +1821,7 @@ if __name__ == "__main__":
   parser.add_argument('--num_display_samples', type=int, default=15)
   parser.add_argument('--num_mc_samples', type=int, default=100)
   parser.add_argument('--debug_flag', type=bool, default=False)
-  parser.add_argument('--max_intervention_cardinality', type=int, default=3)
+  parser.add_argument('--max_intervention_cardinality', type=int, default=100)
   parser.add_argument('-o', '--optimization_approach', type=str, default='brute_force')
 
   args = parser.parse_args()
