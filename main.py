@@ -1628,7 +1628,7 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
   print(tmp_df)
   tmp_df.to_csv(f'{experiment_folder_name}/_comparison.txt', sep='\t')
   with open(f'{experiment_folder_name}/_comparison.txt', 'a') as out_file:
-    out_file.write(f'\nN = {len(per_instance_results.keys())}')
+    out_file.write(f'\nN = {len(per_instance_results.keys())}\n')
   tmp_df.to_pickle(f'{experiment_folder_name}/_comparison')
 
   # TODO: FIX

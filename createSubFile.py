@@ -4,10 +4,10 @@ SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
 LAMBDA_LCB_VALUES = [1] # np.linspace(0,2.5,6)
 OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
 
-request_memory = 8192*4
-
 NUM_BATCHES = 10
 NUM_NEG_SAMPLES_PER_BATCH = 5
+
+request_memory = 8192*4
 
 sub_file = open('test.sub','w')
 print('executable = /home/amir/dev/recourse/_venv/bin/python', file=sub_file)

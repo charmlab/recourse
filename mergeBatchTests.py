@@ -49,7 +49,9 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
 
 
 for scm_class in SCM_CLASS_VALUES:
+
   for lambda_lcb in LAMBDA_LCB_VALUES:
+
     for optimization_approach in OPTIMIZATION_APPROACHES:
 
       counter = counter + 1
