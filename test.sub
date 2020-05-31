@@ -7,15 +7,183 @@ request_cpus = 4
 
 
 
-arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach grad_descent --num_recourse_samples 100 --max_intervention_cardinality 3 -p $(Process)
-queue 1
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach brute_force --batch_number 0 --sample_count 5  -p $(Process)
 
 
-arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach grad_descent --num_recourse_samples 100 --max_intervention_cardinality 3 -p $(Process)
-queue 1
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach brute_force --batch_number 1 --sample_count 5  -p $(Process)
 
 
-arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach grad_descent --num_recourse_samples 100 --max_intervention_cardinality 3 -p $(Process)
-queue 1
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach brute_force --batch_number 2 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach brute_force --batch_number 3 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach brute_force --batch_number 4 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach brute_force --batch_number 5 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach brute_force --batch_number 6 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach brute_force --batch_number 7 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach brute_force --batch_number 8 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach brute_force --batch_number 9 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach grad_descent --batch_number 0 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach grad_descent --batch_number 1 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach grad_descent --batch_number 2 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach grad_descent --batch_number 3 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach grad_descent --batch_number 4 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach grad_descent --batch_number 5 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach grad_descent --batch_number 6 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach grad_descent --batch_number 7 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach grad_descent --batch_number 8 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-lin --lambda_lcb 1 --optimization_approach grad_descent --batch_number 9 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach brute_force --batch_number 0 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach brute_force --batch_number 1 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach brute_force --batch_number 2 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach brute_force --batch_number 3 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach brute_force --batch_number 4 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach brute_force --batch_number 5 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach brute_force --batch_number 6 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach brute_force --batch_number 7 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach brute_force --batch_number 8 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach brute_force --batch_number 9 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach grad_descent --batch_number 0 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach grad_descent --batch_number 1 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach grad_descent --batch_number 2 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach grad_descent --batch_number 3 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach grad_descent --batch_number 4 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach grad_descent --batch_number 5 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach grad_descent --batch_number 6 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach grad_descent --batch_number 7 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach grad_descent --batch_number 8 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-anm --lambda_lcb 1 --optimization_approach grad_descent --batch_number 9 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach brute_force --batch_number 0 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach brute_force --batch_number 1 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach brute_force --batch_number 2 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach brute_force --batch_number 3 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach brute_force --batch_number 4 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach brute_force --batch_number 5 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach brute_force --batch_number 6 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach brute_force --batch_number 7 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach brute_force --batch_number 8 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach brute_force --batch_number 9 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach grad_descent --batch_number 0 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach grad_descent --batch_number 1 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach grad_descent --batch_number 2 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach grad_descent --batch_number 3 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach grad_descent --batch_number 4 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach grad_descent --batch_number 5 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach grad_descent --batch_number 6 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach grad_descent --batch_number 7 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach grad_descent --batch_number 8 --sample_count 5  -p $(Process)
+
+
+arguments = main.py --scm_class sanity-3-gen --lambda_lcb 1 --optimization_approach grad_descent --batch_number 9 --sample_count 5  -p $(Process)
 
 

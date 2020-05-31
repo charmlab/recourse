@@ -1604,28 +1604,32 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
     pprint(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results.txt', 'w'))
     print(f'done.')
 
-    # Table
-    metrics_summary = {}
-    # metrics = ['scf_validity', 'ic_m1_gaus', 'ic_m1_cvae', 'ic_m2_true', 'ic_m2_gaus', 'ic_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
-    metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime']
+    createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_folder_name)
 
+
+def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_folder_name):
+  # Table
+  metrics_summary = {}
+  # metrics = ['scf_validity', 'ic_m1_gaus', 'ic_m1_cvae', 'ic_m2_true', 'ic_m2_gaus', 'ic_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
+  metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime']
+
+  for metric in metrics:
+    metrics_summary[metric] = []
+  # metrics_summary = dict.fromkeys(metrics, []) # BROKEN: all lists will be shared; causing massive headache!!!
+
+  for recourse_type in recourse_types:
     for metric in metrics:
-      metrics_summary[metric] = []
-    # metrics_summary = dict.fromkeys(metrics, []) # BROKEN: all lists will be shared; causing massive headache!!!
-
-    for recourse_type in recourse_types:
-      for metric in metrics:
-        metrics_summary[metric].append(
-          f'{np.around(np.nanmean([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}' + \
-          '+/-' + \
-          f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}'
-        )
-    tmp_df = pd.DataFrame(metrics_summary, recourse_types)
-    print(tmp_df)
-    tmp_df.to_csv(f'{experiment_folder_name}/_comparison.txt', sep='\t')
-    with open(f'{experiment_folder_name}/_comparison.txt', 'a') as out_file:
-      out_file.write(f'\nN = {enumeration_idx + 1}')
-    tmp_df.to_pickle(f'{experiment_folder_name}/_comparison')
+      metrics_summary[metric].append(
+        f'{np.around(np.nanmean([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}' + \
+        '+/-' + \
+        f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}'
+      )
+  tmp_df = pd.DataFrame(metrics_summary, recourse_types)
+  print(tmp_df)
+  tmp_df.to_csv(f'{experiment_folder_name}/_comparison.txt', sep='\t')
+  with open(f'{experiment_folder_name}/_comparison.txt', 'a') as out_file:
+    out_file.write(f'\nN = {len(per_instance_results.keys())}')
+  tmp_df.to_pickle(f'{experiment_folder_name}/_comparison')
 
   # TODO: FIX
   # # Figure
@@ -1821,8 +1825,7 @@ if __name__ == "__main__":
   # create experiment folder
   setup_name = \
     f'{args.scm_class}__{args.dataset_class}__{args.classifier_class}' + \
-    f'__ntrain_{args.num_train_samples}' +\
-    f'__nval_{args.num_validation_samples}' +\
+    f'__ntrain_{args.num_train_samples}' + \
     f'__nmc_{args.num_mc_samples}' + \
     f'__lambda_lcb_{args.lambda_lcb}' + \
     f'__opt_{args.optimization_approach}' + \

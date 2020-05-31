@@ -1,13 +1,13 @@
 import numpy as np
 
 SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
-# LAMBDA_LCB_VALUES = np.linspace(0,2.5,6)
-LAMBDA_LCB_VALUES = [1]
-# OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
-OPTIMIZATION_APPROACHES = ['grad_descent']
-REPEAT_COUNT = 1
+LAMBDA_LCB_VALUES = [1] # np.linspace(0,2.5,6)
+OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
 
 request_memory = 8192*4
+
+NUM_BATCHES = 10
+NUM_NEG_SAMPLES_PER_BATCH = 5
 
 sub_file = open('test.sub','w')
 print('executable = /home/amir/dev/recourse/_venv/bin/python', file=sub_file)
@@ -21,14 +21,15 @@ print('\n' * 2, file=sub_file)
 for scm_class in SCM_CLASS_VALUES:
   for lambda_lcb in LAMBDA_LCB_VALUES:
     for optimization_approach in OPTIMIZATION_APPROACHES:
-      print(f'arguments = main.py' + \
-         f' --scm_class {scm_class}' \
-         f' --lambda_lcb {lambda_lcb}' \
-         f' --optimization_approach {optimization_approach}' \
-         f' --num_recourse_samples 100'
-         f' --max_intervention_cardinality 3'
-         f' -p $(Process)', \
-      file=sub_file)
-      print(f'queue {REPEAT_COUNT}', file=sub_file)
-      print('\n', file=sub_file)
+      for batch_number in range(NUM_BATCHES):
+        print(f'arguments = main.py' + \
+           f' --scm_class {scm_class}' \
+           f' --lambda_lcb {lambda_lcb}' \
+           f' --optimization_approach {optimization_approach}' \
+           # f' --max_intervention_cardinality 3'
+           f' --batch_number {batch_number}' \
+           f' --sample_count {NUM_NEG_SAMPLES_PER_BATCH}', \
+           f' -p $(Process)', \
+        file=sub_file)
+        print('\n', file=sub_file)
 
