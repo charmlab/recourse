@@ -1416,7 +1416,6 @@ def getNegativelyPredictedInstances(args, objs):
   # training set for GP, and hence a posterior over noise for it is computed
   # (i.e., we can cache).
 
-
   # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1; do not use
   # processDataFrameOrDict because classifier is trained on original data
   X_all = getOriginalDataFrame(objs, args.num_train_samples)
@@ -1427,20 +1426,14 @@ def getNegativelyPredictedInstances(args, objs):
   # # variable for abduction and for m1_gaus we need the index as well.
   # X_all = X_all.iloc[args.num_train_samples:]
 
-  factual_instances_dict = {}
-  tmp_counter = 1
-  for factual_instance_idx, row in X_all.iterrows():
-    factual_instance = row.T.to_dict()
-    # probability of class 0 should be larger then %50 + eps
-    epsilon = 0.05
-    if objs.classifier_obj.predict_proba(
-      np.expand_dims(np.array(list(factual_instance.values())), axis=0)
-    )[0][0] > 0.50 + epsilon:
-    # if getPrediction(args, objs, factual_instance) == 0:
-      tmp_counter += 1
-      factual_instances_dict[factual_instance_idx] = factual_instance
-    if tmp_counter > args.num_recourse_samples:
-      break
+  epsilon = 0.05
+  predict_proba_list = objs.classifier_obj.predict_proba(X_all)[:,0]
+  predict_proba_in_negative_class = predict_proba_list > 0.50 + epsilon
+  negatively_predicted_instances = X_all[predict_proba_in_negative_class]
+  factual_instances_dict = negatively_predicted_instances[
+    args.batch_number * args.sample_count : (args.batch_number + 1) * args.sample_count
+  ].T.to_dict()
+  assert len(factual_instances_dict.keys()) == args.sample_count, 'Not enough samples.'
   return factual_instances_dict
 
 
@@ -1808,13 +1801,14 @@ if __name__ == "__main__":
   parser.add_argument('--grid_search_bins', type=int, default=20)
   parser.add_argument('--num_train_samples', type=int, default=250)
   parser.add_argument('--num_validation_samples', type=int, default=250)
-  parser.add_argument('--num_recourse_samples', type=int, default=10)
   parser.add_argument('--num_display_samples', type=int, default=15)
   parser.add_argument('--num_mc_samples', type=int, default=100)
   parser.add_argument('--debug_flag', type=bool, default=False)
   parser.add_argument('--non_intervenable_nodes', nargs = '+', type=str, default='')
   parser.add_argument('--max_intervention_cardinality', type=int, default=100)
   parser.add_argument('-o', '--optimization_approach', type=str, default='brute_force')
+  parser.add_argument('--batch_number', type=int, default=0)
+  parser.add_argument('--sample_count', type=int, default=5)
 
   args = parser.parse_args()
 
@@ -1828,10 +1822,12 @@ if __name__ == "__main__":
   setup_name = \
     f'{args.scm_class}__{args.dataset_class}__{args.classifier_class}' + \
     f'__ntrain_{args.num_train_samples}' +\
+    f'__nval_{args.num_validation_samples}' +\
     f'__nmc_{args.num_mc_samples}' + \
-    f'__nrecourse_{args.num_recourse_samples}' + \
     f'__lambda_lcb_{args.lambda_lcb}' + \
     f'__opt_{args.optimization_approach}' + \
+    f'__batch_{args.batch_number}' + \
+    f'__count_{args.sample_count}' + \
     f'__pid{args.process_id}'
   experiment_folder_name = f"_experiments/{datetime.now().strftime('%Y.%m.%d_%H.%M.%S')}__{setup_name}"
   os.mkdir(f'{experiment_folder_name}')
