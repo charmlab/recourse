@@ -17,7 +17,8 @@ LAMBDA_LCB_VALUES = [1] # np.linspace(0,2.5,6)
 OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
 
 # experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments/'
-experiments_folder_path = '/Users/a6karimi/dev/recourse/_experiments/'
+# experiments_folder_path = '/Users/a6karimi/dev/recourse/_experiments/'
+experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/2020.06.01_backup/'
 all_counter = len(SCM_CLASS_VALUES) * len(LAMBDA_LCB_VALUES) * len(OPTIMIZATION_APPROACHES)
 counter = 0
 
@@ -35,9 +36,9 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
   for recourse_type in recourse_types:
     for metric in metrics:
       metrics_summary[metric].append(
-        f'{np.around(np.nanmean([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}' + \
+        f'{np.around(np.nanmean([v[recourse_type][metric] for k,v in per_instance_results.items()]), 2):.2f}' + \
         '+/-' + \
-        f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}'
+        f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 2):.2f}'
       )
   tmp_df = pd.DataFrame(metrics_summary, recourse_types)
   print(tmp_df)

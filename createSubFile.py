@@ -1,7 +1,7 @@
 import numpy as np
 
 SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
-LAMBDA_LCB_VALUES = [1] # np.linspace(0,2.5,6)
+LAMBDA_LCB_VALUES = [2] # np.linspace(0,2.5,6)
 OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
 
 NUM_BATCHES = 10
