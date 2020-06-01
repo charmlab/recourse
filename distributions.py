@@ -23,42 +23,42 @@ class BaseDistribution(object):
 
 
 class Normal(BaseDistribution):
-  def __init__(self, mean, std):
+  def __init__(self, mean, var):
     assert isinstance(mean, int) or isinstance(mean, float), 'Expected `mean` to be an int or float.'
-    assert isinstance(std, int) or isinstance(std, float), 'Expected `std` to be an int or float.'
+    assert isinstance(var, int) or isinstance(var, float), 'Expected `var` to be an int or float.'
     self.mean = mean
-    self.std = std
-    self.name = f'Normal\t mean={self.mean}, std={self.std}'
+    self.var = var
+    self.name = f'Normal\t mean={self.mean}, var={self.var}'
 
   def sample(self, size=1):
-    tmp = [np.random.normal(self.mean, np.sqrt(self.std)) for _ in range(size)]
+    tmp = [np.random.normal(self.mean, np.sqrt(self.var)) for _ in range(size)]
     return tmp[0] if size == 1 else tmp
 
   def pdf(self, value):
-    return norm(self.mean, self.std).pdf(value)
+    return norm(self.mean, self.var).pdf(value)
 
 
 class MixtureOfGaussians(BaseDistribution):
 
-  def __init__(self, probs, means, stds):
+  def __init__(self, probs, means, vars):
     assert sum(probs) == 1, 'Mixture probabilities must sum to 1.'
-    assert len(probs) == len(means) == len(stds), 'Length mismatch.'
+    assert len(probs) == len(means) == len(vars), 'Length mismatch.'
     self.probs = probs
     self.means = means
-    self.stds = stds
-    self.name = f'MoG\t probs={self.probs}, means={self.means}, stds={self.stds}'
+    self.vars = vars
+    self.name = f'MoG\t probs={self.probs}, means={self.means}, vars={self.vars}'
 
   def sample(self, size=1):
     tmp = [
-      np.random.normal(self.means[mixture_idx], np.sqrt(self.stds[mixture_idx]))
+      np.random.normal(self.means[mixture_idx], np.sqrt(self.vars[mixture_idx]))
       for mixture_idx in np.random.choice(len(self.probs), size=size, p=self.probs)
     ]
     return tmp[0] if size == 1 else tmp
 
   def pdf(self, value):
     return np.sum([
-      prob * norm(mean, std).pdf(value)
-      for (prob, mean, std) in zip(self.probs, self.means, self.stds)
+      prob * norm(mean, var).pdf(value)
+      for (prob, mean, var) in zip(self.probs, self.means, self.vars)
     ])
 
 class Bernoulli(BaseDistribution):
@@ -76,15 +76,14 @@ class Bernoulli(BaseDistribution):
 
   def pdf(self, value):
     raise Exception(f'not supported yet; code should not come here.')
-    # return norm(self.mean, self.std).pdf(value)
 
 class Poisson(BaseDistribution):
 
   def __init__(self, p_lambda):
     assert isinstance(p_lambda, int) or isinstance(p_lambda, float), 'Expected `p_lambda` to be an int or float.'
-    assert p_lambda >= 0
+    assert p_lambda > 0
     self.p_lambda = p_lambda
-    self.name = f'RoundedPoisson\t prob={self.p_lambda}'
+    self.name = f'Poisson\t prob={self.p_lambda}'
 
   def sample(self, size=1):
     tmp = np.random.poisson(self.p_lambda, size)
@@ -92,7 +91,24 @@ class Poisson(BaseDistribution):
 
   def pdf(self, value):
     raise Exception(f'not supported yet; code should not come here.')
-    # return norm(self.mean, self.std).pdf(value)
+
+class Gamma(BaseDistribution):
+
+  def __init__(self, shape, scale):
+    assert isinstance(shape, int) or isinstance(shape, float), 'Expected `shape` to be an int or float.'
+    assert isinstance(scale, int) or isinstance(scale, float), 'Expected `scale` to be an int or float.'
+    assert shape > 0
+    assert scale > 0
+    self.shape = shape
+    self.scale = scale
+    self.name = f'Gamma\t shape={self.shape}, scale={self.scale}'
+
+  def sample(self, size=1):
+    tmp = np.random.gamma(self.shape, self.scale, size)
+    return tmp[0] if size == 1 else list(tmp)
+
+  def pdf(self, value):
+    raise Exception(f'not supported yet; code should not come here.')
 
 
 # # test

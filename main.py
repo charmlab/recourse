@@ -955,7 +955,7 @@ def getValidDiscretizedActionSets(args, objs):
             objs.dataset_obj.data_frame_kurz.describe()[attr_name_kurz]['min'],
             # bad code amir; don't access internal object attribute
             objs.dataset_obj.data_frame_kurz.describe()[attr_name_kurz]['max'],
-            args.grid_search_bins + 1
+            args.grid_search_bins
           ),
           number_decimals,
         )
