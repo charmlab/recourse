@@ -911,7 +911,8 @@ def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recour
   monte_carlo_predictions = objs.classifier_obj.predict_proba(monte_carlo_samples_df)[:,1] # class 1 probabilities.
 
   expectation = np.mean(monte_carlo_predictions)
-  variance = np.sum(np.power(monte_carlo_predictions - expectation, 2)) / (len(monte_carlo_predictions) - 1)
+  # variance = np.sum(np.power(monte_carlo_predictions - expectation, 2)) / (len(monte_carlo_predictions) - 1)
+  std = np.std(monte_carlo_predictions)
 
   # return expectation, variance
 
@@ -920,7 +921,7 @@ def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recour
   # > 0.5 OR < 0.5 FOR A FACTUAL SAMPLE WITH Y = 0 OR Y = 1, RESPECTIVELY.
 
   if getPrediction(args, objs, factual_instance) == 0:
-    return expectation - args.lambda_lcb * np.sqrt(variance) # NOTE DIFFERNCE IN SIGN OF STD
+    return expectation - args.lambda_lcb * std # NOTE DIFFERNCE IN SIGN OF STD
   else: # factual_prediction == 1
     raise Exception(f'Should only be considering negatively predicted individuals...')
     # return expectation + args.lambda_lcb * np.sqrt(variance) # NOTE DIFFERNCE IN SIGN OF STD
@@ -1425,7 +1426,7 @@ def getNegativelyPredictedInstances(args, objs):
   # X_all = X_all.iloc[args.num_train_samples:]
 
   predict_proba_list = objs.classifier_obj.predict_proba(X_all)[:,0]
-  predict_proba_in_negative_class = predict_proba_list > 0.50 + args.epsilon_boundary
+  predict_proba_in_negative_class = predict_proba_list > 0.5 + args.epsilon_boundary
   negatively_predicted_instances = X_all[predict_proba_in_negative_class]
   factual_instances_dict = negatively_predicted_instances[
     args.batch_number * args.sample_count : (args.batch_number + 1) * args.sample_count
@@ -1585,10 +1586,6 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
         tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], recourse_type), 3)
       else:
         tmp['ic_rec_type'] = np.NaN
-      # tmp['ic_m1_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_gaus'), 3)
-      # tmp['ic_m1_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm1_cvae'), 3)
-      # tmp['ic_m2_gaus'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_gaus'), 3)
-      # tmp['ic_m2_cvae'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_cvae'), 3)
       tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'])
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
 
