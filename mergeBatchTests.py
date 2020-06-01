@@ -98,7 +98,7 @@ for scm_class in SCM_CLASS_VALUES:
 
         print(f'Creating new merged folder {new_folder_path}')
         os.makedirs(new_folder_path, exist_ok = False)
-        files_to_copy = {'_args.txt', '_causal_graph.pdf', '_log_training.txt'}
+        files_to_copy = {'_args.txt', '_causal_graph.pdf', 'log_training.txt'}
         for file_name in files_to_copy:
           copyfile(
             os.path.join(random_batch_folder, file_name),

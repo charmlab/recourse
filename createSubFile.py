@@ -8,18 +8,18 @@ CLASSIFIER_VALUES = ['lr']
 # ==============================================================================
 # ==============================================================================
 
-SCM_CLASS_VALUES = ['german-credit']
-LAMBDA_LCB_VALUES = np.linspace(0,2.5,6)
-OPTIMIZATION_APPROACHES = ['grad_descent']
-CLASSIFIER_VALUES = ['lr', 'mlp']
+# SCM_CLASS_VALUES = ['german-credit']
+# LAMBDA_LCB_VALUES = np.linspace(0, 2.5, 6)
+# OPTIMIZATION_APPROACHES = ['grad_descent']
+# CLASSIFIER_VALUES = ['lr', 'mlp']
 
 # ==============================================================================
 # ==============================================================================
 
-SCM_CLASS_VALUES = ['german-credit']
-LAMBDA_LCB_VALUES =  np.linspace(0,2.5,6)
-OPTIMIZATION_APPROACHES = ['brute_force']
-CLASSIFIER_VALUES = ['tree']
+# SCM_CLASS_VALUES = ['german-credit']
+# LAMBDA_LCB_VALUES =  np.linspace(0, 2.5, 6)
+# OPTIMIZATION_APPROACHES = ['brute_force']
+# CLASSIFIER_VALUES = ['tree']
 
 # ==============================================================================
 # ==============================================================================
@@ -43,14 +43,14 @@ for scm_class in SCM_CLASS_VALUES:
     for lambda_lcb in LAMBDA_LCB_VALUES:
       for optimization_approach in OPTIMIZATION_APPROACHES:
         for batch_number in range(NUM_BATCHES):
-          command =  \
-            f'arguments = main.py' + \
+          command = \
+            f'arguments = main.py' \
             f' --scm_class {scm_class}' \
             f' --classifier_class {classifier_class}' \
             f' --lambda_lcb {lambda_lcb}' \
             f' --optimization_approach {optimization_approach}' \
             f' --batch_number {batch_number}' \
-            f' --sample_count {NUM_NEG_SAMPLES_PER_BATCH}', \
+            f' --sample_count {NUM_NEG_SAMPLES_PER_BATCH}' \
             f' -p $(Process)'
           if scm_class == 'german-credit':
             command += f' --grid_search_bins 10'
