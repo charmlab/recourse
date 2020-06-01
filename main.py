@@ -878,18 +878,16 @@ def getRecourseDistributionSample(args, objs, factual_instance, action_set, reco
 
 
 def isPointConstraintSatisfied(args, objs, factual_instance, action_set, recourse_type):
-  return didFlip(
+  counter_instance = computeCounterfactualInstance(
     args,
     objs,
     factual_instance,
-    computeCounterfactualInstance(
-      args,
-      objs,
-      factual_instance,
-      action_set,
-      recourse_type,
-    ),
+    action_set,
+    recourse_type,
   )
+  return objs.classifier_obj.predict_proba(
+    np.expand_dims(np.array(list(counter_instance.values())), axis=0)
+  )[0][1] > 0.5
 
 
 def isDistrConstraintSatisfied(args, objs, factual_instance, action_set, recourse_type):
@@ -947,7 +945,7 @@ def getValidDiscretizedActionSets(args, objs):
     if attr_obj.attr_type in {'numeric-real', 'numeric-int', 'binary'}:
 
       if attr_obj.attr_type == 'numeric-real':
-        number_decimals = 3
+        number_decimals = 5
       elif attr_obj.attr_type in {'numeric-int', 'binary'}:
         number_decimals = 0
 
@@ -1252,9 +1250,9 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_type):
 
   # assert factual instance has prediction = 0
-  assert objs.classifier_obj.predict(
+  assert objs.classifier_obj.predict_proba(
     np.expand_dims(np.array(list(factual_instance.values())), axis=0)
-  ) == 0
+  )[0][0] >= .50 + args.epsilon_boundary
 
   if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     constraint_handle = isPointConstraintSatisfied
@@ -1426,9 +1424,8 @@ def getNegativelyPredictedInstances(args, objs):
   # # variable for abduction and for m1_gaus we need the index as well.
   # X_all = X_all.iloc[args.num_train_samples:]
 
-  epsilon = 0.05
   predict_proba_list = objs.classifier_obj.predict_proba(X_all)[:,0]
-  predict_proba_in_negative_class = predict_proba_list > 0.50 + epsilon
+  predict_proba_in_negative_class = predict_proba_list > 0.50 + args.epsilon_boundary
   negatively_predicted_instances = X_all[predict_proba_in_negative_class]
   factual_instances_dict = negatively_predicted_instances[
     args.batch_number * args.sample_count : (args.batch_number + 1) * args.sample_count
@@ -1811,6 +1808,7 @@ if __name__ == "__main__":
   parser.add_argument('--non_intervenable_nodes', nargs = '+', type=str, default='')
   parser.add_argument('--max_intervention_cardinality', type=int, default=100)
   parser.add_argument('-o', '--optimization_approach', type=str, default='brute_force')
+  parser.add_argument('--epsilon_boundary', type=int, default=0.05, help='we only consider instances that are negatively predicted and at least 0.05 prob away from decision boundary.')
   parser.add_argument('--batch_number', type=int, default=0)
   parser.add_argument('--sample_count', type=int, default=5)
 
