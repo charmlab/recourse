@@ -12,13 +12,17 @@ ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cva
 
 from debug import ipsh
 
-SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
-LAMBDA_LCB_VALUES = [1] # np.linspace(0,2.5,6)
+# SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
+# LAMBDA_LCB_VALUES = [1] # np.linspace(0,2.5,6)
+# OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
+
+SCM_CLASS_VALUES = ['german-credit']
+LAMBDA_LCB_VALUES = [2] # np.linspace(0,2.5,6)
 OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
 
-# experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments/'
+experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments/'
 # experiments_folder_path = '/Users/a6karimi/dev/recourse/_experiments/'
-experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/2020.06.01_backup/'
+# experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/2020.06.01_backup/'
 all_counter = len(SCM_CLASS_VALUES) * len(LAMBDA_LCB_VALUES) * len(OPTIMIZATION_APPROACHES)
 counter = 0
 
@@ -42,11 +46,11 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
       )
   tmp_df = pd.DataFrame(metrics_summary, recourse_types)
   print(tmp_df)
+  print(f'\nN = {len(per_instance_results.keys())}')
   tmp_df.to_csv(f'{experiment_folder_name}/_comparison.txt', sep='\t')
   with open(f'{experiment_folder_name}/_comparison.txt', 'a') as out_file:
     out_file.write(f'\nN = {len(per_instance_results.keys())}')
   tmp_df.to_pickle(f'{experiment_folder_name}/_comparison')
-
 
 
 for scm_class in SCM_CLASS_VALUES:
@@ -88,7 +92,7 @@ for scm_class in SCM_CLASS_VALUES:
 
       print(f'Creating new merged folder {new_folder_path}')
       os.makedirs(new_folder_path, exist_ok = False)
-      files_to_copy = {'_args.txt', 'causal_graph.pdf', 'log_training.txt'}
+      files_to_copy = {'_args.txt', '_causal_graph.pdf', '_log_training.txt'}
       for file_name in files_to_copy:
         copyfile(
           os.path.join(random_batch_folder, file_name),
