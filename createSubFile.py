@@ -28,8 +28,7 @@ for scm_class in SCM_CLASS_VALUES:
            f' --lambda_lcb {lambda_lcb}' \
            f' --optimization_approach {optimization_approach}' \
            f' --grid_search_bins 5'
-           f' --max_intervention_cardinality 3'
-           f' --non_intervenable_nodes x1 x2'
+           f' --non_intervenable_nodes x1 x2 x5'
            f' --batch_number {batch_number}' \
            f' --sample_count {NUM_NEG_SAMPLES_PER_BATCH}', \
            f' -p $(Process)', \

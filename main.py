@@ -818,7 +818,7 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
           # IMPORTANT: Find index of factual instance in dataframe used for training GP
           #            (earlier, the factual instance was appended as the last instance)
           # DO NOT DO THIS: conversion from float64 to torch and back will make it impossible to find the instance idx
-          # factual_instance = {k:v.detach().item() for k,v in factual_instance_ts.items()}
+          # factual_instance = {k:v.item() for k,v in factual_instance_ts.items()}
           tmp_idx = getIndexOfFactualInstanceInDataFrame( # TODO: write this as ts function as well?
             factual_instance,
             processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
@@ -1102,7 +1102,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   no_decrease_in_min_valid_cost = 0
   early_stopping_K = 10
   # DO NOT USE .copy() on the dict, the same value objects (i.e., the same trainable tensor will be used!)
-  best_action_set_ts = {k : v.clone().detach() for k,v in action_set_ts.items()}
+  best_action_set = {k : v.item() for k,v in action_set_ts.items()}
   best_action_set_epoch = 1
   recourse_satisfied = False
 
@@ -1126,7 +1126,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 
   start_time = time.time()
   if args.debug_flag:
-    print(f'\t\t[INFO] initial action set: {str({k : np.around(v.detach().item(), 4) for k,v in action_set_ts.items()})}') # TODO: use pretty print
+    print(f'\t\t[INFO] initial action set: {str({k : np.around(v.item(), 4) for k,v in action_set_ts.items()})}') # TODO: use pretty print
 
   # https://stackoverflow.com/a/52017595/2759976
   iterator = tqdm(range(1, num_epochs + 1))
@@ -1181,9 +1181,9 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     if value_lcb.detach() > 0.5:
       # check if cost decreased from previous best
       if loss_cost.detach() < min_valid_cost:
-        min_valid_cost = loss_cost.detach().item()
+        min_valid_cost = loss_cost.item()
         # DO NOT USE .copy() on the dict, the same value objects (i.e., the same trainable tensor will be used!)
-        best_action_set_ts = {k : v.clone().detach() for k,v in action_set_ts.items()}
+        best_action_set = {k : v.item() for k,v in action_set_ts.items()}
         best_action_set_epoch = epoch
         recourse_satisfied = True
       else:
@@ -1205,7 +1205,6 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
       lambda_opt = lambda_opt + lambda_opt_learning_rate * loss_constraint.detach()
       # lambda_opt_learning_rate = lambda_opt_learning_rate_initial / epoch
 
-
     optimizer.zero_grad()
     loss_total.backward()
     optimizer.step()
@@ -1217,19 +1216,19 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     if args.debug_flag and epoch % print_log_every == 0:
       print(
         f'\t\t[INFO] epoch #{epoch:03}: ' \
-        f'optimal action: {str({k : np.around(v.detach().item(), 2) for k,v in action_set_ts.items()})}    ' \
-        f'loss_total: {loss_total.detach().item():02.6f}    ' \
-        f'loss_cost: {loss_cost.detach().item():02.6f}    ' \
+        f'optimal action: {str({k : np.around(v.item(), 2) for k,v in action_set_ts.items()})}    ' \
+        f'loss_total: {loss_total.item():02.6f}    ' \
+        f'loss_cost: {loss_cost.item():02.6f}    ' \
         f'lambda_opt: {lambda_opt:02.6f}    ' \
-        f'loss_constraint: {loss_constraint.detach().item():02.6f}    ' \
-        f'value_lcb: {value_lcb.detach().item():02.6f}    ' \
+        f'loss_constraint: {loss_constraint.item():02.6f}    ' \
+        f'value_lcb: {value_lcb.item():02.6f}    ' \
       )
     all_logs['epochs'].append(epoch)
-    all_logs['loss_total'].append(loss_total.detach().item())
-    all_logs['loss_cost'].append(loss_cost.detach().item())
+    all_logs['loss_total'].append(loss_total.item())
+    all_logs['loss_cost'].append(loss_cost.item())
     all_logs['lambda_opt'].append(lambda_opt)
-    all_logs['loss_constraint'].append(loss_constraint.detach().item())
-    all_logs['action_set_ts'].append({k : v.clone().detach() for k,v in action_set_ts.items()})
+    all_logs['loss_constraint'].append(loss_constraint.item())
+    all_logs['action_set_ts'].append({k : v.item() for k,v in action_set_ts.items()})
 
     if epoch % 100 == 0:
       saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_logs)
@@ -1239,11 +1238,11 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     print(f'\t\t[INFO] Done (total run-time: {end_time - start_time}).\n\n')
 
   # Convert action_set_ts to non-tensor action_set when passing back to rest of code.
-  # best_action_set_ts may or may not be result of early stopping, but it will
+  # best_action_set may or may not be result of early stopping, but it will
   # either be the initial value (which was zero-cost, at the factual instance),
   # or it will be the best_action_set seen so far (smallest cost and valid const)
   # whether or not it triggered K times to initiate early stopping.
-  action_set = {k : v.detach().item() for k,v in best_action_set_ts.items()}
+  action_set = {k : v for k,v in best_action_set.items()}
   action_set = deprocessDataFrameOrDict(args, objs, action_set, tmp_processing_type)
   return action_set, recourse_satisfied, min_valid_cost
 
@@ -1395,7 +1394,7 @@ def visualizeDatasetAndFixedModel(args, objs):
   ax = plt.subplot(1, 1, 1, projection='3d')
 
   scatterDataset(args, objs, ax)
-  scatterDecisionBoundary(args, objs, ax)
+  # scatterDecisionBoundary(args, objs, ax)
 
   ax.set_xlabel('x1')
   ax.set_ylabel('x2')
@@ -1620,6 +1619,7 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
       )
   tmp_df = pd.DataFrame(metrics_summary, recourse_types)
   print(tmp_df)
+  print(f'\nN = {len(per_instance_results.keys())}')
   tmp_df.to_csv(f'{experiment_folder_name}/_comparison.txt', sep='\t')
   with open(f'{experiment_folder_name}/_comparison.txt', 'a') as out_file:
     out_file.write(f'\nN = {len(per_instance_results.keys())}\n')
@@ -1858,6 +1858,7 @@ if __name__ == "__main__":
     'dataset_obj': dataset_obj,
     'classifier_obj': classifier_obj,
   })
+  # visualizeDatasetAndFixedModel(args, objs)
 
   # TODO: describe scm_obj
   print(f'Describe original data:\n{getOriginalDataFrame(objs, args.num_train_samples).describe()}')
