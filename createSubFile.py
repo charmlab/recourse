@@ -1,20 +1,28 @@
 import numpy as np
 
-# SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
-# LAMBDA_LCB_VALUES = [1, 2] # np.linspace(0,2.5,6)
-# OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
-# CLASSIFIER_VALUES = ['lr'] # , 'mlp', 'tree']
+SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
+LAMBDA_LCB_VALUES = [1, 2]
+OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
+CLASSIFIER_VALUES = ['lr']
 
-# NUM_BATCHES = 20
-# NUM_NEG_SAMPLES_PER_BATCH = 5
-# request_memory = 8192*4
-
-
+# ==============================================================================
+# ==============================================================================
 
 SCM_CLASS_VALUES = ['german-credit']
-LAMBDA_LCB_VALUES = [2] # np.linspace(0,2.5,6)
+LAMBDA_LCB_VALUES = np.linspace(0,2.5,6)
 OPTIMIZATION_APPROACHES = ['grad_descent']
-CLASSIFIER_VALUES = ['lr'] # , 'tree']
+CLASSIFIER_VALUES = ['lr', 'mlp']
+
+# ==============================================================================
+# ==============================================================================
+
+SCM_CLASS_VALUES = ['german-credit']
+LAMBDA_LCB_VALUES =  np.linspace(0,2.5,6)
+OPTIMIZATION_APPROACHES = ['brute_force']
+CLASSIFIER_VALUES = ['tree']
+
+# ==============================================================================
+# ==============================================================================
 
 NUM_BATCHES = 100
 NUM_NEG_SAMPLES_PER_BATCH = 1
@@ -35,17 +43,19 @@ for scm_class in SCM_CLASS_VALUES:
     for lambda_lcb in LAMBDA_LCB_VALUES:
       for optimization_approach in OPTIMIZATION_APPROACHES:
         for batch_number in range(NUM_BATCHES):
-          print(f'arguments = main.py' + \
-             f' --scm_class {scm_class}' \
-             f' --classifier_class {classifier_class}' \
-             f' --lambda_lcb {lambda_lcb}' \
-             f' --optimization_approach {optimization_approach}' \
-             f' --grid_search_bins 10' # TODO: only for german-credit
-             f' --non_intervenable_nodes x1 x2 x5' # TODO: only for german-credit
-             f' --batch_number {batch_number}' \
-             f' --sample_count {NUM_NEG_SAMPLES_PER_BATCH}', \
-             f' -p $(Process)', \
-          file=sub_file)
+          command =  \
+            f'arguments = main.py' + \
+            f' --scm_class {scm_class}' \
+            f' --classifier_class {classifier_class}' \
+            f' --lambda_lcb {lambda_lcb}' \
+            f' --optimization_approach {optimization_approach}' \
+            f' --batch_number {batch_number}' \
+            f' --sample_count {NUM_NEG_SAMPLES_PER_BATCH}', \
+            f' -p $(Process)'
+          if scm_class == 'german-credit':
+            command += f' --grid_search_bins 10'
+            command += f' --non_intervenable_nodes x1 x2 x5'
+          print(command, file=sub_file)
           print('queue', file=sub_file)
           print('\n', file=sub_file)
 

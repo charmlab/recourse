@@ -1103,7 +1103,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   recourse_satisfied = False
 
   capped_loss = False
-  num_epochs = 5000
+  num_epochs = 1000
   lambda_opt = 1 # initial value
   lambda_opt_update_every = 25
   lambda_opt_learning_rate = 0.5

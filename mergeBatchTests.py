@@ -12,18 +12,22 @@ ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cva
 
 from debug import ipsh
 
-# SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
-# LAMBDA_LCB_VALUES = [1] # np.linspace(0,2.5,6)
-# OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
-
-SCM_CLASS_VALUES = ['german-credit']
-LAMBDA_LCB_VALUES = [2] # np.linspace(0,2.5,6)
+SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
+LAMBDA_LCB_VALUES = [1, 2] # np.linspace(0,2.5,6)
 OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
+CLASSIFIER_VALUES = ['lr'] # , 'mlp', 'tree']
+
+
+
+
+
+
+
 
 experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments/'
 # experiments_folder_path = '/Users/a6karimi/dev/recourse/_experiments/'
 # experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/2020.06.01_backup/'
-all_counter = len(SCM_CLASS_VALUES) * len(LAMBDA_LCB_VALUES) * len(OPTIMIZATION_APPROACHES)
+all_counter = len(SCM_CLASS_VALUES) * len(LAMBDA_LCB_VALUES) * len(OPTIMIZATION_APPROACHES) * len(CLASSIFIER_VALUES)
 counter = 0
 
 
@@ -40,9 +44,9 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
   for recourse_type in recourse_types:
     for metric in metrics:
       metrics_summary[metric].append(
-        f'{np.around(np.nanmean([v[recourse_type][metric] for k,v in per_instance_results.items()]), 2):.2f}' + \
+        f'{np.around(np.nanmean([v[recourse_type][metric] for k,v in per_instance_results.items()]), 4):.4f}' + \
         '+/-' + \
-        f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 2):.2f}'
+        f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 4):.4f}'
       )
   tmp_df = pd.DataFrame(metrics_summary, recourse_types)
   print(tmp_df)
@@ -55,57 +59,59 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
 
 for scm_class in SCM_CLASS_VALUES:
 
-  for lambda_lcb in LAMBDA_LCB_VALUES:
+  for classifier_class in CLASSIFIER_VALUES:
 
-    for optimization_approach in OPTIMIZATION_APPROACHES:
+    for lambda_lcb in LAMBDA_LCB_VALUES:
 
-      counter = counter + 1
+      for optimization_approach in OPTIMIZATION_APPROACHES:
 
-      specific_experiment_path = f'{scm_class}__*__lambda_lcb_{lambda_lcb}__opt_{optimization_approach}'
-      # specific_experiment_path = 'adult__mlp__zero_norm__MACE_eps_1e-5'
+        counter = counter + 1
 
-      print(f'\n[{counter} / {all_counter}] Merging together folders for {specific_experiment_path}')
+        specific_experiment_path = f'{scm_class}__*__{classifier_class}__*__lambda_lcb_{lambda_lcb}__opt_{optimization_approach}'
+        # specific_experiment_path = 'adult__mlp__zero_norm__MACE_eps_1e-5'
 
-      all_batch_folders = glob.glob(f'{experiments_folder_path}*{specific_experiment_path}*')
-      all_batch_folders = [elem for elem in all_batch_folders if 'batch' in elem and 'count' in elem]
-      sorted_all_batch_folders = sorted(all_batch_folders, key = lambda x : x.split('__')[-3]) # sort based on batch_#
-      total_per_instance_results = {}
-      folders_not_found = []
-      for batch_folder in tqdm(sorted_all_batch_folders):
-        batch_number_string = batch_folder.split('__')[-3]
-        batch_per_instance_results_path = os.path.join(batch_folder, '_per_instance_results')
-        try:
-          assert os.path.isfile(batch_per_instance_results_path)
-          batch_per_instance_results = pickle.load(open(batch_per_instance_results_path, 'rb'))
-          total_per_instance_results = {**total_per_instance_results, **batch_per_instance_results}
-        except:
-          folders_not_found.append(batch_number_string)
+        print(f'\n[{counter} / {all_counter}] Merging together folders for {specific_experiment_path}')
 
-      if len(folders_not_found):
-        print(f'\tCannot find minimum distance file for {folders_not_found}')
+        all_batch_folders = glob.glob(f'{experiments_folder_path}*{specific_experiment_path}*')
+        all_batch_folders = [elem for elem in all_batch_folders if 'batch' in elem and 'count' in elem]
+        sorted_all_batch_folders = sorted(all_batch_folders, key = lambda x : x.split('__')[-3]) # sort based on batch_#
+        total_per_instance_results = {}
+        folders_not_found = []
+        for batch_folder in tqdm(sorted_all_batch_folders):
+          batch_number_string = batch_folder.split('__')[-3]
+          batch_per_instance_results_path = os.path.join(batch_folder, '_per_instance_results')
+          try:
+            assert os.path.isfile(batch_per_instance_results_path)
+            batch_per_instance_results = pickle.load(open(batch_per_instance_results_path, 'rb'))
+            total_per_instance_results = {**total_per_instance_results, **batch_per_instance_results}
+          except:
+            folders_not_found.append(batch_number_string)
 
-      # create new folder
-      random_batch_folder = sorted_all_batch_folders[0]
-      new_folder_name = '__'.join(random_batch_folder.split('/')[-1].split('__')[:-3])
-      # new_folder_path = os.path.join(experiments_folder_path, '__merged_MACE_eps_1e-5', new_folder_name)
-      new_folder_path = os.path.join(experiments_folder_path, '__merged', new_folder_name)
+        if len(folders_not_found):
+          print(f'\tCannot find minimum distance file for {folders_not_found}')
 
-      print(f'Creating new merged folder {new_folder_path}')
-      os.makedirs(new_folder_path, exist_ok = False)
-      files_to_copy = {'_args.txt', '_causal_graph.pdf', '_log_training.txt'}
-      for file_name in files_to_copy:
-        copyfile(
-          os.path.join(random_batch_folder, file_name),
-          os.path.join(new_folder_path, file_name)
-        )
+        # create new folder
+        random_batch_folder = sorted_all_batch_folders[0]
+        new_folder_name = '__'.join(random_batch_folder.split('/')[-1].split('__')[:-3])
+        # new_folder_path = os.path.join(experiments_folder_path, '__merged_MACE_eps_1e-5', new_folder_name)
+        new_folder_path = os.path.join(experiments_folder_path, '__merged', new_folder_name)
 
-      pickle.dump(total_per_instance_results, open(f'{new_folder_path}/_total_per_instance_results', 'wb'))
-      pprint(total_per_instance_results, open(f'{new_folder_path}/total_per_instance_results.txt', 'w'))
+        print(f'Creating new merged folder {new_folder_path}')
+        os.makedirs(new_folder_path, exist_ok = False)
+        files_to_copy = {'_args.txt', '_causal_graph.pdf', '_log_training.txt'}
+        for file_name in files_to_copy:
+          copyfile(
+            os.path.join(random_batch_folder, file_name),
+            os.path.join(new_folder_path, file_name)
+          )
 
-      random_key = list(total_per_instance_results.keys())[0]
-      recourse_types = [
-        elem for elem in total_per_instance_results[random_key].keys()
-        if elem in ACCEPTABLE_POINT_RECOURSE or elem in ACCEPTABLE_DISTR_RECOURSE
-      ]
-      createAndSaveMetricsTable(total_per_instance_results, recourse_types, new_folder_path)
+        pickle.dump(total_per_instance_results, open(f'{new_folder_path}/_total_per_instance_results', 'wb'))
+        pprint(total_per_instance_results, open(f'{new_folder_path}/total_per_instance_results.txt', 'w'))
+
+        random_key = list(total_per_instance_results.keys())[0]
+        recourse_types = [
+          elem for elem in total_per_instance_results[random_key].keys()
+          if elem in ACCEPTABLE_POINT_RECOURSE or elem in ACCEPTABLE_DISTR_RECOURSE
+        ]
+        createAndSaveMetricsTable(total_per_instance_results, recourse_types, new_folder_path)
 
