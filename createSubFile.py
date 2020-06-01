@@ -1,12 +1,13 @@
 import numpy as np
 
-# SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
-SCM_CLASS_VALUES = ['german-credit']
-LAMBDA_LCB_VALUES = [2] # np.linspace(0,2.5,6)
+SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
+# SCM_CLASS_VALUES = ['german-credit']
+LAMBDA_LCB_VALUES = [1, 2] # np.linspace(0,2.5,6)
 OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
+CLASSIFIER_VALUES = ['lr'] # , 'mlp', 'tree']
 
-NUM_BATCHES = 25
-NUM_NEG_SAMPLES_PER_BATCH = 1
+NUM_BATCHES = 20
+NUM_NEG_SAMPLES_PER_BATCH = 5
 
 request_memory = 8192*4
 
@@ -27,8 +28,8 @@ for scm_class in SCM_CLASS_VALUES:
            f' --scm_class {scm_class}' \
            f' --lambda_lcb {lambda_lcb}' \
            f' --optimization_approach {optimization_approach}' \
-           f' --grid_search_bins 5'
-           f' --non_intervenable_nodes x1 x2 x5'
+           # f' --grid_search_bins 10' # TODO: only for german-credit
+           # f' --non_intervenable_nodes x1 x2 x5' # TODO: only for german-credit
            f' --batch_number {batch_number}' \
            f' --sample_count {NUM_NEG_SAMPLES_PER_BATCH}', \
            f' -p $(Process)', \
