@@ -63,20 +63,37 @@ def load_random_data(scm_class, variable_type = 'real'):
   if variable_type == 'integer':
     X = np.round(4 * X)
 
-  # sample a random hyperplane through the origin
-  w = np.random.rand(d, 1)
+  if scm_class == 'german-credit':
 
-  # get the average scale of (w^T)*X (this depends on the scale of the data)
-  scale = 2/np.mean(np.absolute(np.dot(X, w)))
+    def h(L, D, I, S):
+      a_0 = 0.30
+      a_L = -1
+      a_D = -1
+      a_I = 1
+      a_S = 1
+      a_SI = 1
+      return 1/(1+np.exp(-a_0 * (a_L * L + a_D * D + a_I * I + a_S * S + a_SI * I * S)))
+    predictions = h(X['x4'], X['x5'], X['x6'], X['x7']).to_numpy().reshape(-1,1)
 
-  predictions = 1/(1+np.exp(-scale * np.dot(X, w)))
+  else:
+
+    # sample a random hyperplane through the origin
+    # w = np.random.rand(d, 1)
+    # fix a hyperplane
+    w = np.ones((3, 1))
+
+    # get the average scale of (w^T)*X (this depends on the scale of the data)
+    scale = 2.5/np.mean(np.absolute(np.dot(X, w)))
+
+    predictions = 1/(1+np.exp(-scale * np.dot(X, w)))
+
+
   # check that labels are not all 0 or 1
-  assert np.std(predictions) < 0.4
+  assert np.std(predictions) < 0.4, f'Labels std too large: {np.std(predictions)}'
 
   # sample labels from class probabilities in predictions
   uniform_rv = np.random.rand(X.shape[0], 1)
   y = uniform_rv < predictions  # add 1e-3 to prevent label 0.5
-
   y = pd.DataFrame(data=y, columns={'label'})
 
 

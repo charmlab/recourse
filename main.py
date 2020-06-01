@@ -428,8 +428,7 @@ def trainCVAE(args, objs, node, parents):
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using CVAE on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples  + args.num_validation_samples), PROCESSING_CVAE)
 
-  # sweep_lambda_kld = [0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
-  sweep_lambda_kld = [0.5, 0.1, 0.05, 0.01, 0.005]
+  sweep_lambda_kld = [5, 1, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
   # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
   sweep_encoder_layer_sizes = [
     [1, 3, 3],
@@ -505,7 +504,8 @@ def trainCVAE(args, objs, node, parents):
     trained_models[f'setup_{idx}']['trained_cvae'] = trained_cvae
     trained_models[f'setup_{idx}']['test-statistic'] = my_statistic
 
-  index_with_lowest_test_statistics = min(trained_models.keys(), key=(lambda k: trained_models[k]['test-statistic']))
+  # index_with_lowest_test_statistics = min(trained_models.keys(), key=lambda k: abs(trained_models[k]['test-statistic'] - 0))
+  index_with_lowest_test_statistics = min(trained_models.keys(), key=lambda k: trained_models[k]['test-statistic'])
   model_with_lowest_test_statistics = trained_models[index_with_lowest_test_statistics]['trained_cvae']
   return model_with_lowest_test_statistics
 
@@ -1688,8 +1688,6 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
 
     if len(parents) == 0: # if not a root node
       continue # don't want to plot marginals, because we're not learning these
-    elif len(parents) > 2:
-      print(f'[INFO] not able to plot sanity checks for {getConditionalString(node, parents)}')
     elif len(parents) == 1:
 
       all_actions_outer_product = list(itertools.product(
@@ -1742,7 +1740,7 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
       plt.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
       plt.close()
 
-    elif len(parents) == 2:
+    elif len(parents) >= 2:
       # distribution plot
 
       total_df = pd.DataFrame(columns=['recourse_type'] + list(objs.scm_obj.getTopologicalOrdering()))
@@ -1814,9 +1812,6 @@ if __name__ == "__main__":
   if not (args.dataset_class in {'random'}):
     raise Exception(f'{args.dataset_class} not supported.')
 
-  if not (args.classifier_class in {'lr', 'mlp'}):
-    raise Exception(f'{args.classifier_class} not supported.')
-
   # create experiment folder
   setup_name = \
     f'{args.scm_class}__{args.dataset_class}__{args.classifier_class}' + \
@@ -1858,7 +1853,6 @@ if __name__ == "__main__":
     'dataset_obj': dataset_obj,
     'classifier_obj': classifier_obj,
   })
-  # visualizeDatasetAndFixedModel(args, objs)
 
   # TODO: describe scm_obj
   print(f'Describe original data:\n{getOriginalDataFrame(objs, args.num_train_samples).describe()}')

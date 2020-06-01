@@ -131,13 +131,13 @@ def loadSCM(scm_class, experiment_folder_name = None):
   if scm_class == 'sanity-3-lin':
 
     structural_equations_np = {
-      'x1': lambda n_samples,        :           n_samples,
-      'x2': lambda n_samples, x1     :  x1 + n_samples,
-      'x3': lambda n_samples, x1, x2 : 0.5 * (x1 + x2) + n_samples,
+      'x1': lambda n_samples,        :                               n_samples,
+      'x2': lambda n_samples, x1     :                        - x1 + n_samples,
+      'x3': lambda n_samples, x1, x2 : 0.5 * (0.1 * x1 + 0.5 * x2) + n_samples,
     }
     structural_equations_ts = structural_equations_np
     noises_distributions = {
-      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
+      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +1], [1.5, 1]),
       'u2': Normal(0, 1),
       'u3': Normal(0, 1),
     }
@@ -145,46 +145,36 @@ def loadSCM(scm_class, experiment_folder_name = None):
   elif scm_class == 'sanity-3-anm':
 
     structural_equations_np = {
-      'x1': lambda n_samples,        :           n_samples,
-      'x2': lambda n_samples, x1     :  2 * x1 + n_samples,
-      'x3': lambda n_samples, x1, x2 : x1 * x2 + n_samples,
+      'x1': lambda n_samples,        :                                    n_samples,
+      'x2': lambda n_samples, x1     : 3 / (1 + np.exp(- 2.0 * x1 )) -1 + n_samples,
+      'x3': lambda n_samples, x1, x2 : - 0.5 * (0.1 * x1 + 0.5 * x2**2) + n_samples,
     }
-    structural_equations_ts = structural_equations_np
+    structural_equations_ts = {
+      'x1': lambda n_samples,        :                                       n_samples,
+      'x2': lambda n_samples, x1     : 3 / (1 + torch.exp(- 2.0 * x1 )) -1 + n_samples,
+      'x3': lambda n_samples, x1, x2 :    - 0.5 * (0.1 * x1 + 0.5 * x2**2) + n_samples,
+    }
     noises_distributions = {
-      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-      'u2': Normal(0, 1),
-      'u3': Normal(0, 5),
+      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +1], [1.5, 1]),
+      'u2': Normal(0, 0.1),
+      'u3': Normal(0, 1),
     }
 
   elif scm_class == 'sanity-3-gen':
 
     structural_equations_np = {
-      'x1': lambda n_samples,        :                          n_samples,
-      'x2': lambda n_samples, x1     : 2 / (1 + np.exp(- x1 - n_samples)),
-      'x3': lambda n_samples, x1, x2 :        np.sin(x1 + x2 + n_samples),
+      'x1': lambda n_samples,        :                                               n_samples,
+      'x2': lambda n_samples, x1     : - 3 * (1 / (1 + np.exp(- 2.0 * x1  + n_samples)) - 0.4),
+      'x3': lambda n_samples, x1, x2 :    - 0.5 * (0.1 * x1 + 0.5 * (x2 - 0.0)**2 * n_samples),
     }
     structural_equations_ts = {
-      'x1': lambda n_samples,        :                          n_samples,
-      'x2': lambda n_samples, x1     : 2 / (1 + torch.exp(- x1 - n_samples)),
-      'x3': lambda n_samples, x1, x2 :        torch.sin(x1 + x2 + n_samples),
+      'x1': lambda n_samples,        :                                                 n_samples,
+      'x2': lambda n_samples, x1     : - 3 * (1 / (1 + torch.exp(- 2.0 * x1 + n_samples)) - 0.4),
+      'x3': lambda n_samples, x1, x2 :      - 0.5 * (0.1 * x1 + 0.5 * (x2 - 0.0)**2 * n_samples),
     }
     noises_distributions = {
-      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-      'u2': Normal(0, 1),
-      'u3': Normal(0, 5),
-    }
-
-  elif scm_class == 'sanity-3-power':
-
-    structural_equations_np = {
-      'x1': lambda n_samples,        :                  n_samples,
-      'x2': lambda n_samples, x1     :         2 * x1 + n_samples,
-      'x3': lambda n_samples, x1, x2 : (x1 + x2 + n_samples) ** 2,
-    }
-    structural_equations_ts = structural_equations_np
-    noises_distributions = {
-      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +2], [1, 1]),
-      'u2': Normal(0, 1),
+      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +1], [1.5, 1]),
+      'u2': Normal(0, 0.1),
       'u3': Normal(0, 1),
     }
 
@@ -248,7 +238,22 @@ def loadSCM(scm_class, experiment_folder_name = None):
       # Savings
       'x7': lambda n_samples, x6 : s_0 + s_I * (x6 > 0) * x6 + n_samples,
     }
-    structural_equations_ts = structural_equations_np
+    structural_equations_ts = {
+      # Gender
+      'x1': lambda n_samples,: n_samples,
+      # Age
+      'x2': lambda n_samples,: -35 + n_samples,
+      # Education
+      'x3': lambda n_samples, x1, x2 : -0.5 + (1 + torch.exp(-(e_0 + e_G * x1 + e_A * (1 + torch.exp(- .1 * (x2)))**(-1) + n_samples)))**(-1),
+      # Loan amount
+      'x4': lambda n_samples, x1, x2 :  l_0 + l_A * (x2 - 5) * (5 - x2) + l_G * x1 + n_samples,
+      # Loan duration
+      'x5': lambda n_samples, x1, x2, x4 : d_0 + d_A * x2 + d_G * x1 + d_L * x4 + n_samples,
+      # Income
+      'x6': lambda n_samples, x1, x2, x3 : i_0 + i_A * (x2 + 35) + i_G * x1 + i_GE * x1 * x3 + n_samples,
+      # Savings
+      'x7': lambda n_samples, x6 : s_0 + s_I * (x6 > 0) * x6 + n_samples,
+    }
     noises_distributions = {
       # Gender
       'u1': Bernoulli(0.5),

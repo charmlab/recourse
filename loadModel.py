@@ -63,17 +63,19 @@ def loadModelForDataset(model_class, dataset_string, experiment_folder_name = No
   elif model_class == 'mlp':
     model_pretrain = MLPClassifier(hidden_layer_sizes = (10, 10))
 
-  print(
-    f'[INFO] Training `{model_class}` on {X_train.shape[0]:,} samples ' +
-    f'(%{100 * X_train.shape[0] / (X_train.shape[0] + X_test.shape[0]):.2f}' +
-    f'of {X_train.shape[0] + X_test.shape[0]:,} samples)...',
-    file=log_file,
-  )
+  tmp_text = f'[INFO] Training `{model_class}` on {X_train.shape[0]:,} samples ' + \
+    f'(%{100 * X_train.shape[0] / (X_train.shape[0] + X_test.shape[0]):.2f}' + \
+    f'of {X_train.shape[0] + X_test.shape[0]:,} samples)...'
+  print(tmp_text)
+  print(tmp_text, file=log_file)
   model_trained = model_pretrain.fit(X_train, y_train)
-  assert accuracy_score(y_train, model_trained.predict(X_train)) * 100 > 80
   print(f'\tTraining accuracy: %{accuracy_score(y_train, model_trained.predict(X_train)) * 100:.2f}', file=log_file)
   print(f'\tTesting accuracy: %{accuracy_score(y_test, model_trained.predict(X_test)) * 100:.2f}', file=log_file)
+  print(f'\tTraining accuracy: %{accuracy_score(y_train, model_trained.predict(X_train)) * 100:.2f}')
+  print(f'\tTesting accuracy: %{accuracy_score(y_test, model_trained.predict(X_test)) * 100:.2f}')
   print('[INFO] done.\n', file=log_file)
+  print('[INFO] done.\n')
+  assert accuracy_score(y_train, model_trained.predict(X_train)) > 0.70
 
   if model_class == 'tree':
     if SIMPLIFY_TREES:
