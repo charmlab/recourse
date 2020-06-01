@@ -646,7 +646,6 @@ def sampleGP(args, objs, factual_instance, factual_df, samples_df, node, parents
   return samples_df
 
 
-# def _getSamplesDFTemplate(args, objs, factual_instance, action_set, recourse_type, num_samples):
 def _getCounterfactualTemplate(args, objs, factual_instance, action_set, recourse_type):
   counterfactual_template = dict.fromkeys(
     objs.dataset_obj.getInputAttributeNames(),
@@ -1688,59 +1687,8 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
 
     if len(parents) == 0: # if not a root node
       continue # don't want to plot marginals, because we're not learning these
-    elif len(parents) == 1:
 
-      all_actions_outer_product = list(itertools.product(
-        *[
-          np.linspace(
-            objs.dataset_obj.data_frame_kurz.describe()[parent]['min'],
-            objs.dataset_obj.data_frame_kurz.describe()[parent]['max'],
-            PER_DIM_GRANULARITY,
-          )
-          for parent in parents
-        ]
-      ))
-      action_sets = [
-        dict(zip(parents, elem))
-        for elem in all_actions_outer_product
-      ]
-
-      # i don't this has any affect... especially when we sweep over values of all parents and condition children
-      factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
-      total_df = pd.DataFrame(columns=['recourse_type'] + list(objs.scm_obj.getTopologicalOrdering()))
-
-      for idx, action_set in enumerate(action_sets):
-
-        print(f'\n\n[INFO] ACTION SET: {str(prettyPrintDict(action_set))}' + ' =' * 40)
-
-        for experimental_setup in experimental_setups:
-          recourse_type, marker = experimental_setup[0], experimental_setup[1]
-
-          if recourse_type in ACCEPTABLE_POINT_RECOURSE:
-            sample = computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type)
-            # print(f'{recourse_type}:\t{prettyPrintDict(sample)}')
-          elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
-            samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, args.num_validation_samples)
-            # print(f'{recourse_type}:\n{samples.head()}')
-          else:
-            raise Exception(f'{recourse_type} not supported.')
-
-          tmp_df = samples.copy()
-          tmp_df['recourse_type'] = recourse_type # add column
-          total_df = pd.concat([total_df, tmp_df]) # concat to overall
-
-      # box plot
-      ax = sns.boxplot(x=parents[0], y=node, hue='recourse_type', data=total_df, palette='Set3', showmeans=True)
-      # TODO: average over high dens pdf, and show a separate plot/table for the average over things...
-      # ax.set_xticklabels(
-      #   [np.around(elem, 3) for elem in ax.get_xticks()],
-      #   rotation=90,
-      # )
-      ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
-      plt.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
-      plt.close()
-
-    elif len(parents) >= 2:
+    else:
       # distribution plot
 
       total_df = pd.DataFrame(columns=['recourse_type'] + list(objs.scm_obj.getTopologicalOrdering()))
@@ -1771,6 +1719,9 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
           sampling_handle = sampleGP
         elif recourse_type == 'm2_cvae':
           sampling_handle = sampleCVAE
+        else:
+          print(f'[INFO] Exp 8 is only designed for m2 recourse_types; skipping {recourse_type}.')
+          continue
 
         samples = sampling_handle(args, objs, not_imp_factual_instance, not_imp_factual_df, not_imp_samples_df, node, parents, recourse_type)
         tmp_df = samples.copy()
@@ -1889,29 +1840,14 @@ if __name__ == "__main__":
       len(objs.dataset_obj.getInputAttributeNames()) >= 3, \
       'Exp 6 is only designed for 3+-variable SCMs'
 
-  elif args.experiment == 8:
-
-    # assert \
-    #   len(objs.dataset_obj.getInputAttributeNames()) == 2, \
-    #   'Exp 8 is only designed for 2-variable SCMs'
-    if not np.all(['m2' in elem[0] for elem in experimental_setups]):
-      print('[INFO] Exp 8 is only designed for m2 recourse_types; filtering to those')
-      experimental_setups = [
-        elem
-        for elem in experimental_setups
-        if 'm2' in elem[0]
-      ]
-
   recourse_types = [experimental_setup[0] for experimental_setup in experimental_setups]
   hotTrainRecourseTypes(args, objs, recourse_types)
 
   if args.experiment == 5:
     experiment5(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   elif args.experiment == 6:
-    # experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
-    experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
-  elif args.experiment == 8:
     experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+    experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
 
   # sanity check
   # visualizeDatasetAndFixedModel(args, objs)

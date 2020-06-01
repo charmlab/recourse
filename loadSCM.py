@@ -70,10 +70,10 @@ class CausalModel(object):
 
   def visualizeGraph(self, experiment_folder_name = None):
     if experiment_folder_name:
-      save_path = f'{experiment_folder_name}/causal_graph'
+      save_path = f'{experiment_folder_name}/_causal_graph'
       view_flag = False
     else:
-      save_path = '_tmp/causal_graph'
+      save_path = '_tmp/_causal_graph'
       view_flag = True
     self._cgm.draw().render(save_path, view=view_flag)
 
