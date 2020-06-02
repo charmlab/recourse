@@ -5,7 +5,8 @@ import numpy as np
 # OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
 # CLASSIFIER_VALUES = ['lr']
 
-SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
+# SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
+SCM_CLASS_VALUES = ['sanity-3-anm']
 LAMBDA_LCB_VALUES = [2]
 OPTIMIZATION_APPROACHES = ['grad_descent']
 CLASSIFIER_VALUES = ['lr']
