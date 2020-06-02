@@ -99,6 +99,15 @@ def load_random_data(scm_class, variable_type = 'real'):
 
     predictions = h(X['x1'], X['x2'], X['x3']).to_numpy().reshape(-1,1)
 
+  elif scm_class == 'sanity-3-tentacle':
+
+    def h(x1, x2, x3):
+      c0 = 5
+      c1 = -0.5
+      return (1 + np.exp(c0 * (x3 - c1))) ** (-1)
+    
+    predictions = h(X['x1'], X['x2'], X['x3']).to_numpy().reshape(-1,1)
+
   else:
 
     # sample a random hyperplane through the origin
