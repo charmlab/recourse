@@ -12,20 +12,15 @@ ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cva
 
 from debug import ipsh
 
-SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
-LAMBDA_LCB_VALUES = [2] # [2.]
+SCM_CLASS_VALUES = ['sanity-3-gen']
+LAMBDA_LCB_VALUES = [2.]
 OPTIMIZATION_APPROACHES = ['grad_descent']
 CLASSIFIER_VALUES = ['lr']
 
 
 
-
-
-
-
-
 experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments/'
-experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments_bu_2020.06.02.12.00/'
+# experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments_bu_2020.06.02.12.00/'
 # experiments_folder_path = '/Users/a6karimi/dev/recourse/_experiments/'
 # experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/2020.06.01_backup/'
 all_counter = len(SCM_CLASS_VALUES) * len(LAMBDA_LCB_VALUES) * len(OPTIMIZATION_APPROACHES) * len(CLASSIFIER_VALUES)
@@ -41,6 +36,21 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
   for metric in metrics:
     metrics_summary[metric] = []
   # metrics_summary = dict.fromkeys(metrics, []) # BROKEN: all lists will be shared; causing massive headache!!!
+
+  # IMPORTANT: keep a factual instance, IF AND ONLY IF, a non-empty
+  # action set was found for this instance given all 8 recourse types
+  print()
+  print(f'[INFO] starting with {len(per_instance_results.keys())} factual instances; filtering..')
+  per_instance_results = {
+    k:v for k,v in per_instance_results.items()
+    if np.all([
+      v[recourse_type]['optimal_action_set'] != dict() # emtpy dict == no action set found
+      for recourse_type in recourse_types
+    ])
+  }
+  print(f'[INFO] done. We now have {len(per_instance_results.keys())} factual instances to compute the table for.')
+
+
 
   for recourse_type in recourse_types:
     for metric in metrics:
@@ -88,7 +98,7 @@ for scm_class in SCM_CLASS_VALUES:
             folders_not_found.append(batch_number_string)
 
         if len(folders_not_found):
-          print(f'\tCannot find minimum distance file for {folders_not_found}')
+          print(f'[INFO] Cannot find {len(folders_not_found)} / {len(sorted_all_batch_folders)} _per_instance_results file; for {folders_not_found}')
 
         # create new folder
         random_batch_folder = sorted_all_batch_folders[0]
@@ -96,7 +106,7 @@ for scm_class in SCM_CLASS_VALUES:
         # new_folder_path = os.path.join(experiments_folder_path, '__merged_MACE_eps_1e-5', new_folder_name)
         new_folder_path = os.path.join(experiments_folder_path, '__merged', new_folder_name)
 
-        print(f'Creating new merged folder {new_folder_path}')
+        print(f'[INFO] Creating new merged folder {new_folder_path}')
         os.makedirs(new_folder_path, exist_ok = False)
         files_to_copy = {'_args.txt', '_causal_graph.pdf', 'log_training.txt'}
         for file_name in files_to_copy:
