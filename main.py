@@ -468,21 +468,21 @@ def trainCVAE(args, objs, node, parents):
   sweep_encoder_layer_sizes = [
     [1, 3, 3],
     [1, 5, 5],
-    [1, 10, 10],
+    # [1, 10, 10],
     [1, 3, 3, 3],
-    [1, 5, 5, 5],
+    # [1, 5, 5, 5],
   ]
   sweep_decoder_layer_sizes = [
     [2, 1],
-    [1 + len(parents), 1],
+    # [1 + len(parents), 1],
     [2, 2, 1],
     [3, 3, 1],
     [5, 5, 1],
-    [10, 10, 1],
+    # [10, 10, 1],
     [3, 3, 3, 1],
-    [5, 5, 5, 1],
+    # [5, 5, 5, 1],
   ]
-  sweep_latent_size = [1,2,5]
+  sweep_latent_size = [1,2]# ,5]
 
   trained_models = {}
 
@@ -1431,7 +1431,7 @@ def visualizeDatasetAndFixedModel(args, objs):
   ax = plt.subplot(1, 1, 1, projection='3d')
 
   scatterDataset(args, objs, ax)
-  scatterDecisionBoundary(args, objs, ax)
+  # scatterDecisionBoundary(args, objs, ax)
 
   ax.set_xlabel('x1')
   ax.set_ylabel('x2')
@@ -1726,6 +1726,59 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
     if len(parents) == 0: # if not a root node
       continue # don't want to plot marginals, because we're not learning these
 
+    elif len(parents) == 1:
+
+      all_actions_outer_product = list(itertools.product(
+        *[
+          np.linspace(
+            objs.dataset_obj.data_frame_kurz.describe()[parent]['min'],
+            objs.dataset_obj.data_frame_kurz.describe()[parent]['max'],
+            PER_DIM_GRANULARITY,
+          )
+          for parent in parents
+        ]
+      ))
+      action_sets = [
+        dict(zip(parents, elem))
+        for elem in all_actions_outer_product
+      ]
+
+      # i don't this has any affect... especially when we sweep over values of all parents and condition children
+      factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
+      total_df = pd.DataFrame(columns=['recourse_type'] + list(objs.scm_obj.getTopologicalOrdering()))
+
+      for idx, action_set in enumerate(action_sets):
+
+        print(f'\n\n[INFO] ACTION SET: {str(prettyPrintDict(action_set))}' + ' =' * 40)
+
+        for experimental_setup in experimental_setups:
+          recourse_type, marker = experimental_setup[0], experimental_setup[1]
+
+          if recourse_type == 'm2_true':
+            samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, 'm2_true', args.num_validation_samples)
+          elif recourse_type == 'm2_gaus':
+            samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, 'm2_gaus', args.num_validation_samples)
+          elif recourse_type == 'm2_cvae':
+            samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, 'm2_cvae', args.num_validation_samples)
+          else:
+            print(f'[INFO] Exp 8 is only designed for m2 recourse_types; skipping {recourse_type}.')
+            continue
+
+          tmp_df = samples.copy()
+          tmp_df['recourse_type'] = recourse_type # add column
+          total_df = pd.concat([total_df, tmp_df]) # concat to overall
+
+      # box plot
+      ax = sns.boxplot(x=parents[0], y=node, hue='recourse_type', data=total_df, palette='Set3', showmeans=True)
+      # TODO: average over high dens pdf, and show a separate plot/table for the average over things...
+      # ax.set_xticklabels(
+      #   [np.around(elem, 3) for elem in ax.get_xticks()],
+      #   rotation=90,
+      # )
+      ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
+      plt.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
+      plt.close()
+
     else:
       # distribution plot
 
@@ -1860,10 +1913,10 @@ if __name__ == "__main__":
     ('m1_alin', 'v'), \
     ('m1_akrr', '^'), \
     ('m1_gaus', 'D'), \
-    ('m1_cvae', 'x'), \
+    # ('m1_cvae', 'x'), \
     ('m2_true', 'o'), \
     ('m2_gaus', 's'), \
-    ('m2_cvae', '+'), \
+    # ('m2_cvae', '+'), \
     # ('m2_cvae_ps', 'P'), \
   ]
 
@@ -1885,8 +1938,10 @@ if __name__ == "__main__":
   if args.experiment == 5:
     experiment5(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   elif args.experiment == 6:
-    experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+    # experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
     experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+  elif args.experiment == 8:
+    experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
 
   # sanity check
   # visualizeDatasetAndFixedModel(args, objs)

@@ -92,12 +92,19 @@ def load_random_data(scm_class, variable_type = 'real'):
 
     predictions = h(X['x1'], X['x2'], X['x3']).to_numpy().reshape(-1,1)
 
+  elif scm_class == 'sanity-3-gen-NEW':
+
+    def h(x1, x2, x3):
+      return (1+np.exp(- 2*x3))**(-1)
+
+    predictions = h(X['x1'], X['x2'], X['x3']).to_numpy().reshape(-1,1)
+
   else:
 
     # sample a random hyperplane through the origin
     # w = np.random.rand(d, 1)
     # fix a hyperplane
-    w = np.ones((3, 1))
+    w = np.ones((X.shape[1], 1))
 
     # get the average scale of (w^T)*X (this depends on the scale of the data)
     scale = 2.5/np.mean(np.absolute(np.dot(X, w)))
@@ -105,7 +112,7 @@ def load_random_data(scm_class, variable_type = 'real'):
     predictions = 1/(1+np.exp(-scale * np.dot(X, w)))
 
   # check that labels are not all 0 or 1
-  assert np.std(predictions) < 0.4, f'Labels std too large: {np.std(predictions)}'
+  assert np.std(predictions) < 0.42 and 0.20 < np.std(predictions), f'Labels std too strange: {np.std(predictions)}'
 
   # sample labels from class probabilities in predictions
   uniform_rv = np.random.rand(X.shape[0], 1)
