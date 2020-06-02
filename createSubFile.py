@@ -8,7 +8,7 @@ import numpy as np
 # SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
 SCM_CLASS_VALUES = ['sanity-3-gen']
 LAMBDA_LCB_VALUES = [2.]
-OPTIMIZATION_APPROACHES = ['grad_descent']
+OPTIMIZATION_APPROACHES = ['brute_force']
 CLASSIFIER_VALUES = ['lr']
 
 # ==============================================================================
@@ -60,7 +60,7 @@ for scm_class in SCM_CLASS_VALUES:
           if optimization_approach == 'grad_descent':
             command += f' --grad_descent_epochs 1000'
           elif optimization_approach == 'brute_force':
-            command += f' --grid_search_bins 10'
+            command += f' --grid_search_bins 20'
 
           if scm_class == 'german-credit':
             command += f' --grid_search_bins 10'
