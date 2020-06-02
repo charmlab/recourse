@@ -1771,7 +1771,7 @@ if __name__ == "__main__":
   parser.add_argument('-p', '--process_id', type=str, default='0', help='When running parallel tests on the cluster, process_id guarantees (in addition to time stamped experiment folder) that experiments do not conflict.')
 
   parser.add_argument('--norm_type', type=int, default=2)
-  parser.add_argument('--lambda_lcb', type=int, default=1)
+  parser.add_argument('--lambda_lcb', type=float, default=1)
   parser.add_argument('--grid_search_bins', type=int, default=20)
   parser.add_argument('--num_train_samples', type=int, default=250)
   parser.add_argument('--num_validation_samples', type=int, default=250)
