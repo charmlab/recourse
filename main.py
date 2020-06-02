@@ -462,27 +462,21 @@ def trainCVAE(args, objs, node, parents):
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using CVAE on {args.num_train_samples * 4} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples * 4 + args.num_validation_samples), PROCESSING_CVAE)
 
-  sweep_lambda_kld = [5, 1, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
-  # sweep_lambda_kld = [0.01]
   # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
   sweep_encoder_layer_sizes = [
     [1, 3, 3],
     [1, 5, 5],
-    # [1, 10, 10],
     [1, 3, 3, 3],
-    # [1, 5, 5, 5],
   ]
   sweep_decoder_layer_sizes = [
     [2, 1],
-    # [1 + len(parents), 1],
     [2, 2, 1],
     [3, 3, 1],
     [5, 5, 1],
-    # [10, 10, 1],
     [3, 3, 3, 1],
-    # [5, 5, 5, 1],
   ]
-  sweep_latent_size = [1,2]# ,5]
+  sweep_latent_size = [1,2]
+  sweep_lambda_kld = [5, 1, 0.5, 0.1, 0.05, 0.01, 0.005]
 
   trained_models = {}
 
@@ -1719,6 +1713,11 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
 
   PER_DIM_GRANULARITY = 8
 
+  recourse_types = [elem for elem in recourse_types if elem in {'m2_true', 'm2_gaus', 'm2_cvae'}]
+  if len(recourse_types) == 0:
+    print(f'[INFO] Exp 8 is only designed for m2 recourse_type; skipping.')
+    return
+
   for node in objs.scm_obj.getTopologicalOrdering():
 
     parents = objs.scm_obj.getParentsForNode(node)
@@ -1751,8 +1750,7 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
 
         print(f'\n\n[INFO] ACTION SET: {str(prettyPrintDict(action_set))}' + ' =' * 40)
 
-        for experimental_setup in experimental_setups:
-          recourse_type, marker = experimental_setup[0], experimental_setup[1]
+        for recourse_type in recourse_types:
 
           if recourse_type == 'm2_true':
             samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, 'm2_true', args.num_validation_samples)
@@ -1760,9 +1758,6 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
             samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, 'm2_gaus', args.num_validation_samples)
           elif recourse_type == 'm2_cvae':
             samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, 'm2_cvae', args.num_validation_samples)
-          else:
-            print(f'[INFO] Exp 8 is only designed for m2 recourse_types; skipping {recourse_type}.')
-            continue
 
           tmp_df = samples.copy()
           tmp_df['recourse_type'] = recourse_type # add column
@@ -1810,9 +1805,6 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
           sampling_handle = sampleGP
         elif recourse_type == 'm2_cvae':
           sampling_handle = sampleCVAE
-        else:
-          print(f'[INFO] Exp 8 is only designed for m2 recourse_types; skipping {recourse_type}.')
-          continue
 
         samples = sampling_handle(args, objs, not_imp_factual_instance, not_imp_factual_df, not_imp_samples_df, node, parents, recourse_type)
         tmp_df = samples.copy()
@@ -1913,11 +1905,10 @@ if __name__ == "__main__":
     ('m1_alin', 'v'), \
     ('m1_akrr', '^'), \
     ('m1_gaus', 'D'), \
-    # ('m1_cvae', 'x'), \
+    ('m1_cvae', 'x'), \
     ('m2_true', 'o'), \
     ('m2_gaus', 's'), \
-    # ('m2_cvae', '+'), \
-    # ('m2_cvae_ps', 'P'), \
+    ('m2_cvae', '+'), \
   ]
 
   if args.experiment == 5:
@@ -1938,7 +1929,7 @@ if __name__ == "__main__":
   if args.experiment == 5:
     experiment5(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   elif args.experiment == 6:
-    # experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+    experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
     experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   elif args.experiment == 8:
     experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
