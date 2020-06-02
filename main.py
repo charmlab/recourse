@@ -466,16 +466,23 @@ def trainCVAE(args, objs, node, parents):
   # sweep_lambda_kld = [0.01]
   # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
   sweep_encoder_layer_sizes = [
-    [1, 3, 3], # this worked
+    [1, 3, 3],
     [1, 5, 5],
+    [1, 10, 10],
+    [1, 3, 3, 3],
+    [1, 5, 5, 5],
   ]
   sweep_decoder_layer_sizes = [
     [2, 1],
     [1 + len(parents), 1],
-    [2, 2, 1], # this worked
+    [2, 2, 1],
     [3, 3, 1],
     [5, 5, 1],
+    [10, 10, 1],
+    [3, 3, 3, 1],
+    [5, 5, 5, 1],
   ]
+  sweep_latent_size = [1,2,5]
 
   trained_models = {}
 
@@ -483,6 +490,7 @@ def trainCVAE(args, objs, node, parents):
     sweep_lambda_kld,
     sweep_encoder_layer_sizes,
     sweep_decoder_layer_sizes,
+    sweep_latent_size,
   ))
 
   for idx, hyperparams in enumerate(all_hyperparam_setups):
@@ -502,7 +510,7 @@ def trainCVAE(args, objs, node, parents):
       'lambda_kld': hyperparams[0],
       'encoder_layer_sizes': hyperparams[1],
       'decoder_layer_sizes': hyperparams[2],
-      'latent_size': 1,
+      'latent_size': hyperparams[3],
       'conditional': True,
       'debug_folder': experiment_folder_name + f'/cvae_hyperparams_setup_{idx}_of_{len(all_hyperparam_setups)}',
     }))
@@ -1423,7 +1431,7 @@ def visualizeDatasetAndFixedModel(args, objs):
   ax = plt.subplot(1, 1, 1, projection='3d')
 
   scatterDataset(args, objs, ax)
-  # scatterDecisionBoundary(args, objs, ax)
+  scatterDecisionBoundary(args, objs, ax)
 
   ax.set_xlabel('x1')
   ax.set_ylabel('x2')
