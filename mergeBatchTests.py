@@ -12,10 +12,10 @@ ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cva
 
 from debug import ipsh
 
-SCM_CLASS_VALUES = ['german-credit']
-LAMBDA_LCB_VALUES =  np.linspace(0, 2.5, 6)
-OPTIMIZATION_APPROACHES = ['brute_force']
-CLASSIFIER_VALUES = ['tree']
+SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
+LAMBDA_LCB_VALUES = [2] # [2.]
+OPTIMIZATION_APPROACHES = ['grad_descent']
+CLASSIFIER_VALUES = ['lr']
 
 
 
@@ -25,6 +25,7 @@ CLASSIFIER_VALUES = ['tree']
 
 
 experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments/'
+experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments_bu_2020.06.02.12.00/'
 # experiments_folder_path = '/Users/a6karimi/dev/recourse/_experiments/'
 # experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/2020.06.01_backup/'
 all_counter = len(SCM_CLASS_VALUES) * len(LAMBDA_LCB_VALUES) * len(OPTIMIZATION_APPROACHES) * len(CLASSIFIER_VALUES)
@@ -68,7 +69,6 @@ for scm_class in SCM_CLASS_VALUES:
         counter = counter + 1
 
         specific_experiment_path = f'{scm_class}__*__{classifier_class}__*__lambda_lcb_{lambda_lcb}__opt_{optimization_approach}'
-        # specific_experiment_path = 'adult__mlp__zero_norm__MACE_eps_1e-5'
 
         print(f'\n[{counter} / {all_counter}] Merging together folders for {specific_experiment_path}')
 
