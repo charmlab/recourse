@@ -31,6 +31,9 @@ from sklearn.linear_model import Ridge
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.gaussian_process.kernels import WhiteKernel, RBF
 
+from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
+
 from _cvae.train import *
 
 from debug import ipsh
@@ -80,22 +83,53 @@ def loadClassifier(args, experiment_folder_name):
 
 @utils.Memoize
 def getTorchClassifier(args, objs):
-  fixed_model_w = objs.classifier_obj.coef_
-  fixed_model_b = objs.classifier_obj.intercept_
-  # fixed_model = lambda x: torch.sigmoid(
-  #   torch.nn.functional.linear(
-  #     x,
-  #     torch.from_numpy(fixed_model_w).float(),
-  #   ) * 0.05 + float(fixed_model_b)
-  # )
-  fixed_model = lambda x: torch.sigmoid(
-    (
-      torch.nn.functional.linear(
-        x,
-        torch.from_numpy(fixed_model_w).float(),
-      ) + float(fixed_model_b)
+
+  if isinstance(objs.classifier_obj, LogisticRegression):
+
+    fixed_model_w = objs.classifier_obj.coef_
+    fixed_model_b = objs.classifier_obj.intercept_
+    fixed_model = lambda x: torch.sigmoid(
+      (
+        torch.nn.functional.linear(
+          x,
+          torch.from_numpy(fixed_model_w).float(),
+        ) + float(fixed_model_b)
+      )
     )
-  )
+
+  elif isinstance(objs.classifier_obj, MLPClassifier):
+
+    data_dim = len(objs.dataset_obj.getInputAttributeNames())
+    fixed_model_width = 10 # TODO make more dynamic later and move to separate function
+    assert objs.classifier_obj.hidden_layer_sizes == (fixed_model_width, fixed_model_width)
+    fixed_model = torch.nn.Sequential(
+      torch.nn.Linear(data_dim, fixed_model_width),
+      torch.nn.ReLU(),
+      torch.nn.Linear(fixed_model_width, fixed_model_width),
+      torch.nn.ReLU(),
+      torch.nn.Linear(fixed_model_width, 1),
+      torch.nn.Sigmoid()
+    )
+    fixed_model[0].weight = torch.nn.Parameter(torch.tensor(objs.classifier_obj.coefs_[0].astype('float32')).t(), requires_grad=False)
+    fixed_model[2].weight = torch.nn.Parameter(torch.tensor(objs.classifier_obj.coefs_[1].astype('float32')).t(), requires_grad=False)
+    fixed_model[4].weight = torch.nn.Parameter(torch.tensor(objs.classifier_obj.coefs_[2].astype('float32')).t(), requires_grad=False)
+    fixed_model[0].bias = torch.nn.Parameter(torch.tensor(objs.classifier_obj.intercepts_[0].astype('float32')), requires_grad=False)
+    fixed_model[2].bias = torch.nn.Parameter(torch.tensor(objs.classifier_obj.intercepts_[1].astype('float32')), requires_grad=False)
+    fixed_model[4].bias = torch.nn.Parameter(torch.tensor(objs.classifier_obj.intercepts_[2].astype('float32')), requires_grad=False)
+
+  else:
+
+    raise Exception(f'Converting {str(objs.classifier_obj.__class__)} to torch not supported.')
+
+  X_all = getOriginalDataFrame(objs, args.num_train_samples)
+  assert np.all(
+    np.isclose(
+      objs.classifier_obj.predict_proba(X_all[:25])[:,1],
+      fixed_model(torch.tensor(X_all[:25].to_numpy(), dtype=torch.float32)).flatten(),
+      atol = 1e-3,
+    )
+  ), 'Torch classifier is not equivalent to the sklearn model.'
+
   return fixed_model
 
 
