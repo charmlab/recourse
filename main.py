@@ -1140,7 +1140,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   recourse_satisfied = False
 
   capped_loss = False
-  num_epochs = 1000
+  num_epochs = args.grad_descent_epochs
   lambda_opt = 1 # initial value
   lambda_opt_update_every = 25
   lambda_opt_learning_rate = 0.5
@@ -1775,7 +1775,6 @@ if __name__ == "__main__":
 
   parser.add_argument('--norm_type', type=int, default=2)
   parser.add_argument('--lambda_lcb', type=float, default=1)
-  parser.add_argument('--grid_search_bins', type=int, default=20)
   parser.add_argument('--num_train_samples', type=int, default=250)
   parser.add_argument('--num_validation_samples', type=int, default=250)
   parser.add_argument('--num_display_samples', type=int, default=15)
@@ -1784,6 +1783,8 @@ if __name__ == "__main__":
   parser.add_argument('--non_intervenable_nodes', nargs = '+', type=str, default='')
   parser.add_argument('--max_intervention_cardinality', type=int, default=100)
   parser.add_argument('-o', '--optimization_approach', type=str, default='brute_force')
+  parser.add_argument('--grid_search_bins', type=int, default=20)
+  parser.add_argument('--grad_descent_epochs', type=int, default=1000)
   parser.add_argument('--epsilon_boundary', type=int, default=0.15, help='we only consider instances that are negatively predicted and at least epsilon_boundary prob away from decision boundary.')
   parser.add_argument('--batch_number', type=int, default=0)
   parser.add_argument('--sample_count', type=int, default=5)
