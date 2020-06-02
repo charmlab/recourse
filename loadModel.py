@@ -82,14 +82,14 @@ def loadModelForDataset(model_class, dataset_string, experiment_folder_name = No
       print('[INFO] Simplifying decision tree...', end = '', file=log_file)
       model_trained.tree_ = treeUtils.simplifyDecisionTree(model_trained, False)
       print('\tdone.', file=log_file)
-    treeUtils.saveTreeVisualization(model_trained, model_class, '', X_test, feature_names, experiment_folder_name)
+    # treeUtils.saveTreeVisualization(model_trained, model_class, '', X_test, feature_names, experiment_folder_name)
   elif model_class == 'forest':
     for tree_idx in range(len(model_trained.estimators_)):
       if SIMPLIFY_TREES:
         print(f'[INFO] Simplifying decision tree (#{tree_idx + 1}/{len(model_trained.estimators_)})...', end = '', file=log_file)
         model_trained.estimators_[tree_idx].tree_ = treeUtils.simplifyDecisionTree(model_trained.estimators_[tree_idx], False)
         print('\tdone.', file=log_file)
-      treeUtils.saveTreeVisualization(model_trained.estimators_[tree_idx], model_class, f'tree{tree_idx}', X_test, feature_names, experiment_folder_name)
+      # treeUtils.saveTreeVisualization(model_trained.estimators_[tree_idx], model_class, f'tree{tree_idx}', X_test, feature_names, experiment_folder_name)
 
   if experiment_folder_name:
     pickle.dump(model_trained, open(f'{experiment_folder_name}/_model_trained', 'wb'))

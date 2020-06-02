@@ -75,6 +75,23 @@ def load_random_data(scm_class, variable_type = 'real'):
       return 1/(1+np.exp(-a_0 * (a_L * L + a_D * D + a_I * I + a_S * S + a_SI * I * S)))
     predictions = h(X['x4'], X['x5'], X['x6'], X['x7']).to_numpy().reshape(-1,1)
 
+  elif scm_class == '_bu_sanity-3-gen':
+
+    def h(x1, x2, x3):
+      return (1+np.exp(-2 * (.3 + x1 + 2 * x2 + 1 * x3)))**(-1)
+
+    predictions = h(X['x1'], X['x2'], X['x3']).to_numpy().reshape(-1,1)
+
+  elif scm_class == 'sanity-3-gen':
+
+    # def h(x1, x2, x3):
+    #   return (1+np.exp(-2 * (0.25 * (x1+2) + (x2+0.5) +  0.1 * (x3+5))))*(-1)
+
+    def h(x1, x2, x3):
+      return (1+np.exp(-2 * (0.25 * (x1+2) + (x2+0.5) +  0.1 * (x3+5))))**(-1)
+
+    predictions = h(X['x1'], X['x2'], X['x3']).to_numpy().reshape(-1,1)
+
   else:
 
     # sample a random hyperplane through the origin
@@ -86,7 +103,6 @@ def load_random_data(scm_class, variable_type = 'real'):
     scale = 2.5/np.mean(np.absolute(np.dot(X, w)))
 
     predictions = 1/(1+np.exp(-scale * np.dot(X, w)))
-
 
   # check that labels are not all 0 or 1
   assert np.std(predictions) < 0.4, f'Labels std too large: {np.std(predictions)}'

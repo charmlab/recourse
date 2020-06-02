@@ -160,7 +160,7 @@ def loadSCM(scm_class, experiment_folder_name = None):
       'u3': Normal(0, 1),
     }
 
-  elif scm_class == 'sanity-3-gen':
+  elif scm_class == '_bu_sanity-3-gen':
 
     structural_equations_np = {
       'x1': lambda n_samples,        :                                               n_samples,
@@ -174,7 +174,26 @@ def loadSCM(scm_class, experiment_folder_name = None):
     }
     noises_distributions = {
       'u1': MixtureOfGaussians([0.5, 0.5], [-2, +1], [1.5, 1]),
-      'u2': Normal(0, 0.1),
+      'u2': Normal(0, 1),
+      'u3': Normal(0, 1),
+    }
+
+  elif scm_class == 'sanity-3-gen':
+
+    structural_equations_np = {
+      'x1': lambda n_samples,        :                                                       n_samples,
+      'x2': lambda n_samples, x1     :        - 3 * (1 / (1 + np.exp(- 1 * x1**2  + n_samples)) - 0.4),
+      # 'x3': lambda n_samples, x1, x2 : np.sin(x1) * np.exp(-(x1+n_samples)**2) + x2**2 * (n_samples-2),
+      'x3': lambda n_samples, x1, x2 : np.sin(x1) * np.exp(-(x1+n_samples)**2) + x2**2 * (n_samples-2),
+    }
+    structural_equations_ts = {
+      'x1': lambda n_samples,        :                                                             n_samples,
+      'x2': lambda n_samples, x1     :           - 3 * (1 / (1 + torch.exp(- 1 * x1**2  + n_samples)) - 0.4),
+      'x3': lambda n_samples, x1, x2 : torch.sin(x1) * torch.exp(-(x1+n_samples)**2) + x2**2 * (n_samples-2),
+    }
+    noises_distributions = {
+      'u1': MixtureOfGaussians([0.5, 0.5], [-2, +1], [1.5, 1]),
+      'u2': Normal(0, 1),
       'u3': Normal(0, 1),
     }
 
