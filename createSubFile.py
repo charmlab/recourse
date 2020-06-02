@@ -6,7 +6,7 @@ import numpy as np
 # CLASSIFIER_VALUES = ['lr']
 
 # SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
-SCM_CLASS_VALUES = ['sanity-3-anm']
+SCM_CLASS_VALUES = ['sanity-3-gen']
 LAMBDA_LCB_VALUES = [2]
 OPTIMIZATION_APPROACHES = ['grad_descent']
 CLASSIFIER_VALUES = ['lr']
@@ -54,13 +54,22 @@ for scm_class in SCM_CLASS_VALUES:
             f' --scm_class {scm_class}' \
             f' --classifier_class {classifier_class}' \
             f' --lambda_lcb {lambda_lcb}' \
-            f' --optimization_approach {optimization_approach}' \
-            f' --batch_number {batch_number}' \
-            f' --sample_count {NUM_NEG_SAMPLES_PER_BATCH}' \
-            f' -p $(Process)'
+            f' --optimization_approach {optimization_approach}'
+
+          # run-specific options
+          if optimization_approach == 'grad_descent':
+            command += f' --grad_descent_epochs 1000'
+          elif optimization_approach == 'brute_force':
+            command += f' --grid_search_bins 10'
+
           if scm_class == 'german-credit':
             command += f' --grid_search_bins 10'
             command += f' --non_intervenable_nodes x1 x2 x5'
+
+          # finally add batch, samples, and process id params
+          command += f' --batch_number {batch_number}'
+          command += f' --sample_count {NUM_NEG_SAMPLES_PER_BATCH}'
+          command += f' -p $(Process)'
           print(command, file=sub_file)
           print('queue', file=sub_file)
           print('\n', file=sub_file)
