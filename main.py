@@ -1895,6 +1895,7 @@ if __name__ == "__main__":
 
   # if only visualizing
   if args.experiment == 0:
+    args.num_display_samples = 150
     visualizeDatasetAndFixedModel(args, objs)
     quit()
 
