@@ -178,7 +178,7 @@ def loadSCM(scm_class, experiment_folder_name = None):
       'u3': Normal(0, 1),
     }
 
-  elif scm_class == 'sanity-3-gen':
+  elif scm_class == 'sanity-3-gen-OLD':
 
     structural_equations_np = {
       'x1': lambda n_samples,        :                                                       n_samples,
@@ -218,7 +218,7 @@ def loadSCM(scm_class, experiment_folder_name = None):
       'u3': Normal(0, 1),
     }
 
-  elif scm_class == 'sanity-3-tentacle':
+  elif scm_class == 'sanity-3-gen':
     a0 = 0.25
     b = -1
     b0 = .1

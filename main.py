@@ -462,57 +462,18 @@ def trainCVAE(args, objs, node, parents):
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using CVAE on {args.num_train_samples * 4} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples * 4 + args.num_validation_samples), PROCESSING_CVAE)
 
-  # # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
-  # sweep_lambda_kld = [5, 1, 0.5, 0.1, 0.05, 0.01, 0.005]
-  # sweep_encoder_layer_sizes = [
-  #   # [1, 3, 3],
-  #   # [1, 5, 5],
-  #   # [1, 3, 3, 3],
-  #   # [1, 3, 3, 3, 3],
-  #   # [1, 32],
-  #   # [1, 32, 32],
-  #   [1, 32, 32, 32],
-  # ]
-  # sweep_decoder_layer_sizes = [
-  #   # [2, 1],
-  #   # [2, 2, 1],
-  #   # [3, 3, 1],
-  #   # [5, 5, 1],
-  #   # [3, 3, 3, 1],
-  #   # [3, 3, 3, 3, 1],
-  #   # [32, 1],
-  #   # [32, 32, 1],
-  #   [32, 32, 32, 1],
-  # ]
-  # # sweep_latent_size = [1, 2, 5]
-  # sweep_latent_size = [3]# , 5]
-
-
-
-  if node == 'x2':
-    # sweep_lambda_kld = [0.5]
-    sweep_lambda_kld = [0.5]
-    sweep_encoder_layer_sizes = [
-      [1, 32, 32, 32],
-    ]
-    sweep_decoder_layer_sizes = [
-      [32, 32, 32, 1],
-    ]
-    sweep_latent_size = [5]
-
-  elif node == 'x3':
-    # sweep_lambda_kld = [0.005]
-    sweep_lambda_kld = [0.001]
-    sweep_encoder_layer_sizes = [
-      [1, 5, 5],
-    ]
-    sweep_decoder_layer_sizes = [
-      [5, 5, 1],
-    ]
-    sweep_latent_size = [1]
-
-  # sweep_lambda_kld = [5, 1, 0.5, 0.1, 0.05, 0.01, 0.005]
-  # sweep_latent_size = [3, 5]
+  sweep_lambda_kld = [1, 0.5, 0.1]
+  sweep_encoder_layer_sizes = [
+    [1, 5, 5], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
+    [1, 32, 32],
+    [1, 32, 32, 32],
+  ]
+  sweep_decoder_layer_sizes = [
+    [5, 5, 1],
+    [32, 32, 1],
+    [32, 32, 32, 1],
+  ]
+  sweep_latent_size = [1, 3, 5]
 
   trained_models = {}
 
@@ -559,6 +520,7 @@ def trainCVAE(args, objs, node, parents):
     X_pred_posterior = X_true.copy()
     X_pred_posterior[node] = pd.DataFrame(recon_node_validation.numpy(), columns=[node])
 
+    # amir: this is so bad code.
     not_imp_factual_instance = dict.fromkeys(objs.scm_obj.getTopologicalOrdering(), -1)
     not_imp_factual_df = pd.DataFrame(dict(zip(
       objs.dataset_obj.getInputAttributeNames(),
@@ -577,8 +539,8 @@ def trainCVAE(args, objs, node, parents):
     trained_models[f'setup_{idx}']['trained_cvae'] = trained_cvae
     trained_models[f'setup_{idx}']['test-statistic'] = my_statistic
 
-  # index_with_lowest_test_statistics = min(trained_models.keys(), key=lambda k: abs(trained_models[k]['test-statistic'] - 0))
-  index_with_lowest_test_statistics = min(trained_models.keys(), key=lambda k: trained_models[k]['test-statistic'])
+  index_with_lowest_test_statistics = min(trained_models.keys(), key=lambda k: abs(trained_models[k]['test-statistic'] - 0))
+  # index_with_lowest_test_statistics = min(trained_models.keys(), key=lambda k: trained_models[k]['test-statistic'])
   model_with_lowest_test_statistics = trained_models[index_with_lowest_test_statistics]['trained_cvae']
   # save all results
   tmp_file_name = f'{experiment_folder_name}/_cvae_params_{getConditionalString(node, parents)}.txt'
@@ -695,7 +657,8 @@ def sampleCVAE(args, objs, factual_instance, factual_df, samples_df, node, paren
     sample_from=sample_from,
   )
   new_samples = new_samples.rename(columns={0: node}) # bad code amir, this violates abstraction!
-  samples_df[node] = new_samples
+  samples_df = samples_df.reset_index(drop=True)
+  samples_df[node] = new_samples.astype('float64')
   samples_df = deprocessDataFrameOrDict(args, objs, samples_df, PROCESSING_CVAE)
   return samples_df
 
@@ -1891,13 +1854,13 @@ if __name__ == "__main__":
   parser.add_argument('--lambda_lcb', type=float, default=1)
   parser.add_argument('--num_train_samples', type=int, default=250)
   parser.add_argument('--num_validation_samples', type=int, default=250)
-  parser.add_argument('--num_display_samples', type=int, default=15)
+  parser.add_argument('--num_display_samples', type=int, default=25)
   parser.add_argument('--num_mc_samples', type=int, default=100)
   parser.add_argument('--debug_flag', type=bool, default=False)
   parser.add_argument('--non_intervenable_nodes', nargs = '+', type=str, default='')
   parser.add_argument('--max_intervention_cardinality', type=int, default=100)
   parser.add_argument('-o', '--optimization_approach', type=str, default='brute_force')
-  parser.add_argument('--grid_search_bins', type=int, default=20)
+  parser.add_argument('--grid_search_bins', type=int, default=10)
   parser.add_argument('--grad_descent_epochs', type=int, default=1000)
   parser.add_argument('--epsilon_boundary', type=int, default=0.15, help='we only consider instances that are negatively predicted and at least epsilon_boundary prob away from decision boundary.')
   parser.add_argument('--batch_number', type=int, default=0)
