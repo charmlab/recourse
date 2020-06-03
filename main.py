@@ -467,6 +467,7 @@ def trainCVAE(args, objs, node, parents):
     [1, 3, 3],
     [1, 5, 5],
     [1, 3, 3, 3],
+    [1, 3, 3, 3, 3],
   ]
   sweep_decoder_layer_sizes = [
     [2, 1],
@@ -474,8 +475,9 @@ def trainCVAE(args, objs, node, parents):
     [3, 3, 1],
     [5, 5, 1],
     [3, 3, 3, 1],
+    [3, 3, 3, 3, 1],
   ]
-  sweep_latent_size = [1,2]
+  sweep_latent_size = [1, 2, 5]
   sweep_lambda_kld = [5, 1, 0.5, 0.1, 0.05, 0.01, 0.005]
 
   trained_models = {}
@@ -546,6 +548,10 @@ def trainCVAE(args, objs, node, parents):
   # index_with_lowest_test_statistics = min(trained_models.keys(), key=lambda k: abs(trained_models[k]['test-statistic'] - 0))
   index_with_lowest_test_statistics = min(trained_models.keys(), key=lambda k: trained_models[k]['test-statistic'])
   model_with_lowest_test_statistics = trained_models[index_with_lowest_test_statistics]['trained_cvae']
+  # save all results
+  tmp_file_name = f'{experiment_folder_name}/_cvae_params_{getConditionalString(node, parents)}.txt'
+  pprint(trained_models[index_with_lowest_test_statistics]['hyperparams'], open(tmp_file_name, 'w'))
+  pprint(trained_models, open(tmp_file_name, 'a'))
   return model_with_lowest_test_statistics
 
 
@@ -1527,7 +1533,7 @@ def experiment5(args, objs, experiment_folder_name, factual_instances_dict, expe
 
   for idx, action_set in enumerate(action_sets):
 
-    print(f'\n\n[INFO] ACTION SET: {str(prettyPrintDict(action_set))}' + ' =' * 40)
+    print(f'\n\n[INFO] ACTION SET: {str(prettyPrintDict(action_set))}' + ' =' * 60)
 
     for experimental_setup in experimental_setups:
       recourse_type, marker = experimental_setup[0], experimental_setup[1]
@@ -1748,7 +1754,7 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
 
       for idx, action_set in enumerate(action_sets):
 
-        print(f'\n\n[INFO] ACTION SET: {str(prettyPrintDict(action_set))}' + ' =' * 40)
+        print(f'\n\n[INFO] ACTION SET: {str(prettyPrintDict(action_set))}' + ' =' * 60)
 
         for recourse_type in recourse_types:
 
@@ -1840,7 +1846,7 @@ if __name__ == "__main__":
   parser.add_argument('--grad_descent_epochs', type=int, default=1000)
   parser.add_argument('--epsilon_boundary', type=int, default=0.15, help='we only consider instances that are negatively predicted and at least epsilon_boundary prob away from decision boundary.')
   parser.add_argument('--batch_number', type=int, default=0)
-  parser.add_argument('--sample_count', type=int, default=5)
+  parser.add_argument('--sample_count', type=int, default=10)
 
   args = parser.parse_args()
 
@@ -1858,6 +1864,7 @@ if __name__ == "__main__":
     f'__count_{args.sample_count}' + \
     f'__pid{args.process_id}'
   experiment_folder_name = f"_experiments/{datetime.now().strftime('%Y.%m.%d_%H.%M.%S')}__{setup_name}"
+  args.experiment_folder_name = experiment_folder_name
   os.mkdir(f'{experiment_folder_name}')
 
   # save all arguments to file
