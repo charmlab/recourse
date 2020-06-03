@@ -462,23 +462,57 @@ def trainCVAE(args, objs, node, parents):
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using CVAE on {args.num_train_samples * 4} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples * 4 + args.num_validation_samples), PROCESSING_CVAE)
 
-  # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
-  sweep_encoder_layer_sizes = [
-    [1, 3, 3],
-    [1, 5, 5],
-    [1, 3, 3, 3],
-    [1, 3, 3, 3, 3],
-  ]
-  sweep_decoder_layer_sizes = [
-    [2, 1],
-    [2, 2, 1],
-    [3, 3, 1],
-    [5, 5, 1],
-    [3, 3, 3, 1],
-    [3, 3, 3, 3, 1],
-  ]
-  sweep_latent_size = [1, 2, 5]
-  sweep_lambda_kld = [5, 1, 0.5, 0.1, 0.05, 0.01, 0.005]
+  # # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
+  # sweep_lambda_kld = [5, 1, 0.5, 0.1, 0.05, 0.01, 0.005]
+  # sweep_encoder_layer_sizes = [
+  #   # [1, 3, 3],
+  #   # [1, 5, 5],
+  #   # [1, 3, 3, 3],
+  #   # [1, 3, 3, 3, 3],
+  #   # [1, 32],
+  #   # [1, 32, 32],
+  #   [1, 32, 32, 32],
+  # ]
+  # sweep_decoder_layer_sizes = [
+  #   # [2, 1],
+  #   # [2, 2, 1],
+  #   # [3, 3, 1],
+  #   # [5, 5, 1],
+  #   # [3, 3, 3, 1],
+  #   # [3, 3, 3, 3, 1],
+  #   # [32, 1],
+  #   # [32, 32, 1],
+  #   [32, 32, 32, 1],
+  # ]
+  # # sweep_latent_size = [1, 2, 5]
+  # sweep_latent_size = [3]# , 5]
+
+
+
+  if node == 'x2':
+    # sweep_lambda_kld = [0.5]
+    sweep_lambda_kld = [0.5]
+    sweep_encoder_layer_sizes = [
+      [1, 32, 32, 32],
+    ]
+    sweep_decoder_layer_sizes = [
+      [32, 32, 32, 1],
+    ]
+    sweep_latent_size = [5]
+
+  elif node == 'x3':
+    # sweep_lambda_kld = [0.005]
+    sweep_lambda_kld = [0.001]
+    sweep_encoder_layer_sizes = [
+      [1, 5, 5],
+    ]
+    sweep_decoder_layer_sizes = [
+      [5, 5, 1],
+    ]
+    sweep_latent_size = [1]
+
+  # sweep_lambda_kld = [5, 1, 0.5, 0.1, 0.05, 0.01, 0.005]
+  # sweep_latent_size = [3, 5]
 
   trained_models = {}
 
@@ -491,7 +525,7 @@ def trainCVAE(args, objs, node, parents):
 
   for idx, hyperparams in enumerate(all_hyperparam_setups):
 
-    print(f'\n\t[INFO] Training hyperparams setup #{idx} / {len(all_hyperparam_setups)}: {str(hyperparams)}')
+    print(f'\n\t[INFO] Training hyperparams setup #{idx+1} / {len(all_hyperparam_setups)}: {str(hyperparams)}')
 
     trained_cvae, recon_node_train, recon_node_validation = train_cvae(AttrDict({
       'name': f'{getConditionalString(node, parents)}',
@@ -510,8 +544,6 @@ def trainCVAE(args, objs, node, parents):
       'conditional': True,
       'debug_folder': experiment_folder_name + f'/cvae_hyperparams_setup_{idx}_of_{len(all_hyperparam_setups)}',
     }))
-
-    # ipsh()
 
     # # TODO: remove after models.py is corrected
     # return trained_cvae
@@ -1617,6 +1649,7 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
       tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance, tmp['optimal_action_set'], 'm0_true')
+      # print('jigar')
       tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
       if recourse_type in ACCEPTABLE_DISTR_RECOURSE and recourse_type != 'm2_true':
         tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], recourse_type), 3)
@@ -1714,6 +1747,27 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
 # DEPRECATED def experiment7
 
 
+def scatterFit(args, objs, experiment_folder_name, experimental_setups, node, parents, total_df):
+
+  fig, axes = plt.subplots(1, len(parents))
+  if len(parents) == 1:
+    axes = [axes]
+  for idx, parent in enumerate(parents):
+    for recourse_type in np.setdiff1d(np.unique(total_df['recourse_type']), 'true data'):
+      tmp = total_df[total_df['recourse_type'] == recourse_type]
+      marker = [elem[1] for elem in experimental_setups if elem[0] == recourse_type][0]
+      axes[idx].scatter(tmp[parent], tmp[node], marker=marker, alpha=0.3, s=8, label=recourse_type)
+      axes[idx].set_xlabel(parent, fontsize='xx-small')
+      axes[idx].set_ylabel(node, fontsize='xx-small')
+      axes[idx].set_title(f'{node} on {parent}', fontsize='xx-small')
+      axes[idx].grid(True)
+      axes[idx].legend(fontsize='xx-small')
+      axes[idx].tick_params(axis='both', which='major', labelsize='xx-small')
+      axes[idx].tick_params(axis='both', which='minor', labelsize='xx-small')
+  plt.savefig(f'{experiment_folder_name}/_sanity_fit_{getConditionalString(node, parents)}.pdf')
+  plt.close()
+
+
 def experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' box-plot sanity '''
 
@@ -1731,54 +1785,54 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
     if len(parents) == 0: # if not a root node
       continue # don't want to plot marginals, because we're not learning these
 
-    elif len(parents) == 1:
+    # elif len(parents) == 1:
 
-      all_actions_outer_product = list(itertools.product(
-        *[
-          np.linspace(
-            objs.dataset_obj.data_frame_kurz.describe()[parent]['min'],
-            objs.dataset_obj.data_frame_kurz.describe()[parent]['max'],
-            PER_DIM_GRANULARITY,
-          )
-          for parent in parents
-        ]
-      ))
-      action_sets = [
-        dict(zip(parents, elem))
-        for elem in all_actions_outer_product
-      ]
+    #   all_actions_outer_product = list(itertools.product(
+    #     *[
+    #       np.linspace(
+    #         objs.dataset_obj.data_frame_kurz.describe()[parent]['min'],
+    #         objs.dataset_obj.data_frame_kurz.describe()[parent]['max'],
+    #         PER_DIM_GRANULARITY,
+    #       )
+    #       for parent in parents
+    #     ]
+    #   ))
+    #   action_sets = [
+    #     dict(zip(parents, elem))
+    #     for elem in all_actions_outer_product
+    #   ]
 
-      # i don't this has any affect... especially when we sweep over values of all parents and condition children
-      factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
-      total_df = pd.DataFrame(columns=['recourse_type'] + list(objs.scm_obj.getTopologicalOrdering()))
+    #   # i don't this has any affect... especially when we sweep over values of all parents and condition children
+    #   factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
+    #   total_df = pd.DataFrame(columns=['recourse_type'] + list(objs.scm_obj.getTopologicalOrdering()))
 
-      for idx, action_set in enumerate(action_sets):
+    #   for idx, action_set in enumerate(action_sets):
 
-        print(f'\n\n[INFO] ACTION SET: {str(prettyPrintDict(action_set))}' + ' =' * 60)
+    #     for recourse_type in recourse_types:
 
-        for recourse_type in recourse_types:
+    #       if recourse_type == 'm2_true':
+    #         samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, 'm2_true', args.num_validation_samples)
+    #       elif recourse_type == 'm2_gaus':
+    #         samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, 'm2_gaus', args.num_validation_samples)
+    #       elif recourse_type == 'm2_cvae':
+    #         samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, 'm2_cvae', args.num_validation_samples)
 
-          if recourse_type == 'm2_true':
-            samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, 'm2_true', args.num_validation_samples)
-          elif recourse_type == 'm2_gaus':
-            samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, 'm2_gaus', args.num_validation_samples)
-          elif recourse_type == 'm2_cvae':
-            samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, 'm2_cvae', args.num_validation_samples)
+    #       tmp_df = samples.copy()
+    #       tmp_df['recourse_type'] = recourse_type # add column
+    #       total_df = pd.concat([total_df, tmp_df]) # concat to overall
 
-          tmp_df = samples.copy()
-          tmp_df['recourse_type'] = recourse_type # add column
-          total_df = pd.concat([total_df, tmp_df]) # concat to overall
-
-      # box plot
-      ax = sns.boxplot(x=parents[0], y=node, hue='recourse_type', data=total_df, palette='Set3', showmeans=True)
-      # TODO: average over high dens pdf, and show a separate plot/table for the average over things...
-      # ax.set_xticklabels(
-      #   [np.around(elem, 3) for elem in ax.get_xticks()],
-      #   rotation=90,
-      # )
-      ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
-      plt.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
-      plt.close()
+    #   # box plot
+    #   ax = sns.boxplot(x=parents[0], y=node, hue='recourse_type', data=total_df, palette='Set3', showmeans=True)
+    #   # ax = sns.swarmplot(x=parents[0], y=node, hue='recourse_type', data=total_df, palette='Set3') # , showmeans=True)
+    #   # TODO: average over high dens pdf, and show a separate plot/table for the average over things...
+    #   # ax.set_xticklabels(
+    #   #   [np.around(elem, 3) for elem in ax.get_xticks()],
+    #   #   rotation=90,
+    #   # )
+    #   ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
+    #   plt.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
+    #   plt.close()
+    #   scatterFit(args, objs, experiment_folder_name, experimental_setups, node, parents, total_df)
 
     else:
       # distribution plot
@@ -1820,6 +1874,7 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
       ax = sns.boxplot(x='recourse_type', y=node, data=total_df, palette='Set3', showmeans=True)
       plt.savefig(f'{experiment_folder_name}/_sanity_{getConditionalString(node, parents)}.pdf')
       plt.close()
+      scatterFit(args, objs, experiment_folder_name, experimental_setups, node, parents, total_df)
 
 
 if __name__ == "__main__":
@@ -1909,11 +1964,11 @@ if __name__ == "__main__":
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
-    ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
-    ('m1_gaus', 'D'), \
-    ('m1_cvae', 'x'), \
+    # ('m0_true', '*'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
+    # ('m1_gaus', 'D'), \
+    # ('m1_cvae', 'x'), \
     ('m2_true', 'o'), \
     ('m2_gaus', 's'), \
     ('m2_cvae', '+'), \

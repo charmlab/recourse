@@ -1,4 +1,5 @@
 import os
+import copy
 import time
 import torch
 import argparse
@@ -66,13 +67,19 @@ def train_cvae(args):
         conditional=args.conditional,
         num_labels=args.parents_train.shape[1] if args.conditional else 0).to(device)
 
+
     optimizer = torch.optim.Adam(vae.parameters(), lr=args.learning_rate)
 
     logs = defaultdict(list)
+    best_cvae = None
+    early_stop_counter = 0
+    best_total_loss = float('inf')
 
     all_mse_validation_losses = []
     stopped_early = False
-    for epoch in tqdm(range(args.epochs)):
+    iterator = tqdm(range(args.epochs))
+    for epoch in iterator:
+        vae.train()
 
         # tracker_epoch = defaultdict(lambda: defaultdict(dict))
 
@@ -85,12 +92,6 @@ def train_cvae(args):
             else:
                 recon_x, mean, log_var, z = vae(x)
 
-            # for i, yi in enumerate(y):
-            #     id = len(tracker_epoch)
-            #     tracker_epoch[id]['x'] = z[i, 0].item()
-            #     tracker_epoch[id]['y'] = z[i, 1].item()
-            #     tracker_epoch[id]['label'] = yi.item()
-
             loss = loss_fn(recon_x, x, mean, log_var)
 
             optimizer.zero_grad()
@@ -98,11 +99,6 @@ def train_cvae(args):
             optimizer.step()
 
             logs['loss'].append(loss.item())
-
-            # if args.debug_flag:
-            #     if iteration % args.print_every == 0 or iteration == len(data_loader)-1:
-            #         print("Epoch {:02d}/{:02d} Batch {:04d}/{:d}, Loss {:9.4f}".format(
-            #             epoch, args.epochs, iteration, len(data_loader)-1, loss.item()))
 
         # train set
         x = torch.tensor(args.node_train.to_numpy()).float()
@@ -112,6 +108,7 @@ def train_cvae(args):
         x_train, pa_train, recon_x_train = x, pa, recon_x
         MSE_train = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
         KLD_train = -0.5 * torch.mean(torch.sum(1 + log_var - mean.pow(2) - log_var.exp(), axis=1))
+        total_loss_train = MSE_train / args.lambda_kld + KLD_train
 
         # validation set
         x = torch.tensor(args.node_validation.to_numpy()).float()
@@ -121,6 +118,7 @@ def train_cvae(args):
         x_validation, pa_validation, recon_x_validation = x, pa, recon_x
         MSE_validation = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
         KLD_validation = -0.5 * torch.mean(torch.sum(1 + log_var - mean.pow(2) - log_var.exp(), axis=1))
+        total_loss_validation = MSE_validation / args.lambda_kld + KLD_validation
 
         # writer.add_scalars(f'loss/{args.name}', {
         #     'MSE_train': MSE_train,
@@ -131,55 +129,23 @@ def train_cvae(args):
         #     # 'sum_validation': MSE_validation + KLD_validation,
         # }, epoch)
 
-        moving_window_size = 20
-        all_mse_validation_losses.append(MSE_validation)
-        # if MSE_validation has converged (NOT BOTH MSE_validation and KLD_validation), then stop training...
-        if \
-            epoch >= moving_window_size and \
-            np.abs(np.mean(all_mse_validation_losses[-moving_window_size:]) / MSE_validation) < 1.05:
+        if total_loss_validation < best_total_loss:
+            best_total_loss = total_loss_validation
+            best_cvae = copy.deepcopy(vae)
+            early_stop_counter = 0
+
+        if total_loss_validation > best_total_loss:
+            early_stop_counter += 1
+
+        if early_stop_counter > 25:
             stopped_early = True
+            iterator.close()
             break
 
     if stopped_early: print(f'\t\t[INFO] Early stopping at epoch {epoch}')
 
-    return vae, recon_x_train, recon_x_validation
-
-        #         if args.conditional:
-        #             c = torch.arange(0, 10).long().unsqueeze(1)
-        #             x = vae.inference(n=c.size(0), c=c)
-        #         else:
-        #             x = vae.inference(n=10)
-
-        #         plt.figure()
-        #         plt.figure(figsize=(5, 10))
-        #         for p in range(10):
-        #             plt.subplot(5, 2, p+1)
-        #             if args.conditional:
-        #                 plt.text(
-        #                     0, 0, "c={:d}".format(c[p].item()), color='black',
-        #                     backgroundcolor='white', fontsize=8)
-        #             plt.imshow(x[p].view(28, 28).data.numpy())
-        #             plt.axis('off')
-
-        #         if not os.path.exists(os.path.join(args.fig_root, str(ts))):
-        #             if not(os.path.exists(os.path.join(args.fig_root))):
-        #                 os.mkdir(os.path.join(args.fig_root))
-        #             os.mkdir(os.path.join(args.fig_root, str(ts)))
-
-        #         plt.savefig(
-        #             os.path.join(args.fig_root, str(ts),
-        #                          "E{:d}I{:d}.png".format(epoch, iteration)),
-        #             dpi=300)
-        #         plt.clf()
-        #         plt.close('all')
-
-        # df = pd.DataFrame.from_dict(tracker_epoch, orient='index')
-        # g = sns.lmplot(
-        #     x='x', y='y', hue='label', data=df.groupby('label').head(100),
-        #     fit_reg=False, legend=True)
-        # g.savefig(os.path.join(
-        #     args.fig_root, str(ts), "E{:d}-Dist.png".format(epoch)),
-        #     dpi=300)
+    assert best_cvae is not None
+    return best_cvae, recon_x_train, recon_x_validation
 
 
 if __name__ == '__main__':

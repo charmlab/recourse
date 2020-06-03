@@ -48,6 +48,7 @@ class VAE(nn.Module):
         # but it shouldn't be trained during backprop of outer optimization problem!
         # with torch.no_grad():
 
+        self.eval()
         assert x_factual.__class__ == pa_factual.__class__ == pa_counter.__class__
         return_data_frame = False
         if isinstance(x_factual, pd.DataFrame):
@@ -131,6 +132,10 @@ class Encoder(nn.Module):
         for i, (in_size, out_size) in enumerate(zip(layer_sizes[:-1], layer_sizes[1:])):
             self.MLP.add_module(
                 name="L{:d}".format(i), module=nn.Linear(in_size, out_size))
+            if i == 0:
+                self.MLP.add_module(
+                    name="DropOut{:d}".format(i), module=nn.Dropout(p=0.3)
+                )
             self.MLP.add_module(name="A{:d}".format(i), module=nn.ReLU())
 
         self.linear_means = nn.Linear(layer_sizes[-1], latent_size)
