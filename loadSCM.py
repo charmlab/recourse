@@ -230,7 +230,7 @@ def loadSCM(scm_class, experiment_folder_name = None):
       'x2': lambda n_samples, x1     :      a0 * np.sign(n_samples) * (x1 ** 2) * (1 + n_samples**2),
       'x3': lambda n_samples, x1, x2 : b + b0 * (b1 * x1**2 + b2 * x2**2) + n_samples,
     }
-    structural_equations_np = {
+    structural_equations_ts = {
       'x1': lambda n_samples,        :                                   n_samples,
       'x2': lambda n_samples, x1     :      a0 * torch.sign(n_samples) * (x1 ** 2) * (1 + n_samples**2),
       'x3': lambda n_samples, x1, x2 : b + b0 * (b1 * x1**2 + b2 * x2**2) + n_samples,
@@ -334,10 +334,11 @@ def loadSCM(scm_class, experiment_folder_name = None):
       'u7': Normal(0, 5**2),
     }
 
+
   assert \
-    set([getNoiseStringForNode(node) for node in structural_equations_np.keys()]) == \
-    set([getNoiseStringForNode(node) for node in structural_equations_ts.keys()]) == \
-    set(noises_distributions.keys()), \
+    list([getNoiseStringForNode(node) for node in structural_equations_np.keys()]) == \
+    list([getNoiseStringForNode(node) for node in structural_equations_ts.keys()]) == \
+    list(noises_distributions.keys()), \
     'structural_equations_np & structural_equations_ts & noises_distributions should have identical keys.'
 
   scm = CausalModel(scm_class, structural_equations_np, structural_equations_ts, noises_distributions)
