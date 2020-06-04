@@ -232,7 +232,7 @@ def loadSCM(scm_class, experiment_folder_name = None):
     }
     structural_equations_ts = {
       'x1': lambda n_samples,        :                                   n_samples,
-      'x2': lambda n_samples, x1     :      a0 * torch.sign(n_samples) * (x1 ** 2) * (1 + n_samples**2),
+      'x2': lambda n_samples, x1     :      a0 * torch.sign(torch.tensor(n_samples)) * (x1 ** 2) * (1 + n_samples**2),
       'x3': lambda n_samples, x1, x2 : b + b0 * (b1 * x1**2 + b2 * x2**2) + n_samples,
     }
     noises_distributions = {
