@@ -462,7 +462,7 @@ def trainCVAE(args, objs, node, parents):
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using CVAE on {args.num_train_samples * 4} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples * 4 + args.num_validation_samples), PROCESSING_CVAE)
 
-  if recourse_type == 'sanity-3-lin':
+  if args.scm_class == 'sanity-3-lin':
     if node == 'x2':
       sweep_lambda_kld = [0.01]
       sweep_encoder_layer_sizes = [[1, 32, 32, 32]]
@@ -474,7 +474,7 @@ def trainCVAE(args, objs, node, parents):
       sweep_decoder_layer_sizes = [[32, 32, 32, 1]]
       sweep_latent_size = [1]
 
-  elif recourse_type == 'sanity-3-anm':
+  elif args.scm_class == 'sanity-3-anm':
     if node == 'x2':
       sweep_lambda_kld = [0.01]
       sweep_encoder_layer_sizes = [[1, 32, 32]]
@@ -486,7 +486,7 @@ def trainCVAE(args, objs, node, parents):
       sweep_decoder_layer_sizes = [[32, 32, 1]]
       sweep_latent_size = [1]
 
-  elif recourse_type == 'sanity-3-gen':
+  elif args.scm_class == 'sanity-3-gen':
     if node == 'x2':
       sweep_lambda_kld = [0.5]
       sweep_encoder_layer_sizes = [[1, 32, 32, 32]]
@@ -549,8 +549,7 @@ def trainCVAE(args, objs, node, parents):
     # return trained_cvae
 
     # run mmd to verify whether training is good or not (ON VALIDATION SET)
-    # X_val = X_all[args.num_train_samples * 4:].copy()
-    X_val = X_all.copy()
+    X_val = X_all[args.num_train_samples * 4:].copy()
     # POTENTIAL BUG? reset index here so that we can populate the `node` column
     # with reconstructed values from trained_cvae that lack indexing
     X_val = X_val.reset_index(drop = True)
