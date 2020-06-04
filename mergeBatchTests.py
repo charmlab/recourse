@@ -30,7 +30,7 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
   # Table
   metrics_summary = {}
   # metrics = ['scf_validity', 'ic_m1_gaus', 'ic_m1_cvae', 'ic_m2_true', 'ic_m2_gaus', 'ic_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
-  metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime']
+  metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime', 'default_to_MO']
 
   for metric in metrics:
     metrics_summary[metric] = []

@@ -1379,13 +1379,6 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
   else:
     raise Exception(f'{args.optimization_approach} not recognized.')
 
-  # # If a solution is NOT found, return the minimum observable instance (the
-  # # action will be to intervene on all variables with intervention values set
-  # # to the corresponding dimension of the nearest observable instance)
-  # if min_cost_action_set == dict():
-  #   min_cost_action_set = getMinimumObservableInstance(args, objs, factual_instance)
-
-
   return min_cost_action_set
 
 
@@ -1653,6 +1646,14 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
       )
       end_time = time.time()
 
+      # If a solution is NOT found, return the minimum observable instance (the
+      # action will be to intervene on all variables with intervention values set
+      # to the corresponding dimension of the nearest observable instance)
+      tmp['default_to_MO'] = False
+      if tmp['optimal_action_set'] == dict():
+        tmp['optimal_action_set'] = getMinimumObservableInstance(args, objs, factual_instance)
+        tmp['default_to_MO'] = True
+
       tmp['runtime'] = np.around(end_time - start_time, 3)
 
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
@@ -1683,7 +1684,7 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
   # Table
   metrics_summary = {}
   # metrics = ['scf_validity', 'ic_m1_gaus', 'ic_m1_cvae', 'ic_m2_true', 'ic_m2_gaus', 'ic_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
-  metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime']
+  metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime', 'default_to_MO']
 
   for metric in metrics:
     metrics_summary[metric] = []
