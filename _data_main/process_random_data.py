@@ -77,8 +77,14 @@ def load_random_data(scm_class, variable_type = 'real'):
 
   elif scm_class == '_bu_sanity-3-gen':
 
+    # def h(x1, x2, x3):
+    #   return (1+np.exp(-2 * (.3 + x1 + 2 * x2 + 1 * x3)))**(-1)
     def h(x1, x2, x3):
-      return (1+np.exp(-2 * (.3 + x1 + 2 * x2 + 1 * x3)))**(-1)
+      b1 = .1
+      b2 = 1
+      c0 = .75
+      c1 = 1.5
+      return (1+np.exp(c0 * (b1 * x1**2 + b2 * x2**2 - c1)))**(-1)
 
     predictions = h(X['x1'], X['x2'], X['x3']).to_numpy().reshape(-1,1)
 
