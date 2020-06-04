@@ -22,12 +22,13 @@ from debug import ipsh
 SCM_CLASS_VALUES = ['german-credit']
 LAMBDA_LCB_VALUES = np.linspace(0, 2.5, 6)
 # OPTIMIZATION_APPROACHES = ['grad_descent']
-CLASSIFIER_VALUES = ['lr', 'mlp', 'tree']
+CLASSIFIER_VALUES = ['lr', 'mlp', 'tree', 'forest']
 
 
-experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/__merged_realworld/'
+# experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/__merged_realworld/'
+experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/__merged_realworld_bu_2020.06.03.11.13/'
 # all_counter = len(SCM_CLASS_VALUES) * len(LAMBDA_LCB_VALUES) * len(OPTIMIZATION_APPROACHES) * len(CLASSIFIER_VALUES)
-all_counter = 18
+all_counter = len(LAMBDA_LCB_VALUES) * len(CLASSIFIER_VALUES)
 counter = 0
 
 
@@ -113,7 +114,7 @@ for scm_class in SCM_CLASS_VALUES:
       # for optimization_approach in OPTIMIZATION_APPROACHES:
       if classifier_class in {'lr', 'mlp'}:
         optimization_approach = 'grad_descent'
-      elif classifier_class == 'tree':
+      elif classifier_class in {'tree', 'forest'}:
         optimization_approach = 'brute_force'
       else:
         raise Exception(f'Classifier `{classifier_class}` not supported.')
@@ -143,7 +144,8 @@ for scm_class in SCM_CLASS_VALUES:
         total_dict['cost_all_std'].append(float(comparison_results_file.loc[recourse_type, 'cost_all'][-6:]))
 
 total_df = pd.DataFrame(total_dict)
-# ipsh()
+total_df = total_df[total_df['classifier_class'] == 'mlp']
+ipsh()
 
 # latexify(1.5 * 6, 6, font_scale = 1.2)
 # sns.set_style("whitegrid")
@@ -165,6 +167,52 @@ total_df = pd.DataFrame(total_dict)
 #   legend_out = False,
 # )
 
+# plot version 1
+# import seaborn as sns; sns.set()
+# import matplotlib.pyplot as plt
+
+# fig, axes = plt.subplots(1, 2)
+# sns.lineplot(
+#   x='lambda_lcb',
+#   y='scf_validity_mean',
+#   hue='recourse_type',
+#   data=total_df,
+#   ax = axes[0],
+# )
+# sns.lineplot(
+#   x='lambda_lcb',
+#   y='cost_all_mean',
+#   hue='recourse_type',
+#   data=total_df,
+#   ax = axes[1],
+# )
+# plt.show()
+
+# plot version 2
+# total_df = pd.DataFrame(total_dict)
+# # tmp_df = total_df[total_df['classifier_class'] == 'mlp']
+# import seaborn as sns; sns.set()
+# import matplotlib.pyplot as plt
+
+# fig, axes = plt.subplots(2, 2) #, sharex=True, sharey=True)
+# acceptable_classifier_class = ['lr', 'mlp', 'tree', 'forest']
+# for idx, ax in enumerate(axes.flatten()):
+#   print(ax)
+#   classifier_class = acceptable_classifier_class[idx]
+#   tmp_df = total_df[total_df['classifier_class'] == classifier_class]
+#   sns.lineplot(
+#     x='cost_all_mean',
+#     y='scf_validity_mean',
+#     hue='recourse_type',
+#     data=tmp_df,
+#     ax = ax,
+#   )
+#   ax.set_title(classifier_class)
+# plt.show()
+
+
+
+## validity
 # ax = sns.catplot(
 #   x = 'lambda_lcb',
 #   y = 'scf_validity_mean',
@@ -173,13 +221,14 @@ total_df = pd.DataFrame(total_dict)
 #   kind = 'box',
 # )
 
-ax = sns.catplot(
-  x = 'lambda_lcb',
-  y = 'cost_all_mean',
-  col = 'classifier_class',
-  data = total_df,
-  kind = 'box',
-)
+## cost
+# ax = sns.catplot(
+#   x = 'lambda_lcb',
+#   y = 'cost_all_mean',
+#   col = 'classifier_class',
+#   data = total_df,
+#   kind = 'box',
+# )
 
 
 
