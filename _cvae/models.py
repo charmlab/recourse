@@ -132,10 +132,10 @@ class Encoder(nn.Module):
         for i, (in_size, out_size) in enumerate(zip(layer_sizes[:-1], layer_sizes[1:])):
             self.MLP.add_module(
                 name="L{:d}".format(i), module=nn.Linear(in_size, out_size))
-            if i == 0:
-                self.MLP.add_module(
-                    name="DropOut{:d}".format(i), module=nn.Dropout(p=0.3)
-                )
+            # if i == 0:
+            #     self.MLP.add_module(
+            #         name="DropOut{:d}".format(i), module=nn.Dropout(p=0.3)
+            #     )
             self.MLP.add_module(name="A{:d}".format(i), module=nn.ReLU())
 
         self.linear_means = nn.Linear(layer_sizes[-1], latent_size)
@@ -175,6 +175,10 @@ class Decoder(nn.Module):
         for i, (in_size, out_size) in enumerate(zip([input_size]+layer_sizes[:-1], layer_sizes)):
             self.MLP.add_module(
                 name="L{:d}".format(i), module=nn.Linear(in_size, out_size))
+            # if i == 0:
+            #     self.MLP.add_module(
+            #         name="DropOut{:d}".format(i), module=nn.Dropout(p=0.3)
+            #     )
             if i+1 < len(layer_sizes):
                 self.MLP.add_module(name="A{:d}".format(i), module=nn.ReLU())
             # TODO: add back for binary / categorical variables

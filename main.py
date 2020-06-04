@@ -462,18 +462,56 @@ def trainCVAE(args, objs, node, parents):
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using CVAE on {args.num_train_samples * 4} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples * 4 + args.num_validation_samples), PROCESSING_CVAE)
 
-  sweep_lambda_kld = [1, 0.5, 0.1]
-  sweep_encoder_layer_sizes = [
-    [1, 5, 5], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
-    [1, 32, 32],
-    [1, 32, 32, 32],
-  ]
-  sweep_decoder_layer_sizes = [
-    [5, 5, 1],
-    [32, 32, 1],
-    [32, 32, 32, 1],
-  ]
-  sweep_latent_size = [1, 3, 5]
+  if recourse_type == 'sanity-3-lin':
+    if node == 'x2':
+      sweep_lambda_kld = [0.01]
+      sweep_encoder_layer_sizes = [[1, 32, 32, 32]]
+      sweep_decoder_layer_sizes = [[5, 5, 1]]
+      sweep_latent_size = [1]
+    elif node == 'x3':
+      sweep_lambda_kld = [0.01]
+      sweep_encoder_layer_sizes = [[1, 32, 32, 32]]
+      sweep_decoder_layer_sizes = [[32, 32, 32, 1]]
+      sweep_latent_size = [1]
+
+  elif recourse_type == 'sanity-3-anm':
+    if node == 'x2':
+      sweep_lambda_kld = [0.01]
+      sweep_encoder_layer_sizes = [[1, 32, 32]]
+      sweep_decoder_layer_sizes = [[32, 32, 1]]
+      sweep_latent_size = [5]
+    elif node == 'x3':
+      sweep_lambda_kld = [0.01]
+      sweep_encoder_layer_sizes = [[1, 32, 32, 32]]
+      sweep_decoder_layer_sizes = [[32, 32, 1]]
+      sweep_latent_size = [1]
+
+  elif recourse_type == 'sanity-3-gen':
+    if node == 'x2':
+      sweep_lambda_kld = [0.5]
+      sweep_encoder_layer_sizes = [[1, 32, 32, 32]]
+      sweep_decoder_layer_sizes = [[32, 32, 1]]
+      sweep_latent_size = [3]
+    elif node == 'x3':
+      sweep_lambda_kld = [0.1]
+      sweep_encoder_layer_sizes = [[1, 32, 32, 32]]
+      sweep_decoder_layer_sizes = [[5, 5, 1]]
+      sweep_latent_size = [3]
+
+  else:
+    sweep_lambda_kld = [1, 0.5, 0.1, 0.05, 0.01]
+    sweep_encoder_layer_sizes = [
+      [1, 5, 5], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
+      [1, 32, 32],
+      [1, 32, 32, 32],
+    ]
+    sweep_decoder_layer_sizes = [
+      [5, 5, 1],
+      [32, 32, 1],
+      [32, 32, 32, 1],
+    ]
+    sweep_latent_size = [1, 3, 5]
+
 
   trained_models = {}
 
@@ -483,6 +521,7 @@ def trainCVAE(args, objs, node, parents):
     sweep_decoder_layer_sizes,
     sweep_latent_size,
   ))
+
 
   for idx, hyperparams in enumerate(all_hyperparam_setups):
 
