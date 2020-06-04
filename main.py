@@ -510,7 +510,8 @@ def trainCVAE(args, objs, node, parents):
     # return trained_cvae
 
     # run mmd to verify whether training is good or not (ON VALIDATION SET)
-    X_val = X_all[args.num_train_samples * 4:].copy()
+    # X_val = X_all[args.num_train_samples * 4:].copy()
+    X_val = X_all.copy()
     # POTENTIAL BUG? reset index here so that we can populate the `node` column
     # with reconstructed values from trained_cvae that lack indexing
     X_val = X_val.reset_index(drop = True)
@@ -1927,11 +1928,11 @@ if __name__ == "__main__":
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
-    # ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
-    # ('m1_gaus', 'D'), \
-    # ('m1_cvae', 'x'), \
+    ('m0_true', '*'), \
+    ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
+    ('m1_gaus', 'D'), \
+    ('m1_cvae', 'x'), \
     ('m2_true', 'o'), \
     ('m2_gaus', 's'), \
     ('m2_cvae', '+'), \
