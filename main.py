@@ -375,16 +375,16 @@ def getMinimumObservableInstance(args, objs, factual_instance):
   print(f'\t\t[INFO] Searching for minimum observable instance...', end = '')
   for idx in range(tmp.shape[0]):
     # CLOSEST INSTANCE ON THE OTHER SIDE!!
-    distance_np = tmp[idx,:]
+    observable_distance_np = tmp[idx,:]
     distance_dict = dict(zip(
       objs.scm_obj.getTopologicalOrdering(),
-      observable_np,
+      observable_distance_np,
     ))
     if \
       getPrediction(args, objs, factual_instance) != \
       getPrediction(args, objs, distance_dict):
-      if np.linalg.norm(observable_np) < min_cost:
-        min_cost = np.linalg.norm(observable_np)
+      if np.linalg.norm(observable_distance_np) < min_cost:
+        min_cost = np.linalg.norm(observable_distance_np)
         min_observable_idx = idx
         min_observable_dict = dict(zip(
           objs.scm_obj.getTopologicalOrdering(),
@@ -1378,6 +1378,13 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
 
   else:
     raise Exception(f'{args.optimization_approach} not recognized.')
+
+  # # If a solution is NOT found, return the minimum observable instance (the
+  # # action will be to intervene on all variables with intervention values set
+  # # to the corresponding dimension of the nearest observable instance)
+  # if min_cost_action_set == dict():
+  #   min_cost_action_set = getMinimumObservableInstance(args, objs, factual_instance)
+
 
   return min_cost_action_set
 
