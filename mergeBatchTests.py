@@ -1,6 +1,7 @@
 import os
 import glob
 import pickle
+import random
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -18,10 +19,12 @@ OPTIMIZATION_APPROACHES = ['grad_descent']
 CLASSIFIER_VALUES = ['lr']
 
 
+
 experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments/'
 # experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments_bu_2020.06.02.12.00/'
 # experiments_folder_path = '/Users/a6karimi/dev/recourse/_experiments/'
 # experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/2020.06.01_backup/'
+# experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/__merged_synthetic_bu_2020.06.04.09.58_final_in_paper'
 all_counter = len(SCM_CLASS_VALUES) * len(LAMBDA_LCB_VALUES) * len(OPTIMIZATION_APPROACHES) * len(CLASSIFIER_VALUES)
 counter = 0
 
@@ -47,9 +50,13 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
       for recourse_type in recourse_types
     ])
   }
+  random_keys = random.sample(per_instance_results.keys(), 50)
+  # random sub dict to align 50 instances
+  per_instance_results = dict(zip(
+    random_keys,
+    [per_instance_results[key] for key in random_keys],
+  ))
   print(f'[INFO] done. We now have {len(per_instance_results.keys())} factual instances to compute the table for.')
-
-
 
   for recourse_type in recourse_types:
     for metric in metrics:
