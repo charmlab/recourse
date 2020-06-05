@@ -501,11 +501,13 @@ def trainCVAE(args, objs, node, parents):
   else:
     sweep_lambda_kld = [1, 0.5, 0.1, 0.05, 0.01]
     sweep_encoder_layer_sizes = [
+      [1, 2, 2],
       [1, 5, 5], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
       [1, 32, 32],
       [1, 32, 32, 32],
     ]
     sweep_decoder_layer_sizes = [
+      [2, 2, 1],
       [5, 5, 1],
       [32, 32, 1],
       [32, 32, 32, 1],
