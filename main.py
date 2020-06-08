@@ -499,21 +499,26 @@ def trainCVAE(args, objs, node, parents):
       sweep_latent_size = [3]
 
   else:
-    sweep_lambda_kld = [1, 0.5, 0.1, 0.05, 0.01]
+
+    sweep_lambda_kld = [5, 1, 0.5, 0.1, 0.05, 0.01, 0.005]
     sweep_encoder_layer_sizes = [
       [1, 2, 2],
-      [1, 5, 5], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
-      [1, 32, 32],
+      [1, 3, 3], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
+      [1, 5, 5],
+      # [1, 3, 3, 3],
+      # [1, 32, 32],
       [1, 32, 32, 32],
     ]
     sweep_decoder_layer_sizes = [
+      [2, 1],
       [2, 2, 1],
+      [3, 3, 1],
       [5, 5, 1],
-      [32, 32, 1],
+      # [3, 3, 3, 1],
+      # [32, 32, 1],
       [32, 32, 32, 1],
     ]
-    sweep_latent_size = [1, 3, 5]
-
+    sweep_latent_size = [1,3,5]
 
   trained_models = {}
 
