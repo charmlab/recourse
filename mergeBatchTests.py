@@ -18,14 +18,18 @@ LAMBDA_LCB_VALUES = [2.]
 OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
 CLASSIFIER_VALUES = ['lr']
 
+from random import seed
+RANDOM_SEED = 54321
+seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
+np.random.seed(RANDOM_SEED)
 
 
-
-experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments/'
+# experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments/'
 # experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments_bu_2020.06.02.12.00/'
 # experiments_folder_path = '/Users/a6karimi/dev/recourse/_experiments/'
 # experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/2020.06.01_backup/'
-# experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/__merged_synthetic_bu_2020.06.04.09.58_final_in_paper'
+# experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/__merged_synthetic_bu_2020.06.04.09.58_final_in_paper/'
+experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments_bu_2020.06.08.18.30_table_1_repro_and_supplement/'
 all_counter = len(SCM_CLASS_VALUES) * len(LAMBDA_LCB_VALUES) * len(OPTIMIZATION_APPROACHES) * len(CLASSIFIER_VALUES)
 counter = 0
 
@@ -51,12 +55,12 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
       for recourse_type in recourse_types
     ])
   }
-  random_keys = random.sample(per_instance_results.keys(), 50)
-  # random sub dict to align 50 instances
-  per_instance_results = dict(zip(
-    random_keys,
-    [per_instance_results[key] for key in random_keys],
-  ))
+  # random_keys = random.sample(per_instance_results.keys(), 50)
+  # # random sub dict to align 50 instances
+  # per_instance_results = dict(zip(
+  #   random_keys,
+  #   [per_instance_results[key] for key in random_keys],
+  # ))
   print(f'[INFO] done. We now have {len(per_instance_results.keys())} factual instances to compute the table for.')
 
   for recourse_type in recourse_types:
