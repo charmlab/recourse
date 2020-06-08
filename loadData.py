@@ -433,7 +433,7 @@ class Dataset(object):
 
     # When working only with normalized data in [0, 1], data ranges must change to [0, 1] as well
     # otherwise, in computing normalized distance we will normalize with intial ranges again!
-    # AMIR (2020.05.17) does this work with cat/ord and sub-cat/sub-ord data???
+    # pseudonym (2020.05.17) does this work with cat/ord and sub-cat/sub-ord data???
     def setBoundsToZeroOne():
       for attr_name_kurz in self.getNonHotAttributesNames('kurz'):
         attr_obj = self.attributes_kurz[attr_name_kurz]

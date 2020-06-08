@@ -6,20 +6,20 @@ OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
 CLASSIFIER_VALUES = ['lr']
 
 # ==============================================================================
-# ==============================================================================
+# # ==============================================================================
 
-SCM_CLASS_VALUES = ['german-credit']
-LAMBDA_LCB_VALUES = np.linspace(0, 2.5, 6)
-OPTIMIZATION_APPROACHES = ['grad_descent']
-CLASSIFIER_VALUES = ['lr', 'mlp']
+# SCM_CLASS_VALUES = ['german-credit']
+# LAMBDA_LCB_VALUES = np.linspace(0, 2.5, 6)
+# OPTIMIZATION_APPROACHES = ['grad_descent']
+# CLASSIFIER_VALUES = ['lr', 'mlp']
 
-# ==============================================================================
-# ==============================================================================
+# # ==============================================================================
+# # ==============================================================================
 
-SCM_CLASS_VALUES = ['german-credit']
-LAMBDA_LCB_VALUES =  np.linspace(0, 2.5, 6)
-OPTIMIZATION_APPROACHES = ['brute_force']
-CLASSIFIER_VALUES = ['tree', 'forest']
+# SCM_CLASS_VALUES = ['german-credit']
+# LAMBDA_LCB_VALUES =  np.linspace(0, 2.5, 6)
+# OPTIMIZATION_APPROACHES = ['brute_force']
+# CLASSIFIER_VALUES = ['tree', 'forest']
 
 # ==============================================================================
 # ==============================================================================

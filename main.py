@@ -163,7 +163,7 @@ def measureActionSetCost(args, objs, factual_instance, action_set, processing_ty
 
 def getColumnIndicesFromNames(args, objs, column_names):
   # this is index in df, need to -1 to get index in x_counter / do_update,
-  # because the first column of df is 'y' (amir: what if column ordering is
+  # because the first column of df is 'y' (pseudonym: what if column ordering is
   # changed? this code breaks abstraction.)
   column_indices = []
   for column_name in column_names:
@@ -449,7 +449,7 @@ def trainKernelRidge(args, objs, node, parents):
   }
   model = GridSearchCV(KernelRidge(), param_grid=param_grid)
   model.fit(X_all[parents], X_all[[node]])
-   # amir: i am not proud of this, but for some reason sklearn includes the
+   # pseudonym: i am not proud of this, but for some reason sklearn includes the
    # X_fit_ covariates but not labels (this is needed later if we want to
    # avoid using.predict() and call from krr manually)
   model.best_estimator_.Y_fit_ = X_all[[node]].to_numpy()
@@ -566,7 +566,7 @@ def trainCVAE(args, objs, node, parents):
     X_pred_posterior = X_true.copy()
     X_pred_posterior[node] = pd.DataFrame(recon_node_validation.numpy(), columns=[node])
 
-    # amir: this is so bad code.
+    # pseudonym: this is so bad code.
     not_imp_factual_instance = dict.fromkeys(objs.scm_obj.getTopologicalOrdering(), -1)
     not_imp_factual_df = pd.DataFrame(dict(zip(
       objs.dataset_obj.getInputAttributeNames(),
@@ -686,7 +686,7 @@ def sampleCVAE(args, objs, factual_instance, factual_df, samples_df, node, paren
   samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_CVAE)
   factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_CVAE)
 
-  if trained_cvae is None: # amir: UGLY CODE
+  if trained_cvae is None: # pseudonym: UGLY CODE
     trained_cvae = trainCVAE(args, objs, node, parents)
 
   if recourse_type == 'm1_cvae':
@@ -702,7 +702,7 @@ def sampleCVAE(args, objs, factual_instance, factual_df, samples_df, node, paren
     pa_counter=samples_df[parents],
     sample_from=sample_from,
   )
-  new_samples = new_samples.rename(columns={0: node}) # bad code amir, this violates abstraction!
+  new_samples = new_samples.rename(columns={0: node}) # bad code pseudonym, this violates abstraction!
   samples_df = samples_df.reset_index(drop=True)
   samples_df[node] = new_samples.astype('float64')
   samples_df = deprocessDataFrameOrDict(args, objs, samples_df, PROCESSING_CVAE)
@@ -1039,7 +1039,7 @@ def getValidDiscretizedActionSets(args, objs):
         np.around(
           np.linspace(
             objs.dataset_obj.data_frame_kurz.describe()[attr_name_kurz]['min'],
-            # bad code amir; don't access internal object attribute
+            # bad code pseudonym; don't access internal object attribute
             objs.dataset_obj.data_frame_kurz.describe()[attr_name_kurz]['max'],
             args.grid_search_bins
           ),
@@ -1959,7 +1959,7 @@ if __name__ == "__main__":
   assert \
     list(scm_obj.getTopologicalOrdering()) == \
     list(dataset_obj.getInputAttributeNames()) == \
-    [elem for elem in dataset_obj.data_frame_kurz.columns if 'x' in elem] # super hack amir, but necessary right now (not much time)
+    [elem for elem in dataset_obj.data_frame_kurz.columns if 'x' in elem] # super hack pseudonym, but necessary right now (not much time)
 
   # TODO: add more assertions for columns of dataset matching the classifer?
   objs = AttrDict({
