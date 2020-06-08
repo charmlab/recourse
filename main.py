@@ -67,17 +67,6 @@ def loadClassifier(args, experiment_folder_name):
   dataset_obj = loadDataset(args, experiment_folder_name)
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = pd.concat([X_train, X_test], axis = 0)
-
-  # samples = X_all.iloc[:5].to_numpy()
-  # weights = classifier_obj.coef_
-  # intercept = classifier_obj.intercept_
-  # tmp = np.dot(samples, weights.T) + intercept
-  # tmp = (1 + np.exp(tmp)) ** (-1)
-  # # vs.
-  # classifier_obj.predict_proba(X_all[:5])
-  # plt.hist(classifier_obj.predict_proba(X_all)[:,1], bins=100)
-  # plt.show()
-
   return classifier_obj
 
 
@@ -370,22 +359,20 @@ def getMinimumObservableInstance(args, objs, factual_instance):
   # compute distances between factual instance and all instances in X_all
   tmp = np.array(list(factual_instance.values())).reshape(1,-1)[:,None] - X_all.to_numpy()
   tmp = tmp.squeeze()
-  min_cost = 1e10
+  min_cost = np.infty
   min_observable_dict = None
   print(f'\t\t[INFO] Searching for minimum observable instance...', end = '')
-  for idx in range(tmp.shape[0]):
+  for observable_idx in range(tmp.shape[0]):
     # CLOSEST INSTANCE ON THE OTHER SIDE!!
-    observable_distance_np = tmp[idx,:]
-    distance_dict = dict(zip(
-      objs.scm_obj.getTopologicalOrdering(),
-      observable_distance_np,
-    ))
+    observable_distance_np = tmp[observable_idx,:]
+    observable_instance = X_all.iloc[observable_idx].T.to_dict()
     if \
       getPrediction(args, objs, factual_instance) != \
-      getPrediction(args, objs, distance_dict):
-      if np.linalg.norm(observable_distance_np) < min_cost:
-        min_cost = np.linalg.norm(observable_distance_np)
-        min_observable_idx = idx
+      getPrediction(args, objs, observable_instance):
+      observable_distance = np.linalg.norm(observable_distance_np)
+      if observable_distance < min_cost:
+        min_cost = observable_distance
+        min_observable_idx = observable_idx
         min_observable_dict = dict(zip(
           objs.scm_obj.getTopologicalOrdering(),
           X_all.iloc[min_observable_idx],
@@ -1330,7 +1317,7 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
   # assert factual instance has prediction = 0
   assert objs.classifier_obj.predict_proba(
     np.expand_dims(np.array(list(factual_instance.values())), axis=0)
-  )[0][0] >= .50 + args.epsilon_boundary
+  )[0][1] <= .50 - args.epsilon_boundary
 
   if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     constraint_handle = isPointConstraintSatisfied
@@ -1344,7 +1331,7 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
     valid_action_sets = getValidDiscretizedActionSets(args, objs)
     print(f'\n\t[INFO] Computing optimal `{recourse_type}`: grid searching over {len(valid_action_sets)} action sets...')
 
-    min_cost = 1e10
+    min_cost = np.infty
     min_cost_action_set = {}
     for action_set in tqdm(valid_action_sets):
       if constraint_handle(args, objs, factual_instance, action_set, recourse_type):
@@ -1360,7 +1347,7 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
     valid_intervention_sets = getValidInterventionSets(args, objs)
     print(f'\n\t[INFO] Computing optimal `{recourse_type}`: grad descent over {len(valid_intervention_sets)} intervention sets (max card: {args.max_intervention_cardinality})...')
 
-    min_cost = 1e10
+    min_cost = np.infty
     min_cost_action_set = {}
     for idx, intervention_set in enumerate(valid_intervention_sets):
       # print(f'\n\t[INFO] intervention set #{idx+1}/{len(valid_intervention_sets)}: {str(intervention_set)}')
@@ -1502,8 +1489,11 @@ def getNegativelyPredictedInstances(args, objs):
   # # variable for abduction and for m1_gaus we need the index as well.
   # X_all = X_all.iloc[args.num_train_samples:]
 
-  predict_proba_list = objs.classifier_obj.predict_proba(X_all)[:,0]
-  predict_proba_in_negative_class = predict_proba_list > 0.5 + args.epsilon_boundary
+  predict_proba_list = objs.classifier_obj.predict_proba(X_all)[:,1]
+  predict_proba_in_negative_class = predict_proba_list <= 0.5 - args.epsilon_boundary
+  # predict_proba_in_negative_class = \
+  #   (predict_proba_list <= 0.5 - args.epsilon_boundary) & \
+  #   (args.epsilon_boundary <= predict_proba_list)
   negatively_predicted_instances = X_all[predict_proba_in_negative_class]
   factual_instances_dict = negatively_predicted_instances[
     args.batch_number * args.sample_count : (args.batch_number + 1) * args.sample_count
