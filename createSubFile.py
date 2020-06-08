@@ -52,7 +52,7 @@ for scm_class in SCM_CLASS_VALUES:
 
           # run-specific options
           if optimization_approach == 'grad_descent':
-            command += f' --grad_descent_epochs 2500'
+            command += f' --grad_descent_epochs 1000'
           elif optimization_approach == 'brute_force':
             if scm_class == 'german-credit':
               command += f' --grid_search_bins 10'
