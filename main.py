@@ -52,7 +52,10 @@ PROCESSING_CVAE = 'raw'
 
 @utils.Memoize
 def loadCausalModel(args, experiment_folder_name):
-  return loadSCM.loadSCM(args.scm_class, experiment_folder_name)
+  print(f'main.py #1: {args.scm_class}')
+  tmp = loadSCM.loadSCM(args.scm_class, experiment_folder_name)
+  print(f'main.py #2: {args.scm_class}')
+  return tmp
 
 
 @utils.Memoize

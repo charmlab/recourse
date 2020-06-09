@@ -23,7 +23,9 @@ def getNoiseStringForNode(node):
 
 def load_random_data(scm_class, variable_type = 'real'):
 
+  print(f'process_random_data.py #1: {scm_class}')
   scm_obj = loadSCM.loadSCM(scm_class)
+  print(f'process_random_data.py #2: {scm_class}')
 
   d = len(scm_obj.structural_equations_np.keys())
 
