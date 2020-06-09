@@ -1643,9 +1643,9 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
       # action will be to intervene on all variables with intervention values set
       # to the corresponding dimension of the nearest observable instance)
       tmp['default_to_MO'] = False
-      if tmp['optimal_action_set'] == dict():
-        tmp['optimal_action_set'] = getMinimumObservableInstance(args, objs, factual_instance)
-        tmp['default_to_MO'] = True
+      # if tmp['optimal_action_set'] == dict():
+      #   tmp['optimal_action_set'] = getMinimumObservableInstance(args, objs, factual_instance)
+      #   tmp['default_to_MO'] = True
 
       tmp['runtime'] = np.around(end_time - start_time, 3)
 
