@@ -35,17 +35,17 @@ except:
 SIMPLIFY_TREES = False
 
 @utils.Memoize
-def loadModelForDataset(model_class, dataset_string, experiment_folder_name = None):
+def loadModelForDataset(model_class, dataset_string, scm_class = None, experiment_folder_name = None):
 
   log_file = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_training.txt','w')
 
   if not (model_class in {'lr', 'mlp', 'tree', 'forest'}):
     raise Exception(f'{model_class} not supported.')
 
-  if not (dataset_string in {'random', 'mortgage', 'twomoon', 'german', 'credit', 'compass', 'adult', 'test'}):
+  if not (dataset_string in {'synthetic', 'mortgage', 'twomoon', 'german', 'credit', 'compass', 'adult', 'test'}):
     raise Exception(f'{dataset_string} not supported.')
 
-  dataset_obj = loadData.loadDataset(dataset_string, return_one_hot = True, load_from_cache = True, debug_flag = False)
+  dataset_obj = loadData.loadDataset(dataset_string, return_one_hot = True, load_from_cache = False, meta_param = scm_class)
   X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
   X_all = pd.concat([X_train, X_test], axis = 0)
   y_all = pd.concat([y_train, y_test], axis = 0)

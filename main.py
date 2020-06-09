@@ -52,10 +52,7 @@ PROCESSING_CVAE = 'raw'
 
 @utils.Memoize
 def loadCausalModel(args, experiment_folder_name):
-  print(f'main.py #1: {args.scm_class}')
-  tmp = loadSCM.loadSCM(args.scm_class, experiment_folder_name)
-  print(f'main.py #2: {args.scm_class}')
-  return tmp
+  return loadSCM.loadSCM(args.scm_class, experiment_folder_name)
 
 
 @utils.Memoize
@@ -66,11 +63,7 @@ def loadDataset(args, experiment_folder_name):
 
 @utils.Memoize
 def loadClassifier(args, experiment_folder_name):
-  classifier_obj = loadModel.loadModelForDataset(args.classifier_class, args.dataset_class, experiment_folder_name)
-  dataset_obj = loadDataset(args, experiment_folder_name)
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = pd.concat([X_train, X_test], axis = 0)
-  return classifier_obj
+  return loadModel.loadModelForDataset(args.classifier_class, args.dataset_class, args.scm_class, experiment_folder_name)
 
 
 @utils.Memoize
@@ -1892,7 +1885,7 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser()
 
   parser.add_argument('-s', '--scm_class', type=str, default='sanity-3-lin', help='Name of SCM to generate data using (see loadSCM.py)')
-  parser.add_argument('-d', '--dataset_class', type=str, default='random', help='Name of dataset to train explanation model for: german, random, mortgage, twomoon')
+  parser.add_argument('-d', '--dataset_class', type=str, default='synthetic', help='Name of dataset to train explanation model for: german, random, mortgage, twomoon')
   parser.add_argument('-c', '--classifier_class', type=str, default='lr', help='Model class that will learn data: lr, mlp')
   parser.add_argument('-e', '--experiment', type=int, default=6, help='Which experiment to run (5,8=sanity; 6=table)')
   parser.add_argument('-p', '--process_id', type=str, default='0', help='When running parallel tests on the cluster, process_id guarantees (in addition to time stamped experiment folder) that experiments do not conflict.')
@@ -1915,7 +1908,7 @@ if __name__ == "__main__":
 
   args = parser.parse_args()
 
-  if not (args.dataset_class in {'random'}):
+  if not (args.dataset_class in {'synthetic'}):
     raise Exception(f'{args.dataset_class} not supported.')
 
   # create experiment folder

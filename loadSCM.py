@@ -84,7 +84,6 @@ class CausalModel(object):
 
 @utils.Memoize
 def loadSCM(scm_class, experiment_folder_name = None):
-  print(f'loadSCM.loadSCM: scm_class: {scm_class}')
 
   # structural_equations_np = {
   #   'x1': lambda n_samples, : n_samples,

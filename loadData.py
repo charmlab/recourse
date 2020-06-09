@@ -913,7 +913,7 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
         lower_bound = data_frame_non_hot[col_name].min(),
         upper_bound = data_frame_non_hot[col_name].max())
 
-  elif dataset_name == 'random':
+  elif dataset_name == 'synthetic':
 
     variable_type = 'real'
     # variable_type = 'integer'
