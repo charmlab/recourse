@@ -107,8 +107,6 @@ for scm_class in SCM_CLASS_VALUES:
           try:
             assert os.path.isfile(batch_per_instance_results_path)
             batch_per_instance_results = pickle.load(open(batch_per_instance_results_path, 'rb'))
-            if 'sample_2065' in batch_per_instance_results.keys():
-              ipsh()
             total_per_instance_results = {**total_per_instance_results, **batch_per_instance_results}
           except:
             folders_not_found.append(batch_number_string)
