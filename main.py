@@ -1902,7 +1902,7 @@ if __name__ == "__main__":
   parser.add_argument('-o', '--optimization_approach', type=str, default='brute_force')
   parser.add_argument('--grid_search_bins', type=int, default=10)
   parser.add_argument('--grad_descent_epochs', type=int, default=1000)
-  parser.add_argument('--epsilon_boundary', type=int, default=0.15, help='we only consider instances that are negatively predicted and at least epsilon_boundary prob away from decision boundary.')
+  parser.add_argument('--epsilon_boundary', type=int, default=0.10, help='we only consider instances that are negatively predicted and at least epsilon_boundary prob away from decision boundary (too restrictive = smaller batch_number possible w/ fixed num_train_samples).')
   parser.add_argument('--batch_number', type=int, default=0)
   parser.add_argument('--sample_count', type=int, default=10)
 
