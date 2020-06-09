@@ -34,9 +34,9 @@ except:
   print('[ENV WARNING] process_german_data not available')
 
 try:
-  from _data_main.process_random_data import *
+  from _data_main.process_synthetic_data import *
 except:
-  print('[ENV WARNING] process_random_data not available')
+  print('[ENV WARNING] process_synthetic_data not available')
 
 try:
   from _data_main.process_mortgage_data import *
@@ -920,7 +920,7 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
 
     scm_class = meta_param
 
-    data_frame_non_hot = load_random_data(scm_class, variable_type)
+    data_frame_non_hot = load_synthetic_data(scm_class, variable_type)
     data_frame_non_hot = data_frame_non_hot.reset_index(drop=True)
     attributes_non_hot = {}
 

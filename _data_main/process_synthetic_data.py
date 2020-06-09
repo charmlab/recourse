@@ -21,7 +21,7 @@ def getNoiseStringForNode(node):
   assert node[0] == 'x'
   return 'u' + node[1:]
 
-def load_random_data(scm_class, variable_type = 'real'):
+def load_synthetic_data(scm_class, variable_type = 'real'):
 
   scm_obj = loadSCM.loadSCM(scm_class)
 
