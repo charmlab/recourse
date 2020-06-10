@@ -1147,20 +1147,35 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   # IMPORTANT: action_set_ts includes trainable params, but factual_instance_ts does not.
   factual_instance_ts = {k: torch.tensor(v, dtype=torch.float32) for k, v in factual_instance.items()}
 
-  action_set_ts = dict(zip(
-    intervention_set,
-    [
-      torch.tensor(
-        # np.random.randn(),
-        # objs.dataset_obj.data_frame_kurz.describe()[node]['min'].astype('float32'),
-        factual_instance[node],
-        # getMinimumObservableInstance(args, objs, factual_instance)[node],
-        requires_grad=True,
-        dtype=torch.float32,
-      ) # DO NOT USE .float(), this will create a new tensor (and can't optimize over non-leaf nodes)
-      for node in intervention_set
-    ]
-  ))
+
+  def initializeNonSaturatedActionSet(args, objs, factual_instance, intervention_set, recourse_type):
+    # default action_set
+    action_set = dict(zip(
+      intervention_set,
+      [
+        factual_instance[node]
+        for node in intervention_set
+      ]
+    ))
+    noise_multiplier = 0
+    while noise_multiplier < 10:
+      # create an action set from the factual instance, and possibly some noise
+      action_set = {k : v + noise_multiplier * np.random.randn() for k,v in action_set.items()}
+      # sample values
+      if recourse_type in ACCEPTABLE_POINT_RECOURSE:
+        samples_df = _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 1)
+      elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
+        samples_df = _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, args.num_mc_samples)
+      # return action set if average predictive probability of samples >= eps (non-saturated region of classifier)
+      predict_proba_list = objs.classifier_obj.predict_proba(samples_df)[:,1]
+      if np.mean(predict_proba_list) >= 3e-1 and np.mean(predict_proba_list) - 0.5: # don't want to start on the other side
+        return action_set
+      noise_multiplier += 0.1
+    return action_set
+
+
+  action_set = initializeNonSaturatedActionSet(args, objs, factual_instance, intervention_set, recourse_type)
+  action_set_ts = {k : torch.tensor(v, requires_grad = True, dtype=torch.float32) for k,v in action_set.items()}
 
   # TODO: make input args
   min_valid_cost = 1e6  # some large number
