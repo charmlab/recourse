@@ -15,8 +15,7 @@ from debug import ipsh
 
 SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
 LAMBDA_LCB_VALUES = [2.]
-# OPTIMIZATION_APPROACHES = ['brute_force']
-OPTIMIZATION_APPROACHES = ['grad_descent']
+OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
 CLASSIFIER_VALUES = ['lr']
 
 from random import seed
@@ -26,7 +25,8 @@ np.random.seed(RANDOM_SEED)
 
 
 # experiments_folder_path = '/Users/a6karimi/dev/recourse/_experiments/'
-experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments_bu_2020.06.09.23.00_post_9999533_final/'
+experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments/'
+# experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments_bu_2020.06.09.23.00_post_9999533_final/'
 all_counter = len(SCM_CLASS_VALUES) * len(LAMBDA_LCB_VALUES) * len(OPTIMIZATION_APPROACHES) * len(CLASSIFIER_VALUES)
 counter = 0
 
@@ -43,12 +43,12 @@ def filterResults(per_instance_results):
       for recourse_type in recourse_types
     ])
   }
-  # random_keys = random.sample(per_instance_results.keys(), 50)
-  # # random sub dict to align 50 instances
-  # per_instance_results = dict(zip(
-  #   random_keys,
-  #   [per_instance_results[key] for key in random_keys],
-  # ))
+  random_keys = random.sample(per_instance_results.keys(), 50)
+  # random sub dict to align 50 instances
+  per_instance_results = dict(zip(
+    random_keys,
+    [per_instance_results[key] for key in random_keys],
+  ))
   print(f'[INFO] done. We now have {len(per_instance_results.keys())} factual instances to compute the table for.')
   new_keys = per_instance_results.keys()
   print(f'[INFO] dropped {np.setdiff1d(list(old_keys), list(new_keys))}')
