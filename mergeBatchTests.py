@@ -15,6 +15,7 @@ from debug import ipsh
 
 SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
 LAMBDA_LCB_VALUES = [2.]
+# OPTIMIZATION_APPROACHES = ['brute_force']
 OPTIMIZATION_APPROACHES = ['grad_descent']
 CLASSIFIER_VALUES = ['lr']
 
@@ -24,26 +25,12 @@ seed(RANDOM_SEED) # set the random seed so that the random permutations can be r
 np.random.seed(RANDOM_SEED)
 
 
-experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments/'
-# experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments_bu_2020.06.02.12.00/'
 # experiments_folder_path = '/Users/a6karimi/dev/recourse/_experiments/'
-# experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/2020.06.01_backup/'
-# experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/__merged_synthetic_bu_2020.06.04.09.58_final_in_paper/'
-# experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments_bu_2020.06.08.18.30_table_1_repro_and_supplement/'
+experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments_bu_2020.06.09.23.00_post_9999533_final/'
 all_counter = len(SCM_CLASS_VALUES) * len(LAMBDA_LCB_VALUES) * len(OPTIMIZATION_APPROACHES) * len(CLASSIFIER_VALUES)
 counter = 0
 
-
-def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_folder_name):
-  # Table
-  metrics_summary = {}
-  # metrics = ['scf_validity', 'ic_m1_gaus', 'ic_m1_cvae', 'ic_m2_true', 'ic_m2_gaus', 'ic_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
-  metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime', 'default_to_MO']
-
-  for metric in metrics:
-    metrics_summary[metric] = []
-  # metrics_summary = dict.fromkeys(metrics, []) # BROKEN: all lists will be shared; causing massive headache!!!
-
+def filterResults(per_instance_results):
   # IMPORTANT: keep a factual instance, IF AND ONLY IF, a non-empty
   # action set was found for this instance given all 8 recourse types
   old_keys = per_instance_results.keys()
@@ -65,6 +52,18 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
   print(f'[INFO] done. We now have {len(per_instance_results.keys())} factual instances to compute the table for.')
   new_keys = per_instance_results.keys()
   print(f'[INFO] dropped {np.setdiff1d(list(old_keys), list(new_keys))}')
+  return per_instance_results
+
+def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_folder_name):
+  # Table
+  metrics_summary = {}
+  metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime', 'default_to_MO']
+
+  for metric in metrics:
+    metrics_summary[metric] = []
+  # metrics_summary = dict.fromkeys(metrics, []) # BROKEN: all lists will be shared; causing massive headache!!!
+
+  per_instance_results = filterResults(per_instance_results)
 
   for recourse_type in recourse_types:
     for metric in metrics:
@@ -73,6 +72,40 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
         '+/-' + \
         f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 4):.4f}'
       )
+
+  additional_metrics = ['', 'x1', 'x2', 'x3', 'x1_x2', 'x1_x3', 'x2_x3', 'x1_x2_x3', 'matching_true_oracle', 'matching_cate_oracle']
+  for metric in additional_metrics:
+    metrics_summary[metric] = []
+  # metrics_summary = dict.fromkeys(additional_metrics, []) # BROKEN: all lists will be shared; causing massive headache!!!
+
+  for recourse_type in recourse_types:
+
+    for metric in additional_metrics:
+      metrics_summary[metric].append(0)
+
+    for k,v in per_instance_results.items():
+
+      true_orcale_intervened_variables = '_'.join(sorted(
+        v['m0_true']['optimal_action_set'].keys()
+      ))
+
+      cate_orcale_intervened_variables = '_'.join(sorted(
+        v['m2_true']['optimal_action_set'].keys()
+      ))
+
+      recourse_type_intervened_variables = '_'.join(sorted(
+        v[recourse_type]['optimal_action_set'].keys()
+      ))
+
+      metrics_summary[recourse_type_intervened_variables][-1] += 1
+
+      if true_orcale_intervened_variables == recourse_type_intervened_variables:
+        metrics_summary['matching_true_oracle'][-1] += 1
+
+      if cate_orcale_intervened_variables == recourse_type_intervened_variables:
+        metrics_summary['matching_cate_oracle'][-1] += 1
+
+
   tmp_df = pd.DataFrame(metrics_summary, recourse_types)
   print(tmp_df)
   print(f'\nN = {len(per_instance_results.keys())}')
