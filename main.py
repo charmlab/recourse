@@ -1168,7 +1168,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
         samples_df = _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, args.num_mc_samples)
       # return action set if average predictive probability of samples >= eps (non-saturated region of classifier)
       predict_proba_list = objs.classifier_obj.predict_proba(samples_df)[:,1]
-      if np.mean(predict_proba_list) >= 3e-1 and np.mean(predict_proba_list) - 0.5: # don't want to start on the other side
+      if np.mean(predict_proba_list) >= 5e-2 and np.mean(predict_proba_list) - 0.5: # don't want to start on the other side
         return action_set
       noise_multiplier += 0.1
     return action_set
