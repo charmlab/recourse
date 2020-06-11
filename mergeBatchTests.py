@@ -13,10 +13,10 @@ ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cva
 
 from debug import ipsh
 
-SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
-LAMBDA_LCB_VALUES = [2.]
-OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
-CLASSIFIER_VALUES = ['lr']
+SCM_CLASS_VALUES = ['german-credit']
+LAMBDA_LCB_VALUES = [2.5] # np.linspace(0, 2.5, 6)
+OPTIMIZATION_APPROACHES = ['brute_force']
+CLASSIFIER_VALUES = ['tree', 'forest']
 
 from random import seed
 RANDOM_SEED = 54321
@@ -43,12 +43,12 @@ def filterResults(per_instance_results):
       for recourse_type in recourse_types
     ])
   }
-  random_keys = random.sample(per_instance_results.keys(), 50)
-  # random sub dict to align 50 instances
-  per_instance_results = dict(zip(
-    random_keys,
-    [per_instance_results[key] for key in random_keys],
-  ))
+  # random_keys = random.sample(per_instance_results.keys(), 50)
+  # # random sub dict to align 50 instances
+  # per_instance_results = dict(zip(
+  #   random_keys,
+  #   [per_instance_results[key] for key in random_keys],
+  # ))
   print(f'[INFO] done. We now have {len(per_instance_results.keys())} factual instances to compute the table for.')
   new_keys = per_instance_results.keys()
   print(f'[INFO] dropped {np.setdiff1d(list(old_keys), list(new_keys))}')
@@ -73,38 +73,37 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
         f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 4):.4f}'
       )
 
-  additional_metrics = ['', 'x1', 'x2', 'x3', 'x1_x2', 'x1_x3', 'x2_x3', 'x1_x2_x3', 'matching_true_oracle', 'matching_cate_oracle']
-  for metric in additional_metrics:
-    metrics_summary[metric] = []
-  # metrics_summary = dict.fromkeys(additional_metrics, []) # BROKEN: all lists will be shared; causing massive headache!!!
+  # additional_metrics = ['', 'x1', 'x2', 'x3', 'x1_x2', 'x1_x3', 'x2_x3', 'x1_x2_x3', 'matching_true_oracle', 'matching_cate_oracle']
+  # for metric in additional_metrics:
+  #   metrics_summary[metric] = []
+  # # metrics_summary = dict.fromkeys(additional_metrics, []) # BROKEN: all lists will be shared; causing massive headache!!!
 
-  for recourse_type in recourse_types:
+  # for recourse_type in recourse_types:
 
-    for metric in additional_metrics:
-      metrics_summary[metric].append(0)
+  #   for metric in additional_metrics:
+  #     metrics_summary[metric].append(0)
 
-    for k,v in per_instance_results.items():
+  #   for k,v in per_instance_results.items():
 
-      true_orcale_intervened_variables = '_'.join(sorted(
-        v['m0_true']['optimal_action_set'].keys()
-      ))
+  #     true_orcale_intervened_variables = '_'.join(sorted(
+  #       v['m0_true']['optimal_action_set'].keys()
+  #     ))
 
-      cate_orcale_intervened_variables = '_'.join(sorted(
-        v['m2_true']['optimal_action_set'].keys()
-      ))
+  #     cate_orcale_intervened_variables = '_'.join(sorted(
+  #       v['m2_true']['optimal_action_set'].keys()
+  #     ))
 
-      recourse_type_intervened_variables = '_'.join(sorted(
-        v[recourse_type]['optimal_action_set'].keys()
-      ))
+  #     recourse_type_intervened_variables = '_'.join(sorted(
+  #       v[recourse_type]['optimal_action_set'].keys()
+  #     ))
 
-      metrics_summary[recourse_type_intervened_variables][-1] += 1
+  #     metrics_summary[recourse_type_intervened_variables][-1] += 1
 
-      if true_orcale_intervened_variables == recourse_type_intervened_variables:
-        metrics_summary['matching_true_oracle'][-1] += 1
+  #     if true_orcale_intervened_variables == recourse_type_intervened_variables:
+  #       metrics_summary['matching_true_oracle'][-1] += 1
 
-      if cate_orcale_intervened_variables == recourse_type_intervened_variables:
-        metrics_summary['matching_cate_oracle'][-1] += 1
-
+  #     if cate_orcale_intervened_variables == recourse_type_intervened_variables:
+  #       metrics_summary['matching_cate_oracle'][-1] += 1
 
   tmp_df = pd.DataFrame(metrics_summary, recourse_types)
   print(tmp_df)
