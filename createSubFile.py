@@ -1,9 +1,10 @@
 import numpy as np
 
 # SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
-# LAMBDA_LCB_VALUES = [2.]
-# OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
-# CLASSIFIER_VALUES = ['lr']
+SCM_CLASS_VALUES = ['sanity-3-anm', 'sanity-3-gen']
+LAMBDA_LCB_VALUES = [2.]
+OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
+CLASSIFIER_VALUES = ['lr']
 
 # ==============================================================================
 # # ==============================================================================
@@ -16,10 +17,10 @@ import numpy as np
 # # ==============================================================================
 # # ==============================================================================
 
-SCM_CLASS_VALUES = ['german-credit']
-LAMBDA_LCB_VALUES = [2.5] # np.linspace(0, 2.5, 6)
-OPTIMIZATION_APPROACHES = ['brute_force']
-CLASSIFIER_VALUES = ['tree', 'forest']
+# SCM_CLASS_VALUES = ['german-credit']
+# LAMBDA_LCB_VALUES = [2.5] # np.linspace(0, 2.5, 6)
+# OPTIMIZATION_APPROACHES = ['brute_force']
+# CLASSIFIER_VALUES = ['tree', 'forest']
 
 # ==============================================================================
 # ==============================================================================
