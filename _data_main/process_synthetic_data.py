@@ -105,14 +105,14 @@ def load_synthetic_data(scm_class, variable_type = 'real'):
 
     predictions = h(X['x1'], X['x2'], X['x3']).to_numpy().reshape(-1,1)
 
-  # elif scm_class == 'sanity-3-gen':
+  elif scm_class == 'sanity-3-gen':
 
-  #   def h(x1, x2, x3):
-  #     c0 = 5
-  #     c1 = -0.5
-  #     return (1 + np.exp(c0 * (x3 - c1))) ** (-1)
+    def h(x1, x2, x3):
+      c0 = 5
+      c1 = -0.5
+      return (1 + np.exp(c0 * (x3 - c1))) ** (-1)
 
-  #   predictions = h(X['x1'], X['x2'], X['x3']).to_numpy().reshape(-1,1)
+    predictions = h(X['x1'], X['x2'], X['x3']).to_numpy().reshape(-1,1)
 
   else:
 
@@ -131,7 +131,7 @@ def load_synthetic_data(scm_class, variable_type = 'real'):
 
   # sample labels from class probabilities in predictions
   uniform_rv = np.random.rand(X.shape[0], 1)
-  y = uniform_rv < predictions  # add 1e-3 to prevent label 0.5
+  y = uniform_rv > predictions  # add 1e-3 to prevent label 0.5
   y = pd.DataFrame(data=y, columns={'label'})
 
 

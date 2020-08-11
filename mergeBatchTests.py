@@ -13,10 +13,10 @@ ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cva
 
 from debug import ipsh
 
-SCM_CLASS_VALUES = ['german-credit']
-LAMBDA_LCB_VALUES = [2.5] # np.linspace(0, 2.5, 6)
-OPTIMIZATION_APPROACHES = ['brute_force']
-CLASSIFIER_VALUES = ['tree', 'forest']
+SCM_CLASS_VALUES = ['sanity-3-anm', 'sanity-3-gen']
+LAMBDA_LCB_VALUES = [2.]
+OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
+CLASSIFIER_VALUES = ['lr']
 
 from random import seed
 RANDOM_SEED = 54321
@@ -43,12 +43,12 @@ def filterResults(per_instance_results):
       for recourse_type in recourse_types
     ])
   }
-  # random_keys = random.sample(per_instance_results.keys(), 50)
-  # # random sub dict to align 50 instances
-  # per_instance_results = dict(zip(
-  #   random_keys,
-  #   [per_instance_results[key] for key in random_keys],
-  # ))
+  random_keys = random.sample(per_instance_results.keys(), 50)
+  # random sub dict to align 50 instances
+  per_instance_results = dict(zip(
+    random_keys,
+    [per_instance_results[key] for key in random_keys],
+  ))
   print(f'[INFO] done. We now have {len(per_instance_results.keys())} factual instances to compute the table for.')
   new_keys = per_instance_results.keys()
   print(f'[INFO] dropped {np.setdiff1d(list(old_keys), list(new_keys))}')
