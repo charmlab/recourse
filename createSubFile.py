@@ -1,7 +1,7 @@
 import numpy as np
 
-SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
-# SCM_CLASS_VALUES = ['sanity-3-gen']
+# SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
+SCM_CLASS_VALUES = ['sanity-3-gen']
 LAMBDA_LCB_VALUES = [2.]
 OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
 CLASSIFIER_VALUES = ['lr']
@@ -60,8 +60,8 @@ for scm_class in SCM_CLASS_VALUES:
             else:
               command += f' --grid_search_bins 20'
 
-          if scm_class == 'sanity-3-gen':
-            command += f' --non_intervenable_nodes x3'
+          # if scm_class == 'sanity-3-gen':
+          #   command += f' --non_intervenable_nodes x3'
 
           if scm_class == 'german-credit':
             command += f' --non_intervenable_nodes x1 x2 x5'
