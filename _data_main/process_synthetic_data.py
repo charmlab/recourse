@@ -131,7 +131,7 @@ def load_synthetic_data(scm_class, variable_type = 'real'):
 
   # sample labels from class probabilities in predictions
   uniform_rv = np.random.rand(X.shape[0], 1)
-  y = uniform_rv > predictions  # add 1e-3 to prevent label 0.5
+  y = uniform_rv < predictions  # add 1e-3 to prevent label 0.5
   y = pd.DataFrame(data=y, columns={'label'})
 
 

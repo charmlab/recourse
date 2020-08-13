@@ -76,7 +76,8 @@ def loadModelForDataset(model_class, dataset_string, scm_class = None, experimen
   print(f'\tTesting accuracy: %{accuracy_score(y_test, model_trained.predict(X_test)) * 100:.2f}')
   print('[INFO] done.\n', file=log_file)
   print('[INFO] done.\n')
-  assert accuracy_score(y_train, model_trained.predict(X_train)) > 0.70
+  tmp = accuracy_score(y_train, model_trained.predict(X_train))
+  assert tmp > 0.70, f'Model accuracy only {tmp}'
 
   classifier_obj = model_trained
   visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, experiment_folder_name)
