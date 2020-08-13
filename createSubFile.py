@@ -25,7 +25,7 @@ CLASSIFIER_VALUES = ['lr']
 # ==============================================================================
 # ==============================================================================
 
-NUM_BATCHES = 50
+NUM_BATCHES = 100
 NUM_NEG_SAMPLES_PER_BATCH = 1
 request_memory = 8192*8
 
@@ -59,6 +59,9 @@ for scm_class in SCM_CLASS_VALUES:
               command += f' --grid_search_bins 10'
             else:
               command += f' --grid_search_bins 20'
+
+          if scm_class == 'sanity-3-gen':
+            command += f' --non_intervenable_nodes x3'
 
           if scm_class == 'german-credit':
             command += f' --non_intervenable_nodes x1 x2 x5'
