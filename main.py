@@ -476,9 +476,9 @@ def trainCVAE(args, objs, node, parents):
       sweep_decoder_layer_sizes = [[32, 32, 1]]
       sweep_latent_size = [3]
     elif node == 'x3':
-      sweep_lambda_kld = [0.1]
+      sweep_lambda_kld = [0.5]
       sweep_encoder_layer_sizes = [[1, 32, 32, 32]]
-      sweep_decoder_layer_sizes = [[5, 5, 1]]
+      sweep_decoder_layer_sizes = [[32, 32, 1]]
       sweep_latent_size = [3]
 
   else:
@@ -517,6 +517,7 @@ def trainCVAE(args, objs, node, parents):
 
     print(f'\n\t[INFO] Training hyperparams setup #{idx+1} / {len(all_hyperparam_setups)}: {str(hyperparams)}')
 
+    # ipsh()
     trained_cvae, recon_node_train, recon_node_validation = train_cvae(AttrDict({
       'name': f'{getConditionalString(node, parents)}',
       'node_train': X_all[[node]].iloc[:args.num_train_samples * 4],
@@ -614,17 +615,18 @@ def sampleTrue(args, objs, factual_instance, factual_df, samples_df, node, paren
   if recourse_type == 'm0_true':
 
     noise_pred = _getAbductionNoise(args, objs, node, parents, factual_instance, structural_equation)
-    # XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True)
-    # tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
-    # noise_true = XU_all.iloc[tmp_idx][getNoiseStringForNode(node)]
+    XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True)
+    tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
+    noise_true = XU_all.iloc[tmp_idx][getNoiseStringForNode(node)]
     # # print(f'noise_pred: {noise_pred:.8f} \t noise_true: {noise_true:.8f} \t difference: {np.abs(noise_pred - noise_true):.8f}')
 
     # # noise_pred assume additive noise, and therefore only works with
     # # models such as 'm1_alin' and 'm1_akrr' in general cases
-    noise = noise_pred
-    # if SCM_CLASS != 'sanity-power':
-    #   assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
-    #   noise = noise_true
+    # noise = noise_pred
+    # noise = noise_true
+    if args.scm_class != 'sanity-3-gen':
+      assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
+    noise = noise_true
 
     samples_df[node] = structural_equation(
       np.array(noise), # may be scalar, which will be case as pd.series when being summed.

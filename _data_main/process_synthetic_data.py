@@ -14,7 +14,7 @@ from debug import ipsh
 
 mu_x, sigma_x = 0, 1 # mean and standard deviation for data
 mu_w, sigma_w = 0, 0.5 # mean and standard deviation for weights
-n = 2500
+n = 10000
 
 # from main import getNoiseStringForNode $ TODO: should be from ../main??
 def getNoiseStringForNode(node):
@@ -109,7 +109,7 @@ def load_synthetic_data(scm_class, variable_type = 'real'):
 
     def h(x1, x2, x3):
       c0 = 5
-      c1 = -0.5
+      c1 = +1
       return (1 + np.exp(c0 * (x3 - c1))) ** (-1)
 
     predictions = h(X['x1'], X['x2'], X['x3']).to_numpy().reshape(-1,1)

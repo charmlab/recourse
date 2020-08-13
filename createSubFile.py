@@ -1,7 +1,7 @@
 import numpy as np
 
-# SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
-SCM_CLASS_VALUES = ['sanity-3-gen']
+SCM_CLASS_VALUES = ['sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen']
+# SCM_CLASS_VALUES = ['sanity-3-gen']
 LAMBDA_LCB_VALUES = [2.]
 OPTIMIZATION_APPROACHES = ['brute_force', 'grad_descent']
 CLASSIFIER_VALUES = ['lr']
@@ -25,7 +25,7 @@ CLASSIFIER_VALUES = ['lr']
 # ==============================================================================
 # ==============================================================================
 
-NUM_BATCHES = 100
+NUM_BATCHES = 50
 NUM_NEG_SAMPLES_PER_BATCH = 1
 request_memory = 8192*8
 
