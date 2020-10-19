@@ -19,16 +19,16 @@ $ pip install -r pip_requirements.txt
 
 ### Table 1:
 ```python
-python main.py --scm_class sanity-3-lin --classifier_class lr --lambda_lcb 2. --optimization_approach grad_descent --grad_descent_epochs 1000 --batch_number 0 --sample_count 50
-python main.py --scm_class sanity-3-anm --classifier_class lr --lambda_lcb 2. --optimization_approach grad_descent --grad_descent_epochs 1000 --batch_number 0 --sample_count 50
-python main.py --scm_class sanity-3-gen --classifier_class lr --lambda_lcb 2. --optimization_approach grad_descent --grad_descent_epochs 1000 --batch_number 0 --sample_count 50
+python main.py --scm_class sanity-3-lin --classifier_class lr --lambda_lcb 2. --optimization_approach grad_descent --grad_descent_epochs 1000 --batch_number 0 --sample_count 100
+python main.py --scm_class sanity-3-anm --classifier_class lr --lambda_lcb 2. --optimization_approach grad_descent --grad_descent_epochs 1000 --batch_number 0 --sample_count 100
+python main.py --scm_class sanity-3-gen --classifier_class lr --lambda_lcb 2. --optimization_approach grad_descent --grad_descent_epochs 1000 --batch_number 0 --sample_count 100
 ```
 
 ### Table 2:
 ```python
-python main.py --scm_class german-credit --classifier_class lr     --lambda_lcb 2.5 --optimization_approach grad_descent --grad_descent_epochs 1000 --non_intervenable_nodes x1 x2 x5 --batch_number 0 --sample_count 50
-python main.py --scm_class german-credit --classifier_class mlp    --lambda_lcb 2.5 --optimization_approach grad_descent --grad_descent_epochs 1000 --non_intervenable_nodes x1 x2 x5 --batch_number 0 --sample_count 50
-python main.py --scm_class german-credit --classifier_class forest --lambda_lcb 2.5 --optimization_approach brute_force  --grid_search_bins 10      --non_intervenable_nodes x1 x2 x5 --batch_number 0 --sample_count 50
+python main.py --scm_class german-credit --classifier_class lr     --lambda_lcb 2.5 --optimization_approach grad_descent --grad_descent_epochs 1000 --non_intervenable_nodes x1 x2 x5 --batch_number 0 --sample_count 100
+python main.py --scm_class german-credit --classifier_class mlp    --lambda_lcb 2.5 --optimization_approach grad_descent --grad_descent_epochs 1000 --non_intervenable_nodes x1 x2 x5 --batch_number 0 --sample_count 100
+python main.py --scm_class german-credit --classifier_class forest --lambda_lcb 2.5 --optimization_approach brute_force  --grid_search_bins 10      --non_intervenable_nodes x1 x2 x5 --batch_number 0 --sample_count 100
 ```
 
 
