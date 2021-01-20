@@ -7,6 +7,7 @@ cachetools==4.1.0
 causalgraphicalmodels==0.0.4
 certifi==2020.4.5.1
 chardet==3.0.4
+cvxopt==1.2.5
 cycler==0.10.0
 decorator==4.4.2
 future==0.18.2

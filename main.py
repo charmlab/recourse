@@ -26,15 +26,16 @@ import loadModel
 import gpHelper
 import skHelper
 
+from sklearn.svm import SVC
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Ridge
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.gaussian_process.kernels import WhiteKernel, RBF
-
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 
 from _cvae.train import *
+from _third_party.svm_recourse import RecourseSVM, vanillasvm
 
 from debug import ipsh
 
@@ -1896,8 +1897,119 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
       scatterFit(args, objs, experiment_folder_name, experimental_setups, node, parents, total_df)
 
 
-def fairRecourse(args, objs, experiment_folder_name):
+def trainFairModels(args, objs):
+
+  X_train, X_test, U_train, U_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit(with_meta = True)
+
+  models = {}
+
+  # TODO: the params below are used in the RecourseSVM code; should we use those?
+  # lams = [0.2, 0.5, 1, 2, 10, 50, 100]
+  # param_grids = [[
+  #   {'lam': lams, 'kernel_fn': ['linear']}
+  # ],
+  # [
+  #   {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
+  # ]]
+  # param_grid = {
+  #   'alpha': np.logspace(-2, 1, 5),
+  #   'kernel': [
+  #     RBF(lengthscale)
+  #     for lengthscale in np.logspace(-2, 1, 5)
+  #   ]
+  # }
+  param_grid = [
+    {'C': np.logspace(0,2,3), 'kernel': ['linear']},
+    {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
+    {'C': np.logspace(0,2,3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
+  ]
+
+  sensitive_attribute_nodes = args.sensitive_attribute_nodes
+  non_sensitive_attribute_nodes = np.setdiff1d(
+    objs.dataset_obj.getInputAttributeNames('kurz'),
+    list(sensitive_attribute_nodes)
+  )
+
+  if len(sensitive_attribute_nodes):
+    unaware_nodes = [list(objs.scm_obj.getNonDescendentsForNode(node)) for node in args.sensitive_attribute_nodes]
+    unaware_nodes = set(np.intersect1d(*unaware_nodes))
+    aware_nodes = np.setdiff1d(
+      objs.dataset_obj.getInputAttributeNames('kurz'),
+      list(unaware_nodes)
+    )
+    aware_nodes_noise = [getNoiseStringForNode(node) for node in aware_nodes]
+  else:
+    unaware_nodes = objs.dataset_obj.getInputAttributeNames('kurz')
+    aware_nodes = []
+    aware_nodes_noise = []
+
+
+  # Train vanilla SVM (check against other code)
+  print(f'[INFO] Training `vanilla SVM`...')
+  model = GridSearchCV(estimator=SVC(), param_grid=param_grid, n_jobs=-1)
+  model.fit(X_train, y_train)
+  models['vanilla'] = model.estimator
+  print(f'[INFO] done.\n')
+
+
+  # Train nonsens SVM (train model on all but sensitive attributes)
+  print(f'[INFO] Training `nonsens SVM`...')
+  model = GridSearchCV(estimator=SVC(), param_grid=param_grid, n_jobs=-1)
+  model.fit(X_train[non_sensitive_attribute_nodes], y_train)
+  models['nonsens'] = model.estimator
+  print(f'[INFO] done.\n')
+
+
+  # Train unaware SVM (train model only on endogenous variables that are non-descendants of all sensitive attributes)
+  print(f'[INFO] Training `unaware SVM`...')
+  model = GridSearchCV(estimator=SVC(), param_grid=param_grid, n_jobs=-1)
+  model.fit(X_train[unaware_nodes], y_train)
+  models['unaware'] = model.estimator
+  print(f'[INFO] done.\n')
+
+  # ipsh()
+  # lams = [0.2, 0.5, 1, 2, 10, 50, 100]
+  # param_grid = [
+  #   {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
+  # ]
+  # # Train iw-fair SVM
+  # print(f'[INFO] Training `iw-fair SVM`...')
+  # model = GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
+  # model.fit(X_train, y_train * 2 - 1)
+  # models['iw-fair'] = model.estimator
+  # print(f'[INFO] done.\n')
+
+
+  # Train cw-fair SVM (unaware noise + true (non-abducted) noises from aware nodes)
+  print(f'[INFO] Training `cw-fair SVM`...')
+  model = GridSearchCV(estimator=SVC(), param_grid=param_grid, n_jobs=-1)
+  model.fit(
+    pd.concat([
+      X_train[unaware_nodes],
+      U_train[aware_nodes_noise]
+    ], axis = 1),
+    y_train
+  )
+  models['cw-fair'] = model
+  print(f'[INFO] done.\n')
+
+  return model
+
+
+def fairRecourse(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
+
+  models = trainFairModels(args, objs)
+
+  # Evaluate metrics
+  # TODO: loop over individuals (MODIFY getNegativelyPredictedInstances to also choose positive samples??)
+    # TODO: compute dist to boundary
+    # TODO: compute cost of recourse
+
+  # Plot and save
+  # TODO
+
   ipsh()
+
 
 if __name__ == "__main__":
 
@@ -1917,6 +2029,7 @@ if __name__ == "__main__":
   parser.add_argument('--num_mc_samples', type=int, default=100)
   parser.add_argument('--debug_flag', type=bool, default=False)
   parser.add_argument('--non_intervenable_nodes', nargs = '+', type=str, default='')
+  parser.add_argument('--sensitive_attribute_nodes', nargs = '+', type=str, default='')
   parser.add_argument('--max_intervention_cardinality', type=int, default=100)
   parser.add_argument('-o', '--optimization_approach', type=str, default='brute_force')
   parser.add_argument('--grid_search_bins', type=int, default=10)
@@ -2019,7 +2132,7 @@ if __name__ == "__main__":
   elif args.experiment == 8:
     experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   elif args.experiment == 9: # fair recourse
-    fairRecourse(args, objs, experiment_folder_name)
+    fairRecourse(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
 
   # sanity check
   # visualizeDatasetAndFixedModel(args, objs)
