@@ -407,10 +407,11 @@ class Dataset(object):
     output_col = self.getOutputAttributeNames()[0]
 
     # assert only two classes in label (maybe relax later??)
+    unique_labels = np.unique(balanced_data_frame[output_col])
     assert np.array_equal(
-      np.unique(balanced_data_frame[output_col]),
-      np.array([0, 1]) # only allowing {0, 1} labels
-    )
+      unique_labels,
+      np.array([0, 1]) # only allowing {0, 1} labels,
+    ), f'expected unique labels to be [0, 1], but got {unique_labels}'
 
     # get balanced dataframe (take minimum of the count, then round down to nearest 250)
     unique_values_and_count = balanced_data_frame[output_col].value_counts()
@@ -927,7 +928,7 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
     input_cols, output_col = getInputOutputColumns(data_frame_non_hot)
     # ordering of next two lines matters (shouldn't overwrite input_cols); silly code... :|
     meta_cols = [col_name for col_name in input_cols if 'u' in col_name]
-    input_cols = [col_name for col_name in input_cols if 'x' in col_name]
+    input_cols = [col_name for col_name in input_cols if 'x' in col_name] # endogenous variables must start with `x`
 
     col_name = output_col
     attributes_non_hot[col_name] = DatasetAttribute(

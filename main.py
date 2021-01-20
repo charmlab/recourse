@@ -1896,6 +1896,9 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
       scatterFit(args, objs, experiment_folder_name, experimental_setups, node, parents, total_df)
 
 
+def fairRecourse(args, objs, experiment_folder_name):
+  ipsh()
+
 if __name__ == "__main__":
 
   parser = argparse.ArgumentParser()
@@ -1961,7 +1964,7 @@ if __name__ == "__main__":
   assert \
     list(scm_obj.getTopologicalOrdering()) == \
     list(dataset_obj.getInputAttributeNames()) == \
-    [elem for elem in dataset_obj.data_frame_kurz.columns if 'x' in elem] # super hack pseudonym, but necessary right now (not much time)
+    [elem for elem in dataset_obj.data_frame_kurz.columns if 'x' in elem] # endogenous variables must start with `x`
 
   # TODO: add more assertions for columns of dataset matching the classifer?
   objs = AttrDict({
@@ -1984,13 +1987,13 @@ if __name__ == "__main__":
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
     ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
-    ('m1_gaus', 'D'), \
-    ('m1_cvae', 'x'), \
-    ('m2_true', 'o'), \
-    ('m2_gaus', 's'), \
-    ('m2_cvae', '+'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
+    # ('m1_gaus', 'D'), \
+    # ('m1_cvae', 'x'), \
+    # ('m2_true', 'o'), \
+    # ('m2_gaus', 's'), \
+    # ('m2_cvae', '+'), \
   ]
 
   if args.experiment == 5:
@@ -2015,6 +2018,8 @@ if __name__ == "__main__":
     experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
   elif args.experiment == 8:
     experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+  elif args.experiment == 9: # fair recourse
+    fairRecourse(args, objs, experiment_folder_name)
 
   # sanity check
   # visualizeDatasetAndFixedModel(args, objs)

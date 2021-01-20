@@ -334,6 +334,30 @@ def loadSCM(scm_class, experiment_folder_name = None):
       'u7': Normal(0, 5**2),
     }
 
+  elif scm_class == 'fair-3-lin':
+
+    structural_equations_np = {
+      'x1': lambda n_samples,        :                     n_samples,
+      'x2': lambda n_samples, x1     :        1 - 2 * x1 + n_samples,
+      'x3': lambda n_samples, x2     :            2 * x2 + n_samples,
+      'x4': lambda n_samples, x2, x3 : x2 - x3 + x2 * x3 + n_samples,
+    }
+    structural_equations_ts = structural_equations_np
+    noises_distributions = {
+      'u1': Bernoulli(0.5),
+      'u2': Normal(0, 1),
+      'u3': Normal(0, 1),
+      'u4': Normal(0, 1),
+    }
+
+  elif scm_class == 'fair-3-anm':
+
+    raise NotImplementedError
+
+  elif scm_class == 'fair-3-gen':
+
+    raise NotImplementedError
+
   else:
     raise Exception(f'scm_class `{scm_class}` not recognized.')
 
@@ -342,6 +366,11 @@ def loadSCM(scm_class, experiment_folder_name = None):
     list([getNoiseStringForNode(node) for node in structural_equations_ts.keys()]) == \
     list(noises_distributions.keys()), \
     'structural_equations_np & structural_equations_ts & noises_distributions should have identical keys.'
+
+  assert \
+    np.all(['x' in node for node in structural_equations_np.keys()]) and \
+    np.all(['x' in node for node in structural_equations_ts.keys()]), \
+    'endogenous variables must start with `x`.'
 
   scm = CausalModel(scm_class, structural_equations_np, structural_equations_ts, noises_distributions)
   if experiment_folder_name is not None:

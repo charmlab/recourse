@@ -12,7 +12,6 @@ class Memoize:
 
   def __call__(self, *args, **kwargs):
 
-
     sig = inspect.signature(self.fn)
     ba = sig.bind(*args)
     for param in sig.parameters.values():

@@ -162,7 +162,6 @@ def scatterDecisionBoundary(dataset_obj, classifier_obj, ax):
     surf = ax.plot_wireframe(X, Y, Z, alpha=0.3)
 
 
-
 def visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, experiment_folder_name):
 
   if not len(dataset_obj.getInputAttributeNames()) <= 3:

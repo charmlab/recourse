@@ -63,39 +63,47 @@ def load_synthetic_data(scm_class, variable_type = 'real'):
   if variable_type == 'integer':
     X = np.round(4 * X)
 
-  if scm_class == 'german-credit':
+  if scm_class == 'fair-3-lin':
 
-    def h(L, D, I, S):
-      a_0 = 0.30
-      a_L = -1
-      a_D = -1
-      a_I = 1
-      a_S = 1
-      a_SI = 1
-      return 1/(1+np.exp(-a_0 * (a_L * L + a_D * D + a_I * I + a_S * S + a_SI * I * S)))
-    predictions = h(X['x4'], X['x5'], X['x6'], X['x7']).to_numpy().reshape(-1,1)
+    h = (1 + np.exp(1 - X['x2'] + X['x3'] - X['x4'] + X['x2'] * X['x3'] - 0.1 * X['x2'] * X['x4'] + 0.01 * X['x3'] * X['x4']))**(-1)
+    # y = 2 * (h > 0.5) - 1  # needs to be +1 or -1
+    y = h > 0.5
+    y = pd.DataFrame(data=y, columns={'label'})
 
   else:
 
-    # sample a random hyperplane through the origin
-    # w = np.random.rand(d, 1)
+    if scm_class == 'german-credit':
 
-    # fix a hyperplane
-    w = np.ones((X.shape[1], 1))
+      def h(L, D, I, S):
+        a_0 = 0.30
+        a_L = -1
+        a_D = -1
+        a_I = 1
+        a_S = 1
+        a_SI = 1
+        return 1/(1+np.exp(-a_0 * (a_L * L + a_D * D + a_I * I + a_S * S + a_SI * I * S)))
+      predictions = h(X['x4'], X['x5'], X['x6'], X['x7']).to_numpy().reshape(-1,1)
 
-    # get the average scale of (w^T)*X (this depends on the scale of the data)
-    scale = 2.5/np.mean(np.absolute(np.dot(X, w)))
+    else:
 
-    predictions = 1/(1+np.exp(-scale * np.dot(X, w)))
+      # sample a random hyperplane through the origin
+      # w = np.random.rand(d, 1)
 
-  # check that labels are not all 0 or 1
-  assert np.std(predictions) < 0.42 and 0.20 < np.std(predictions), f'Labels std too strange: {np.std(predictions)}'
+      # fix a hyperplane
+      w = np.ones((X.shape[1], 1))
 
-  # sample labels from class probabilities in predictions
-  uniform_rv = np.random.rand(X.shape[0], 1)
-  y = uniform_rv < predictions  # add 1e-3 to prevent label 0.5
-  y = pd.DataFrame(data=y, columns={'label'})
+      # get the average scale of (w^T)*X (this depends on the scale of the data)
+      scale = 2.5/np.mean(np.absolute(np.dot(X, w)))
 
+      predictions = 1/(1+np.exp(-scale * np.dot(X, w)))
+
+    # check that labels are not all 0 or 1
+    assert np.std(predictions) < 0.42 and 0.20 < np.std(predictions), f'Labels std too strange: {np.std(predictions)}'
+
+    # sample labels from class probabilities in predictions
+    uniform_rv = np.random.rand(X.shape[0], 1)
+    y = uniform_rv < predictions  # add 1e-3 to prevent label 0.5
+    y = pd.DataFrame(data=y, columns={'label'})
 
   data_frame_non_hot = pd.concat([y,X,U], axis=1)
   return data_frame_non_hot.astype('float64')

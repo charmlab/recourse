@@ -61,6 +61,26 @@ class MixtureOfGaussians(BaseDistribution):
       for (prob, mean, var) in zip(self.probs, self.means, self.vars)
     ])
 
+
+class Uniform(BaseDistribution):
+
+  def __init__(self, lower, upper):
+    assert isinstance(lower, int) or isinstance(lower, float), 'Expected `lower` to be an int or float.'
+    assert isinstance(upper, int) or isinstance(upper, float), 'Expected `upper` to be an int or float.'
+    assert lower < upper
+
+    self.lower = lower
+    self.upper = upper
+    self.name = f'Uniform\t lower={self.lower}\t upper={self.upper}'
+
+  def sample(self, size=1):
+    tmp = np.random.uniform(self.lower, self.upper, size=size)
+    return tmp[0] if size == 1 else list(tmp)
+
+  def pdf(self, value):
+    raise 1 / (self.upper - self.lower)
+
+
 class Bernoulli(BaseDistribution):
 
   def __init__(self, prob):
@@ -77,6 +97,7 @@ class Bernoulli(BaseDistribution):
   def pdf(self, value):
     raise Exception(f'not supported yet; code should not come here.')
 
+
 class Poisson(BaseDistribution):
 
   def __init__(self, p_lambda):
@@ -91,6 +112,7 @@ class Poisson(BaseDistribution):
 
   def pdf(self, value):
     raise Exception(f'not supported yet; code should not come here.')
+
 
 class Gamma(BaseDistribution):
 
