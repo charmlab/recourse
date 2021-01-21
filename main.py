@@ -103,7 +103,7 @@ def getTorchClassifier(args, objs):
     fixed_model[2].bias = torch.nn.Parameter(torch.tensor(objs.classifier_obj.intercepts_[1].astype('float32')), requires_grad=False)
     fixed_model[4].bias = torch.nn.Parameter(torch.tensor(objs.classifier_obj.intercepts_[2].astype('float32')), requires_grad=False)
 
-  else:
+  els
 
     raise Exception(f'Converting {str(objs.classifier_obj.__class__)} to torch not supported.')
 
@@ -955,9 +955,14 @@ def isPointConstraintSatisfied(args, objs, factual_instance, action_set, recours
     action_set,
     recourse_type,
   )
-  return objs.classifier_obj.predict_proba(
-    np.expand_dims(np.array(list(counter_instance.values())), axis=0)
-  )[0][1] > 0.5
+  if 'svm' in str(objs.classifier_obj.__class__):
+    return objs.classifier_obj.predict(
+      np.expand_dims(np.array(list(counter_instance.values())), axis=0)
+    )[0] == 1
+  else:
+    return objs.classifier_obj.predict_proba(
+      np.expand_dims(np.array(list(counter_instance.values())), axis=0)
+    )[0][1] > 0.5
 
 
 def isDistrConstraintSatisfied(args, objs, factual_instance, action_set, recourse_type):
@@ -978,6 +983,8 @@ def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recour
   #   objs,
   #   monte_carlo_samples_df.to_numpy(),
   # ) # gives hard classification
+  if 'svm' in str(objs.classifier_obj.__class__):
+    raise NotImplementedError
   monte_carlo_predictions = objs.classifier_obj.predict_proba(monte_carlo_samples_df)[:,1] # class 1 probabilities.
 
   expectation = np.mean(monte_carlo_predictions)
@@ -1328,9 +1335,14 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_type):
 
   # assert factual instance has prediction = 0
-  assert objs.classifier_obj.predict_proba(
-    np.expand_dims(np.array(list(factual_instance.values())), axis=0)
-  )[0][1] <= .50 - args.epsilon_boundary
+  if 'svm' in str(objs.classifier_obj.__class__):
+    assert objs.classifier_obj.predict(
+      np.expand_dims(np.array(list(factual_instance.values())), axis=0)
+    )[0] == 0
+  else:
+    assert objs.classifier_obj.predict_proba(
+      np.expand_dims(np.array(list(factual_instance.values())), axis=0)
+    )[0][1] <= .50 - args.epsilon_boundary
 
   if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     constraint_handle = isPointConstraintSatisfied
@@ -1502,12 +1514,17 @@ def getNegativelyPredictedInstances(args, objs):
   # # variable for abduction and for m1_gaus we need the index as well.
   # X_all = X_all.iloc[args.num_train_samples:]
 
-  predict_proba_list = objs.classifier_obj.predict_proba(X_all)[:,1]
-  predict_proba_in_negative_class = predict_proba_list <= 0.5 - args.epsilon_boundary
-  # predict_proba_in_negative_class = \
-  #   (predict_proba_list <= 0.5 - args.epsilon_boundary) & \
-  #   (args.epsilon_boundary <= predict_proba_list)
-  negatively_predicted_instances = X_all[predict_proba_in_negative_class]
+  if 'svm' in str(objs.classifier_obj.__class__):
+    tmp = 1 - objs.classifier_obj.predict(X_all)
+    tmp = tmp.astype('bool')
+    negatively_predicted_instances = X_all[tmp]
+  else:
+    predict_proba_list = objs.classifier_obj.predict_proba(X_all)[:,1]
+    predict_proba_in_negative_class = predict_proba_list <= 0.5 - args.epsilon_boundary
+    # predict_proba_in_negative_class = \
+    #   (predict_proba_list <= 0.5 - args.epsilon_boundary) & \
+    #   (args.epsilon_boundary <= predict_proba_list)
+    negatively_predicted_instances = X_all[predict_proba_in_negative_class]
   factual_instances_dict = negatively_predicted_instances[
     args.batch_number * args.sample_count : (args.batch_number + 1) * args.sample_count
   ].T.to_dict()
@@ -1945,25 +1962,25 @@ def trainFairModels(args, objs):
 
   # Train vanilla SVM (check against other code)
   print(f'[INFO] Training `vanilla SVM`...')
-  model = GridSearchCV(estimator=SVC(), param_grid=param_grid, n_jobs=-1)
+  model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
   model.fit(X_train, y_train)
-  models['vanilla'] = model.estimator
+  models['vanilla'] = model.best_estimator_
   print(f'[INFO] done.\n')
 
 
   # Train nonsens SVM (train model on all but sensitive attributes)
   print(f'[INFO] Training `nonsens SVM`...')
-  model = GridSearchCV(estimator=SVC(), param_grid=param_grid, n_jobs=-1)
+  model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
   model.fit(X_train[non_sensitive_attribute_nodes], y_train)
-  models['nonsens'] = model.estimator
+  models['nonsens'] = model.best_estimator_
   print(f'[INFO] done.\n')
 
 
   # Train unaware SVM (train model only on endogenous variables that are non-descendants of all sensitive attributes)
   print(f'[INFO] Training `unaware SVM`...')
-  model = GridSearchCV(estimator=SVC(), param_grid=param_grid, n_jobs=-1)
+  model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
   model.fit(X_train[unaware_nodes], y_train)
-  models['unaware'] = model.estimator
+  models['unaware'] = model.best_estimator_
   print(f'[INFO] done.\n')
 
   # ipsh()
@@ -1975,13 +1992,13 @@ def trainFairModels(args, objs):
   # print(f'[INFO] Training `iw-fair SVM`...')
   # model = GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
   # model.fit(X_train, y_train * 2 - 1)
-  # models['iw-fair'] = model.estimator
+  # models['iw-fair'] = model.best_estimator_
   # print(f'[INFO] done.\n')
 
 
   # Train cw-fair SVM (unaware noise + true (non-abducted) noises from aware nodes)
   print(f'[INFO] Training `cw-fair SVM`...')
-  model = GridSearchCV(estimator=SVC(), param_grid=param_grid, n_jobs=-1)
+  model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
   model.fit(
     pd.concat([
       X_train[unaware_nodes],
@@ -1989,7 +2006,7 @@ def trainFairModels(args, objs):
     ], axis = 1),
     y_train
   )
-  models['cw-fair'] = model
+  models['cw-fair'] = model.best_estimator_
   print(f'[INFO] done.\n')
 
   return models
@@ -2003,12 +2020,15 @@ def fairRecourse(args, objs, experiment_folder_name, factual_instances_dict, exp
   # TODO: loop over individuals (MODIFY getNegativelyPredictedInstances to also choose positive samples??)
     # TODO: compute dist to boundary
     # TODO: compute cost of recourse
-  ipsh()
+  # ipsh()
+  for model_string, model in models.items():
+    objs.classifier_obj = model
+    args.optimization_approach = 'brute_force'
+    args.grid_search_bins = 10
+    experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
 
   # Plot and save
   # TODO
-
-
 
 
 if __name__ == "__main__":
