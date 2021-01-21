@@ -1920,7 +1920,6 @@ def trainFairModels(args, objs):
   # }
   param_grid = [
     {'C': np.logspace(0,2,3), 'kernel': ['linear']},
-    {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
     {'C': np.logspace(0,2,3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
   ]
 
@@ -1993,7 +1992,7 @@ def trainFairModels(args, objs):
   models['cw-fair'] = model
   print(f'[INFO] done.\n')
 
-  return model
+  return models
 
 
 def fairRecourse(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
@@ -2004,11 +2003,12 @@ def fairRecourse(args, objs, experiment_folder_name, factual_instances_dict, exp
   # TODO: loop over individuals (MODIFY getNegativelyPredictedInstances to also choose positive samples??)
     # TODO: compute dist to boundary
     # TODO: compute cost of recourse
+  ipsh()
 
   # Plot and save
   # TODO
 
-  ipsh()
+
 
 
 if __name__ == "__main__":

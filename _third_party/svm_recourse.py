@@ -53,16 +53,16 @@ def read_CSV(filepath, k, pct, rstate=None):
     n = dataset.shape[0]
     d = dataset.shape[1] - 2
     # print('Original Data\n',len(dataset.values[dataset.values[:,0] == 1]), len(dataset.values[dataset.values[:,0] == -1]))
-    
+
     if k > n:
         k = n
 
     data = dataset.values[rstate.choice(np.arange(n), k, replace=False), :]
-    
+
     # if normalization is required
     scaler = StandardScaler()
     data[:, 2:] = scaler.fit_transform(data[:, 2:])
-    
+
     df = {}
 
     df['trainx'], df['testx'], df['traingrp'], df['testgrp'], df['trainy'], df['testy'] = train_test_split(data[:,2:], data[:,1], data[:,0], test_size=pct, random_state=rstate)
@@ -80,20 +80,20 @@ class RecourseSVM(BaseEstimator, ClassifierMixin):
         self.lam = lam
         self.ups = ups
         self.noiter = noiter
-        
+
         self.kernel_params = {'kernel': kernel_fn, 'gamma':self.gamma, 'degree':self.degree}
         self.kernel_fn = kernel_fn
-        
-        self.Q1 = None 
+
+        self.Q1 = None
         self.Q2 = None
         self.Q3 = None
-        
+
         self.train_samples = None
         self.vanilla = {'wnorm':None, 'coeff1':None, 'coeff2':None, 'bias':None}
         self.converged = {'wnorm':None, 'coeff1':None, 'coeff2':None, 'bias':None}
 
         self.fitted = False
-    
+
     def kernel(self, *params):
         if (self.kernel_fn =='linear'):
             return linear_kernel(*params)
@@ -113,11 +113,11 @@ class RecourseSVM(BaseEstimator, ClassifierMixin):
         cx = np.matmul(xtr, self.C)
         Y_matrix = np.tile(y, (len(y), 1))
         YiYj = Y_matrix * Y_matrix.T
-        
+
         self.Q1 = self.kernel(cx, xtr)
         self.Q2 = self.kernel(xtr)
         self.Q3 = self.kernel(cx, cx)
-        
+
         YiYjQ2 = YiYj * self.Q2
 
         e = np.hstack((-1 * np.ones(n), 0.0)).T
@@ -129,7 +129,7 @@ class RecourseSVM(BaseEstimator, ClassifierMixin):
         b = matrix(b, tc='d')
 
         solvers.options['show_progress'] = False
-        
+
         results = {}
 
         itr = 0
@@ -224,7 +224,7 @@ class RecourseSVM(BaseEstimator, ClassifierMixin):
                 results.append([train_acc, abs(rec_diff_train)])
             else:
                 break
-        
+
             if itr == 2:
                 self.vanilla = self.converged.copy()
 
@@ -233,77 +233,50 @@ class RecourseSVM(BaseEstimator, ClassifierMixin):
             results.extend([results[-1] for i in range(self.noiter-l)])
 
         return results
-    
+
+    def main_predict(self, trained_model, X, y=None):
+        if not self.fitted:
+            print('Call fit first!!')
+            return
+
+        xtst = X[:,1:]
+        gtst = X[:,0]
+
+        cx = np.matmul(self.train_samples, self.C)
+        cxtst = np.matmul(xtst, self.C)
+
+        k1 = self.kernel(self.train_samples, xtst)
+        k2 = self.kernel(cx, xtst)
+        k3 = self.kernel(self.train_samples, cxtst)
+        k4 = self.kernel(cx, cxtst)
+
+        tpreds = np.matmul(trained_model['coeff2'], k1) + np.matmul(trained_model['coeff1'], k2) + trained_model['bias']
+        tpreds = vlabel(tpreds)
+
+        test_acc = float(np.sum(tpreds * y > 0))/len(y)
+
+        neg_gtest = gtst[tpreds == -1]
+        cntest = {1:neg_gtest[neg_gtest==1].shape[0], -1:neg_gtest[neg_gtest==-1].shape[0]}
+
+        s1tst = np.array(gtst)
+        s2tst = np.array(([float(1 - tpreds[i]) / (2 * cntest[gtst[i]]) if cntest[gtst[i]] > 0 else 0 for (i, _) in enumerate(gtst)]))
+        stst = s1tst * s2tst
+
+        rec_diff_test = np.sum(stst * (np.matmul(trained_model['coeff2'], k3) + np.matmul(trained_model['coeff1'], k4) + trained_model['bias']))/trained_model['wnorm']
+
+        return ([tpreds, test_acc, abs(rec_diff_test)])
+
     def vanilla_predict(self, X, y=None):
-        if not self.fitted:
-            print('Call fit first!!')
-            return
+        return main_predict(self.vanilla, X, y)
 
-        xtst = X[:,1:]
-        gtst = X[:,0]
+    def fairrec_predict(self, X, y=None):
+        return main_predict(self.converged, X, y)
 
-        cx = np.matmul(self.train_samples, self.C)
-        cxtst = np.matmul(xtst, self.C)
-
-        k1 = self.kernel(self.train_samples, xtst)
-        k2 = self.kernel(cx, xtst)
-        k3 = self.kernel(self.train_samples, cxtst)
-        k4 = self.kernel(cx, cxtst)
-
-        tpreds = np.matmul(self.vanilla['coeff2'], k1) + np.matmul(self.vanilla['coeff1'], k2) + self.vanilla['bias']
-        tpreds = vlabel(tpreds)
-        
-        test_acc = float(np.sum(tpreds * y > 0))/len(y)
-
-        neg_gtest = gtst[tpreds == -1]
-        cntest = {1:neg_gtest[neg_gtest==1].shape[0], -1:neg_gtest[neg_gtest==-1].shape[0]}
-
-        s1tst = np.array(gtst)
-        s2tst = np.array(([float(1 - tpreds[i]) / (2 * cntest[gtst[i]]) if cntest[gtst[i]] > 0 else 0 for (i, _) in enumerate(gtst)]))
-        stst = s1tst * s2tst
-        
-        rec_diff_test = np.sum(stst * (np.matmul(self.vanilla['coeff2'], k3) + np.matmul(self.vanilla['coeff1'], k4) + self.vanilla['bias']))/self.vanilla['wnorm'] 
-
-        return ([tpreds, test_acc, abs(rec_diff_test)])
-
-    def predict(self, X, y=None):
-        if not self.fitted:
-            print('Call fit first!!')
-            return
-        
-        xtst = X[:,1:]
-        gtst = X[:,0]
-
-        cx = np.matmul(self.train_samples, self.C)
-        cxtst = np.matmul(xtst, self.C)
-
-        k1 = self.kernel(self.train_samples, xtst)
-        k2 = self.kernel(cx, xtst)
-        k3 = self.kernel(self.train_samples, cxtst)
-        k4 = self.kernel(cx, cxtst)
-
-        tpreds = np.matmul(self.converged['coeff2'], k1) + np.matmul(self.converged['coeff1'], k2) + self.converged['bias']
-        tpreds = vlabel(tpreds)
-        # print(tpreds, alt_tpreds)
-        
-        test_acc = float(np.sum(tpreds * y > 0))/len(y)
-
-        neg_gtest = gtst[tpreds == -1]
-        cntest = {1:neg_gtest[neg_gtest==1].shape[0], -1:neg_gtest[neg_gtest==-1].shape[0]}
-
-        s1tst = np.array(gtst)
-        s2tst = np.array(([float(1 - tpreds[i]) / (2 * cntest[gtst[i]]) if cntest[gtst[i]] > 0 else 0 for (i, _) in enumerate(gtst)]))
-        stst = s1tst * s2tst
-        
-        rec_diff_test = np.sum(stst * (np.matmul(self.converged['coeff2'], k3) + np.matmul(self.converged['coeff1'], k4) + self.converged['bias']))/self.converged['wnorm']
-
-        return ([tpreds, test_acc, abs(rec_diff_test)])
-    
     def score(self, X, y=None):
         _, _, rec1 = self.vanilla_predict(X, y)
-        _, _, rec2 = self.predict(X, y)
+        _, _, rec2 = self.fairrec_predict(X, y)
 
-        if rec2 < rectol and rec1 < rectol: 
+        if rec2 < rectol and rec1 < rectol:
             return 0
         else:
             return (rec2 - rec1)/rec2 if (rec2 > rec1) else (rec1 - rec2)/rec1
@@ -345,11 +318,11 @@ def create_plots(bef, aft, name, title):
     bp4 = ax.boxplot([before['test_acc'], after['test_acc']], patch_artist=True, labels=xlabels, showfliers=False, showmeans=True, whiskerprops=whiskstyle, meanprops=meanstyle, medianprops=medianstyle)
     ax.yaxis.grid(True)
     # ax.set_title('Test accuracies')
-    
+
     for bplot in (bp1, bp2):
         for patch, color in zip(bplot['boxes'], colors_rec):
             patch.set_facecolor(color)
-    
+
     for bplot in (bp3, bp4):
         for patch, color in zip(bplot['boxes'], colors_acc):
             patch.set_facecolor(color)
@@ -365,7 +338,7 @@ def vanillasvm(xtr, ytr, xtst, params):
     clf.fit(xtr, ytr)
     ptest = clf.predict(xtst)
     ptrn = clf.predict(xtr)
-    
+
     return (ptrn, ptest)
 
 if __name__ == '__main__':
@@ -396,16 +369,16 @@ if __name__ == '__main__':
         clf.fit(data['train'], data['trainy'])
         # print(clf.cv_results_)
         print(clf.best_params_)
-        
+
         # clf.refit(data['train'], data['trainy'])
-        
+
         train_aggr = np.zeros((noiterations, 2))
         van_test_aggr = np.zeros((2,))
         test_aggr = np.zeros((2,))
-        
+
         before = {'train_acc':[], 'test_acc':[], 'train_rec':[], 'test_rec':[]}
         after = {'train_acc':[], 'test_acc':[], 'train_rec':[], 'test_rec':[]}
-        
+
         for j in range(noruns):
             print('Run {}'.format(j+1))
             data, d = get_data(filepath, 1000, 0.8)
@@ -420,12 +393,12 @@ if __name__ == '__main__':
             print('\n')
 
             res0 = rsvm.vanilla_predict(data['test'], data['testy'])[1:]
-            res2 = rsvm.predict(data['test'], data['testy'])[1:]
-            
+            res2 = rsvm.fairrec_predict(data['test'], data['testy'])[1:]
+
             print(res0)
             print(res2)
             print('\n')
-            
+
             train_aggr += np.array(res1)
             van_test_aggr += np.array(res0)
             test_aggr += np.array(res2)
