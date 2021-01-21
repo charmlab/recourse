@@ -39,6 +39,7 @@ from _third_party.svm_recourse import RecourseSVM, vanillasvm
 
 from debug import ipsh
 
+import random
 from random import seed
 RANDOM_SEED = 54321
 seed(RANDOM_SEED) # set the random seed so that the random permutations can be reproduced again
@@ -103,7 +104,7 @@ def getTorchClassifier(args, objs):
     fixed_model[2].bias = torch.nn.Parameter(torch.tensor(objs.classifier_obj.intercepts_[1].astype('float32')), requires_grad=False)
     fixed_model[4].bias = torch.nn.Parameter(torch.tensor(objs.classifier_obj.intercepts_[2].astype('float32')), requires_grad=False)
 
-  els
+  else:
 
     raise Exception(f'Converting {str(objs.classifier_obj.__class__)} to torch not supported.')
 
@@ -1515,6 +1516,7 @@ def getNegativelyPredictedInstances(args, objs):
   # X_all = X_all.iloc[args.num_train_samples:]
 
   if 'svm' in str(objs.classifier_obj.__class__):
+    # TODO (fair): for different datasets, we need different inputs to the model
     tmp = 1 - objs.classifier_obj.predict(X_all)
     tmp = tmp.astype('bool')
     negatively_predicted_instances = X_all[tmp]
@@ -1643,7 +1645,9 @@ def experiment5(args, objs, experiment_folder_name, factual_instances_dict, expe
 def experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
   ''' optimal action set: figure + table '''
 
-  os.mkdir(f'{experiment_folder_name}/_optimization_curves')
+  dir_path = f'{experiment_folder_name}/_optimization_curves'
+  if not os.path.exists(dir_path):
+    os.mkdir(dir_path)
 
   per_instance_results = {}
   for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
@@ -1686,12 +1690,12 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
       tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance, tmp['optimal_action_set'], 'm0_true')
-      # print('jigar')
-      tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
-      if recourse_type in ACCEPTABLE_DISTR_RECOURSE and recourse_type != 'm2_true':
-        tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], recourse_type), 3)
-      else:
-        tmp['ic_rec_type'] = np.NaN
+      # TODO (fair): uncomment after fair recourse
+      # tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
+      # if recourse_type in ACCEPTABLE_DISTR_RECOURSE and recourse_type != 'm2_true':
+      #   tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], recourse_type), 3)
+      # else:
+      #   tmp['ic_rec_type'] = np.NaN
       tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'])
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
 
@@ -1706,12 +1710,16 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
 
     createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_folder_name)
 
+  return per_instance_results
 
-def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_folder_name):
+
+def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_folder_name, file_suffix=''):
   # Table
   metrics_summary = {}
   # metrics = ['scf_validity', 'ic_m1_gaus', 'ic_m1_cvae', 'ic_m2_true', 'ic_m2_gaus', 'ic_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
-  metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime', 'default_to_MO']
+  # metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime', 'default_to_MO']
+  # TODO (fair): uncomment after fair recourse
+  metrics = ['scf_validity', 'cost_all', 'cost_valid', 'runtime', 'default_to_MO']
 
   for metric in metrics:
     metrics_summary[metric] = []
@@ -1727,10 +1735,11 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
   tmp_df = pd.DataFrame(metrics_summary, recourse_types)
   print(tmp_df)
   print(f'\nN = {len(per_instance_results.keys())}')
-  tmp_df.to_csv(f'{experiment_folder_name}/_comparison.txt', sep='\t')
-  with open(f'{experiment_folder_name}/_comparison.txt', 'a') as out_file:
+  file_name_string = f'_comparison{file_suffix}'
+  tmp_df.to_csv(f'{experiment_folder_name}/{file_name_string}.txt', sep='\t')
+  with open(f'{experiment_folder_name}/{file_name_string}.txt', 'a') as out_file:
     out_file.write(f'\nN = {len(per_instance_results.keys())}\n')
-  tmp_df.to_pickle(f'{experiment_folder_name}/_comparison')
+  tmp_df.to_pickle(f'{experiment_folder_name}/{file_name_string}')
 
   # TODO: FIX
   # # Figure
@@ -1948,7 +1957,10 @@ def trainFairModels(args, objs):
 
   if len(sensitive_attribute_nodes):
     unaware_nodes = [list(objs.scm_obj.getNonDescendentsForNode(node)) for node in args.sensitive_attribute_nodes]
-    unaware_nodes = set(np.intersect1d(*unaware_nodes))
+    if len(unaware_nodes) > 1:
+      unaware_nodes = set(np.intersect1d(*unaware_nodes))
+    else:
+      unaware_nodes = unaware_nodes[0]
     aware_nodes = np.setdiff1d(
       objs.dataset_obj.getInputAttributeNames('kurz'),
       list(unaware_nodes)
@@ -1968,46 +1980,46 @@ def trainFairModels(args, objs):
   print(f'[INFO] done.\n')
 
 
-  # Train nonsens SVM (train model on all but sensitive attributes)
-  print(f'[INFO] Training `nonsens SVM`...')
-  model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
-  model.fit(X_train[non_sensitive_attribute_nodes], y_train)
-  models['nonsens'] = model.best_estimator_
-  print(f'[INFO] done.\n')
-
-
-  # Train unaware SVM (train model only on endogenous variables that are non-descendants of all sensitive attributes)
-  print(f'[INFO] Training `unaware SVM`...')
-  model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
-  model.fit(X_train[unaware_nodes], y_train)
-  models['unaware'] = model.best_estimator_
-  print(f'[INFO] done.\n')
-
-  # ipsh()
-  # lams = [0.2, 0.5, 1, 2, 10, 50, 100]
-  # param_grid = [
-  #   {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
-  # ]
-  # # Train iw-fair SVM
-  # print(f'[INFO] Training `iw-fair SVM`...')
-  # model = GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
-  # model.fit(X_train, y_train * 2 - 1)
-  # models['iw-fair'] = model.best_estimator_
+  # # Train nonsens SVM (train model on all but sensitive attributes)
+  # print(f'[INFO] Training `nonsens SVM`...')
+  # model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
+  # model.fit(X_train[non_sensitive_attribute_nodes], y_train)
+  # models['nonsens'] = model.best_estimator_
   # print(f'[INFO] done.\n')
 
 
-  # Train cw-fair SVM (unaware noise + true (non-abducted) noises from aware nodes)
-  print(f'[INFO] Training `cw-fair SVM`...')
-  model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
-  model.fit(
-    pd.concat([
-      X_train[unaware_nodes],
-      U_train[aware_nodes_noise]
-    ], axis = 1),
-    y_train
-  )
-  models['cw-fair'] = model.best_estimator_
-  print(f'[INFO] done.\n')
+  # # Train unaware SVM (train model only on endogenous variables that are non-descendants of all sensitive attributes)
+  # print(f'[INFO] Training `unaware SVM`...')
+  # model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
+  # model.fit(X_train[unaware_nodes], y_train)
+  # models['unaware'] = model.best_estimator_
+  # print(f'[INFO] done.\n')
+
+  # TODO (fair): fix
+  # # lams = [0.2, 0.5, 1, 2, 10, 50, 100]
+  # # param_grid = [
+  # #   {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
+  # # ]
+  # # # Train iw-fair SVM
+  # # print(f'[INFO] Training `iw-fair SVM`...')
+  # # model = GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
+  # # model.fit(X_train, y_train * 2 - 1)
+  # # models['iw-fair'] = model.best_estimator_
+  # # print(f'[INFO] done.\n')
+
+
+  # # Train cw-fair SVM (unaware noise + true (non-abducted) noises from aware nodes)
+  # print(f'[INFO] Training `cw-fair SVM`...')
+  # model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
+  # model.fit(
+  #   pd.concat([
+  #     X_train[unaware_nodes],
+  #     U_train[aware_nodes_noise]
+  #   ], axis = 1),
+  #   y_train
+  # )
+  # models['cw-fair'] = model.best_estimator_
+  # print(f'[INFO] done.\n')
 
   return models
 
@@ -2016,19 +2028,52 @@ def fairRecourse(args, objs, experiment_folder_name, factual_instances_dict, exp
 
   models = trainFairModels(args, objs)
 
-  # Evaluate metrics
-  # TODO: loop over individuals (MODIFY getNegativelyPredictedInstances to also choose positive samples??)
-    # TODO: compute dist to boundary
-    # TODO: compute cost of recourse
-  # ipsh()
+  assert \
+    len(args.sensitive_attribute_nodes) == 1, \
+    f'expecting 1 sensitive attribute, got {len(args.sensitive_attribute_nodes)}'
+  args.non_intervenable_nodes = args.sensitive_attribute_nodes
+  sensitive_attribute_node = args.sensitive_attribute_nodes[0]
+
+  # Loop over individuals (MODIFY getNegativelyPredictedInstances to also choose positive samples??)
   for model_string, model in models.items():
-    objs.classifier_obj = model
-    args.optimization_approach = 'brute_force'
-    args.grid_search_bins = 10
-    experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+    objs.classifier_obj = model # replace the objs._classifier with the trained model
+
+    # IMPORTANT: compute factual_instances_dict (negatively predicted samples)
+    # again, using the trained model
+    factual_instances_dict = getNegativelyPredictedInstances(args, objs)
+    factual_instances_dict_1 = {}
+    factual_instances_dict_2 = {}
+    for key, value in factual_instances_dict.items():
+      if value[sensitive_attribute_node] == 0:
+        factual_instances_dict_1[key] = value
+      elif value[sensitive_attribute_node] == 1:
+        factual_instances_dict_2[key] = value
+      else:
+        raise Exception(f'unrecognized sensitive attribute value {value[sensitive_attribute_node]}')
+
+    # choose a balanced random subset from the dictionaries correspond to the two groups
+    num_random = 10 * (min(
+      len(factual_instances_dict_1.keys()),
+      len(factual_instances_dict_2.keys())
+    ) // 10)
+    factual_instances_dict_1 = dict(random.sample(list(factual_instances_dict_1.items()), num_random))
+    factual_instances_dict_2 = dict(random.sample(list(factual_instances_dict_2.items()), num_random))
+
+    # Metric #1: compute cost of recourse
+
+    per_instance_results_group_1 = experiment6(args, objs, experiment_folder_name, factual_instances_dict_1, experimental_setups, recourse_types)
+    per_instance_results_group_2 = experiment6(args, objs, experiment_folder_name, factual_instances_dict_2, experimental_setups, recourse_types)
+    print(f'\n\nModel: `{model_string}`')
+    print(f'group 1: \n')
+    createAndSaveMetricsTable(per_instance_results_group_1, recourse_types, experiment_folder_name, '_group_1')
+    print(f'group 2: \n')
+    createAndSaveMetricsTable(per_instance_results_group_2, recourse_types, experiment_folder_name, '_group_2')
+
+    # Metric #2: compute dist to boundary TODO (fair)
+
 
   # Plot and save
-  # TODO
+  # TODO (fair)
 
 
 if __name__ == "__main__":
@@ -2120,8 +2165,8 @@ if __name__ == "__main__":
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
     ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
+    ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
     # ('m1_gaus', 'D'), \
     # ('m1_cvae', 'x'), \
     # ('m2_true', 'o'), \
