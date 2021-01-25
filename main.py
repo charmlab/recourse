@@ -173,6 +173,7 @@ def getIndexOfFactualInstanceInDataFrame(factual_instance, data_frame):
     ]):
       found_flag = True
       break
+  # TODO (add another error if multiple instances are found)
   if not found_flag:
     raise Exception(f'Was not able to find instance in dataset.')
   return enumeration_idx
@@ -1419,7 +1420,7 @@ def scatterDecisionBoundary(args, objs, ax):
   surf = ax.plot_wireframe(X, Y, Z, alpha=0.3)
 
 
-def scatterDataset(args, objs, ax):
+def scatterDataset(args, objs, ax): # TODO (refactor): merge with those in loadModel.py
   assert len(objs.dataset_obj.getInputAttributeNames()) == 3
   X_train, X_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit()
   X_train_numpy = X_train.to_numpy()
@@ -1498,36 +1499,55 @@ def visualizeDatasetAndFixedModel(args, objs):
   plt.show()
 
 
-def getNegativelyPredictedInstances(args, objs):
-  # Samples for which we seek recourse are chosen from the joint of X_train/test.
-  # This is OK because the tasks of conditional density estimation and recourse
-  # generation are distinct. Given the same data splicing used here and in trainGP,
-  # it is guaranteed that we the factual sample for which we seek recourse is in
-  # training set for GP, and hence a posterior over noise for it is computed
-  # (i.e., we can cache).
+def getNegativelyPredictedInstances(args, objs, fair_model_type = ''):
 
-  # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1; do not use
-  # processDataFrameOrDict because classifier is trained on original data
-  X_all = getOriginalDataFrame(objs, args.num_train_samples)
+  if fair_model_type != '':
 
-  # X_all = getOriginalDataFrame(objs, args.num_train_samples + args.num_validation_samples)
-  # # CANNOT DO THIS:Iterate over validation set, not training set
-  # # REASON: for m0_true we need the index of the factual instance to get noise
-  # # variable for abduction and for m1_gaus we need the index as well.
-  # X_all = X_all.iloc[args.num_train_samples:]
+    # # if fair_model_type is specified, then call .predict() on the trained model
+    # # using nodes obtained from getTrainableNodesForFairModel().
+    # XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True)
+    # trainable_endogenous_nodes, trainable_exogenous_nodes = \
+    #   getTrainableNodesForFairModel(args, objs, fair_model_type)
+    # trainable_data_frame = XU_all[np.concatenate((trainable_endogenous_nodes, []))]
+    # tmp = 1 - objs.classifier_obj.predict(trainable_data_frame)
+    # tmp = tmp.astype('bool')
+    # negatively_predicted_instances = trainable_data_frame[tmp]
 
-  if 'svm' in str(objs.classifier_obj.__class__):
-    # TODO (fair): for different datasets, we need different inputs to the model
-    tmp = 1 - objs.classifier_obj.predict(X_all)
+    # if fair_model_type is specified, then call .predict() on the trained model
+    # using nodes obtained from getTrainableNodesForFairModel().
+    data_frame = getDataFrameForFairModel(args, objs, fair_model_type, 'train_and_test')
+    tmp = 1 - objs.classifier_obj.predict(data_frame)
     tmp = tmp.astype('bool')
-    negatively_predicted_instances = X_all[tmp]
+    negatively_predicted_instances = data_frame[tmp]
+
   else:
+
+    # Samples for which we seek recourse are chosen from the joint of X_train/test.
+    # This is OK because the tasks of conditional density estimation and recourse
+    # generation are distinct. Given the same data splicing used here and in trainGP,
+    # it is guaranteed that we the factual sample for which we seek recourse is in
+    # training set for GP, and hence a posterior over noise for it is computed
+    # (i.e., we can cache).
+
+    # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1; do not use
+    # processDataFrameOrDict because classifier is trained on original data
+    X_all = getOriginalDataFrame(objs, args.num_train_samples)
+
+    # X_all = getOriginalDataFrame(objs, args.num_train_samples + args.num_validation_samples)
+    # # CANNOT DO THIS:Iterate over validation set, not training set
+    # # REASON: for m0_true we need the index of the factual instance to get noise
+    # # variable for abduction and for m1_gaus we need the index as well.
+    # X_all = X_all.iloc[args.num_train_samples:]
+
     predict_proba_list = objs.classifier_obj.predict_proba(X_all)[:,1]
     predict_proba_in_negative_class = predict_proba_list <= 0.5 - args.epsilon_boundary
     # predict_proba_in_negative_class = \
     #   (predict_proba_list <= 0.5 - args.epsilon_boundary) & \
     #   (args.epsilon_boundary <= predict_proba_list)
     negatively_predicted_instances = X_all[predict_proba_in_negative_class]
+
+
+  # get appropriate index
   factual_instances_dict = negatively_predicted_instances[
     args.batch_number * args.sample_count : (args.batch_number + 1) * args.sample_count
   ].T.to_dict()
@@ -1567,7 +1587,8 @@ def hotTrainRecourseTypes(args, objs, recourse_types):
 # DEPRECATED def experiment4
 
 
-def experiment5(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
+# TODO (refactor): s/experiment5/runSubplotSanity
+def experiment5(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
   ''' sub-plot sanity '''
 
   # action_sets = [
@@ -1643,7 +1664,7 @@ def experiment5(args, objs, experiment_folder_name, factual_instances_dict, expe
   plt.close()
 
 
-def experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
+def experiment6(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
   ''' optimal action set: figure + table '''
 
   dir_path = f'{experiment_folder_name}/_optimization_curves'
@@ -1788,7 +1809,7 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
   plt.close()
 
 
-# DEPRECATED def experiment7
+# TODO (refactor): DEPRECATED def experiment7
 
 
 def scatterFit(args, objs, experiment_folder_name, experimental_setups, node, parents, total_df):
@@ -1812,7 +1833,7 @@ def scatterFit(args, objs, experiment_folder_name, experimental_setups, node, pa
   plt.close()
 
 
-def experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
+def experiment8(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
   ''' box-plot sanity '''
 
   PER_DIM_GRANULARITY = 8
@@ -1921,31 +1942,28 @@ def experiment8(args, objs, experiment_folder_name, factual_instances_dict, expe
       scatterFit(args, objs, experiment_folder_name, experimental_setups, node, parents, total_df)
 
 
-def trainFairModels(args, objs):
+def getDataFrameForFairModel(args, objs, fair_model_type, data_split):
 
-  X_train, X_test, U_train, U_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit(with_meta = True)
+  if data_split == 'train_and_test':
 
-  models = {}
+    XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True)
+    trainable_endogenous_nodes, trainable_exogenous_nodes = \
+      getTrainableNodesForFairModel(args, objs, fair_model_type)
+    data_frame = XU_all[np.concatenate((trainable_endogenous_nodes, []))]
 
-  # TODO: the params below are used in the RecourseSVM code; should we use those?
-  # lams = [0.2, 0.5, 1, 2, 10, 50, 100]
-  # param_grids = [[
-  #   {'lam': lams, 'kernel_fn': ['linear']}
-  # ],
-  # [
-  #   {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
-  # ]]
-  # param_grid = {
-  #   'alpha': np.logspace(-2, 1, 5),
-  #   'kernel': [
-  #     RBF(lengthscale)
-  #     for lengthscale in np.logspace(-2, 1, 5)
-  #   ]
-  # }
-  param_grid = [
-    {'C': np.logspace(0,2,3), 'kernel': ['linear']},
-    {'C': np.logspace(0,2,3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
-  ]
+  elif data_split == 'train_only':
+
+    raise NotImplementedError
+    # TODO: (refactor) update getOriginalDataFrame to allow for with_meta, with_labels, train, train_and_test, test
+
+  else:
+
+    raise NotImplementedError
+
+  return data_frame
+
+
+def getTrainableNodesForFairModel(args, objs, fair_model_type):
 
   sensitive_attribute_nodes = args.sensitive_attribute_nodes
   non_sensitive_attribute_nodes = np.setdiff1d(
@@ -1970,86 +1988,145 @@ def trainFairModels(args, objs):
     aware_nodes_noise = []
 
 
-  # Train vanilla SVM (check against other code)
-  print(f'[INFO] Training `vanilla SVM`...')
-  model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
-  model.fit(X_train, y_train)
-  models['vanilla'] = model.best_estimator_
-  print(f'[INFO] done.\n')
+  if fair_model_type == 'vanilla_svm':
+    trainable_endogenous_nodes = objs.dataset_obj.getInputAttributeNames('kurz')
+    trainable_exogenous_nodes = []
+
+  elif fair_model_type == 'nonsens_svm':
+    trainable_endogenous_nodes = non_sensitive_attribute_nodes
+    trainable_exogenous_nodes = []
+
+  elif fair_model_type == 'unaware_svm':
+    trainable_endogenous_nodes = unaware_nodes
+    trainable_exogenous_nodes = []
+
+  elif fair_model_type == 'cw_fair_svm':
+    trainable_endogenous_nodes = unaware_nodes
+    trainable_exogenous_nodes = aware_nodes_noise
+
+  elif fair_model_type == 'iw_fair_svm':
+    trainable_endogenous_nodes = objs.dataset_obj.getInputAttributeNames('kurz')
+    trainable_exogenous_nodes = []
+
+  return trainable_endogenous_nodes, trainable_exogenous_nodes
 
 
-  # # Train nonsens SVM (train model on all but sensitive attributes)
-  # print(f'[INFO] Training `nonsens SVM`...')
-  # model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
-  # model.fit(X_train[non_sensitive_attribute_nodes], y_train)
-  # models['nonsens'] = model.best_estimator_
-  # print(f'[INFO] done.\n')
+def trainFairModels(args, objs, fair_model_types):
+
+  X_train, X_test, U_train, U_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit(with_meta = True)
+
+  # TODO (fair: the params below are used in the RecourseSVM code; should we use those?
+  # lams = [0.2, 0.5, 1, 2, 10, 50, 100]
+  # param_grids = [[
+  #   {'lam': lams, 'kernel_fn': ['linear']}
+  # ],
+  # [
+  #   {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
+  # ]]
+  # param_grid = {
+  #   'alpha': np.logspace(-2, 1, 5),
+  #   'kernel': [
+  #     RBF(lengthscale)
+  #     for lengthscale in np.logspace(-2, 1, 5)
+  #   ]
+  # }
+  param_grid = [
+    {'C': np.logspace(0,2,3), 'kernel': ['linear']},
+    {'C': np.logspace(0,2,3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
+  ]
+
+  fair_models = {}
+
+  print(f'Training fair models')
+
+  for fair_model_type in fair_model_types:
+
+    if fair_model_type != 'iw_fair_svm':
+
+      print(f'\t[INFO] Training `{fair_model_type}`...')
+      model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
+      trainable_endogenous_nodes, trainable_exogenous_nodes = \
+        getTrainableNodesForFairModel(args, objs, fair_model_type)
+      if len(trainable_endogenous_nodes) == 0 and len(trainable_exogenous_nodes) == 0:
+        print(f'\t\tNo trainable set of nodes founds to train `{fair_model_type}`. Skipping.\n')
+        print(f'\t[INFO] done.\n')
+        continue
+      model.fit(
+        pd.concat([
+          X_train[trainable_endogenous_nodes],
+          U_train[trainable_exogenous_nodes]
+        ], axis = 1),
+        y_train
+      )
+      fair_models[fair_model_type] = model.best_estimator_
+      print(f'\t[INFO] done.\n')
+
+    else:
+
+      pass
+
+      # TODO (fair): fix
+
+      # # lams = [0.2, 0.5, 1, 2, 10, 50, 100]
+      # # param_grid = [
+      # #   {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
+      # # ]
+      # # # Train iw_fair_svm
+      # # print(f'[INFO] Training `iw_fair SVM`...')
+      # # model = GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
+      # # model.fit(X_train, y_train * 2 - 1)
+      # # fair_models['iw_fair_svm'] = model.best_estimator_
+      # # print(f'[INFO] done.\n')
+
+  print(f'[INFO] done.')
+  return fair_models
 
 
-  # # Train unaware SVM (train model only on endogenous variables that are non-descendants of all sensitive attributes)
-  # print(f'[INFO] Training `unaware SVM`...')
-  # model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
-  # model.fit(X_train[unaware_nodes], y_train)
-  # models['unaware'] = model.best_estimator_
-  # print(f'[INFO] done.\n')
+def fairRecourse(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
 
-  # TODO (fair): fix
-  # # lams = [0.2, 0.5, 1, 2, 10, 50, 100]
-  # # param_grid = [
-  # #   {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
-  # # ]
-  # # # Train iw-fair SVM
-  # # print(f'[INFO] Training `iw-fair SVM`...')
-  # # model = GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
-  # # model.fit(X_train, y_train * 2 - 1)
-  # # models['iw-fair'] = model.best_estimator_
-  # # print(f'[INFO] done.\n')
+  fair_model_types = [
+    # 'vanilla_svm', # train model on all endogenous variables (baseline)
+    'nonsens_svm', # train model on all endogenous variables, except sensitive attributes
+    'unaware_svm', # train model on all endogenous variables that are non-descendants of all sensitive attributes
+    'cw_fair_svm', # train model on all endogenous variables for unaware nodes + exogenous variables (true; non-abducted) for aware nodes
+    # 'iw_fair_svm',
+  ]
 
-
-  # # Train cw-fair SVM (unaware noise + true (non-abducted) noises from aware nodes)
-  # print(f'[INFO] Training `cw-fair SVM`...')
-  # model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
-  # model.fit(
-  #   pd.concat([
-  #     X_train[unaware_nodes],
-  #     U_train[aware_nodes_noise]
-  #   ], axis = 1),
-  #   y_train
-  # )
-  # models['cw-fair'] = model.best_estimator_
-  # print(f'[INFO] done.\n')
-
-  return models
-
-
-def fairRecourse(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types):
-
-  models = trainFairModels(args, objs)
+  fair_models = trainFairModels(args, objs, fair_model_types)
+  print(f'\n' + '='*80 + '\n')
 
   assert \
     len(args.sensitive_attribute_nodes) == 1, \
     f'expecting 1 sensitive attribute, got {len(args.sensitive_attribute_nodes)}'
-  args.non_intervenable_nodes = args.sensitive_attribute_nodes
+  args.non_intervenable_nodes = args.sensitive_attribute_nodes # TODO (fair): needed?
   sensitive_attribute_node = args.sensitive_attribute_nodes[0]
 
-  # Loop over individuals (MODIFY getNegativelyPredictedInstances to also choose positive samples??)
-  for model_string, model in models.items():
-    objs.classifier_obj = model # replace the objs._classifier with the trained model
+  for fair_model_type, fair_model in fair_models.items():
+    print(f'[INFO] Evaluating fair recourse metrics for `{fair_model_type}`...')
+    objs.classifier_obj = fair_model # replace the objs._classifier with the trained fair model
 
     # IMPORTANT: compute factual_instances_dict (negatively predicted samples)
-    # again, using the trained model
-    factual_instances_dict = getNegativelyPredictedInstances(args, objs)
+    # again, using the trained fair model, because the pre-computed dict is done
+    # on another objs.classifier_obj.
+    factual_instances_dict = getNegativelyPredictedInstances(args, objs, fair_model_type)
+
+    # Create two factual_instances_dicts, one per sensitive attribute group
     factual_instances_dict_1 = {}
     factual_instances_dict_2 = {}
-    for key, value in factual_instances_dict.items():
-      if value[sensitive_attribute_node] == 0:
-        factual_instances_dict_1[key] = value
-      elif value[sensitive_attribute_node] == 1:
-        factual_instances_dict_2[key] = value
+    for factual_instance_idx, factual_instance in factual_instances_dict.items():
+      X_all = getOriginalDataFrame(objs, args.num_train_samples)
+
+      # Split factual_instances_dict based on sensitive attribute (use X_all to
+      # see sensitive attribute because most fair models are trained agnostically
+      # to this attribute.)
+      if X_all.loc[factual_instance_idx, sensitive_attribute_node] == 0:
+        factual_instances_dict_1[factual_instance_idx] = factual_instance
+      elif X_all.loc[factual_instance_idx, sensitive_attribute_node] == 1:
+        factual_instances_dict_2[factual_instance_idx] = factual_instance
       else:
         raise Exception(f'unrecognized sensitive attribute value {value[sensitive_attribute_node]}')
 
-    # choose a balanced random subset from the dictionaries correspond to the two groups
+    # Choose a balanced random subset from the factual_instances_dicts
     num_random = 10 * (min(
       len(factual_instances_dict_1.keys()),
       len(factual_instances_dict_2.keys())
@@ -2059,13 +2136,13 @@ def fairRecourse(args, objs, experiment_folder_name, factual_instances_dict, exp
 
     # Metric #1: compute cost of recourse
 
-    per_instance_results_group_1 = experiment6(args, objs, experiment_folder_name, factual_instances_dict_1, experimental_setups, recourse_types)
-    per_instance_results_group_2 = experiment6(args, objs, experiment_folder_name, factual_instances_dict_2, experimental_setups, recourse_types)
-    print(f'\n\nModel: `{model_string}`')
+    per_instance_results_group_1 = experiment6(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_1, recourse_types)
+    per_instance_results_group_2 = experiment6(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_2, recourse_types)
+    print(f'\n\nModel: `{fair_model_type}`')
     print(f'group 1: \n')
-    createAndSaveMetricsTable(per_instance_results_group_1, recourse_types, experiment_folder_name, '_group_1')
+    createAndSaveMetricsTable(per_instance_results_group_1, recourse_types, experiment_folder_name, f'_{fair_model_type}_group_1')
     print(f'group 2: \n')
-    createAndSaveMetricsTable(per_instance_results_group_2, recourse_types, experiment_folder_name, '_group_2')
+    createAndSaveMetricsTable(per_instance_results_group_2, recourse_types, experiment_folder_name, f'_{fair_model_type}_group_2')
 
     # Metric #2: compute dist to boundary TODO (fair)
 
@@ -2188,14 +2265,14 @@ if __name__ == "__main__":
   hotTrainRecourseTypes(args, objs, recourse_types)
 
   if args.experiment == 5:
-    experiment5(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+    experiment5(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
   elif args.experiment == 6:
-    experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
-    experiment6(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+    experiment8(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
+    experiment6(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
   elif args.experiment == 8:
-    experiment8(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+    experiment8(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
   elif args.experiment == 9: # fair recourse
-    fairRecourse(args, objs, experiment_folder_name, factual_instances_dict, experimental_setups, recourse_types)
+    fairRecourse(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
 
   # sanity check
   # visualizeDatasetAndFixedModel(args, objs)
