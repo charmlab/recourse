@@ -164,19 +164,22 @@ def getColumnIndicesFromNames(args, objs, column_names):
 
 def getIndexOfFactualInstanceInDataFrame(factual_instance, data_frame):
   # data_frame may include X and U, whereas factual_instance only includes X
-  found_flag = False
   assert set(factual_instance.keys()).issubset(set(data_frame.columns))
+
+  matching_indicies = []
   for enumeration_idx, (factual_instance_idx, row) in enumerate(data_frame.iterrows()):
     if np.all([
       factual_instance[key] == row[key]
       for key in factual_instance.keys()
     ]):
-      found_flag = True
-      break
-  # TODO (add another error if multiple instances are found)
-  if not found_flag:
-    raise Exception(f'Was not able to find instance in dataset.')
-  return enumeration_idx
+      matching_indicies.append(enumeration_idx)
+
+  if len(matching_indicies) == 0:
+    raise Exception(f'Was not able to find instance in data frame.')
+  elif len(matching_indicies) > 1:
+    raise Exception(f'Multiple matching instances are found in data frame: {matching_indicies}')
+  else:
+    return matching_indicies[0]
 
 
 def processTensorOrDictOfTensors(args, objs, obj, processing_type, column_names):
@@ -333,19 +336,44 @@ def deprocessDataFrameOrDict(args, objs, obj, processing_type):
 
 
 @utils.Memoize
-def getOriginalDataFrame(objs, num_samples, with_meta = False):
-  if with_meta:
-    X_train, X_test, U_train, U_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit(with_meta = True)
-    return pd.concat(
-      [
-        pd.concat([X_train, U_train], axis = 1),
-        pd.concat([X_test, U_test], axis = 1),
-      ],
-      axis = 0
-    )[:num_samples]
+def getOriginalDataFrame(objs, num_samples, with_meta = False, with_label = False, data_split = 'train_and_test'):
+
+  X_train, X_test, U_train, U_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit(with_meta = True)
+
+  # order of if/elif is important
+  if with_meta and with_label:
+    data_train = pd.concat([X_train, U_train, y_train], axis = 1)
+    data_test = pd.concat([X_test, U_test, y_test], axis = 1)
+  elif with_meta:
+    data_train = pd.concat([X_train, U_train], axis = 1)
+    data_test = pd.concat([X_test, U_test], axis = 1)
+  elif with_label:
+    data_train = pd.concat([X_train, y_train], axis = 1)
+    data_test = pd.concat([X_test, y_test], axis = 1)
   else:
-    X_train, X_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit()
-    return pd.concat([X_train, X_test], axis = 0)[:num_samples]
+    data_train = X_train
+    data_test = X_test
+
+  if data_split == 'train_and_test':
+    data_all = pd.concat([data_train, data_test], axis = 0)
+  elif data_split == 'train_only':
+    data_all = data_train
+  elif data_split == 'test_only':
+    data_all = data_test
+  else:
+     raise NotImplementedError
+
+  return data_all[:num_samples]
+
+
+def getDataFrameForFairModel(args, objs, fair_model_type, with_label = False, data_split = 'train_and_test'):
+
+  fair_endogenous_nodes, fair_exogenous_nodes = getTrainableNodesForFairModel(args, objs, fair_model_type)
+  data_frame = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True, with_label = with_label, data_split = data_split)
+  columns = np.concatenate((fair_endogenous_nodes, fair_exogenous_nodes))
+  if with_label:
+    columns = np.concatenate((columns, ['y']))
+  return data_frame[columns]
 
 
 def getMinimumObservableInstance(args, objs, factual_instance):
@@ -983,11 +1011,6 @@ def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recour
     recourse_type,
     args.num_mc_samples,
   )
-  # monte_carlo_predictions = getPredictionBatch(
-  #   args,
-  #   objs,
-  #   monte_carlo_samples_df.to_numpy(),
-  # ) # gives hard classification
   monte_carlo_predictions = objs.classifier_obj.predict_proba(monte_carlo_samples_df)[:,1] # class 1 probabilities.
 
   expectation = np.mean(monte_carlo_predictions)
@@ -1503,19 +1526,9 @@ def getNegativelyPredictedInstances(args, objs, fair_model_type = ''):
 
   if fair_model_type != '':
 
-    # # if fair_model_type is specified, then call .predict() on the trained model
-    # # using nodes obtained from getTrainableNodesForFairModel().
-    # XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True)
-    # trainable_endogenous_nodes, trainable_exogenous_nodes = \
-    #   getTrainableNodesForFairModel(args, objs, fair_model_type)
-    # trainable_data_frame = XU_all[np.concatenate((trainable_endogenous_nodes, []))]
-    # tmp = 1 - objs.classifier_obj.predict(trainable_data_frame)
-    # tmp = tmp.astype('bool')
-    # negatively_predicted_instances = trainable_data_frame[tmp]
-
     # if fair_model_type is specified, then call .predict() on the trained model
     # using nodes obtained from getTrainableNodesForFairModel().
-    data_frame = getDataFrameForFairModel(args, objs, fair_model_type, 'train_and_test')
+    data_frame = getDataFrameForFairModel(args, objs, fair_model_type, with_label = False, data_split = 'train_and_test')
     tmp = 1 - objs.classifier_obj.predict(data_frame)
     tmp = tmp.astype('bool')
     negatively_predicted_instances = data_frame[tmp]
@@ -1942,27 +1955,6 @@ def experiment8(args, objs, experiment_folder_name, experimental_setups, factual
       scatterFit(args, objs, experiment_folder_name, experimental_setups, node, parents, total_df)
 
 
-def getDataFrameForFairModel(args, objs, fair_model_type, data_split):
-
-  if data_split == 'train_and_test':
-
-    XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True)
-    trainable_endogenous_nodes, trainable_exogenous_nodes = \
-      getTrainableNodesForFairModel(args, objs, fair_model_type)
-    data_frame = XU_all[np.concatenate((trainable_endogenous_nodes, []))]
-
-  elif data_split == 'train_only':
-
-    raise NotImplementedError
-    # TODO: (refactor) update getOriginalDataFrame to allow for with_meta, with_labels, train, train_and_test, test
-
-  else:
-
-    raise NotImplementedError
-
-  return data_frame
-
-
 def getTrainableNodesForFairModel(args, objs, fair_model_type):
 
   sensitive_attribute_nodes = args.sensitive_attribute_nodes
@@ -2013,52 +2005,33 @@ def getTrainableNodesForFairModel(args, objs, fair_model_type):
 
 def trainFairModels(args, objs, fair_model_types):
 
-  X_train, X_test, U_train, U_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit(with_meta = True)
-
-  # TODO (fair: the params below are used in the RecourseSVM code; should we use those?
-  # lams = [0.2, 0.5, 1, 2, 10, 50, 100]
-  # param_grids = [[
-  #   {'lam': lams, 'kernel_fn': ['linear']}
-  # ],
-  # [
-  #   {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
-  # ]]
-  # param_grid = {
-  #   'alpha': np.logspace(-2, 1, 5),
-  #   'kernel': [
-  #     RBF(lengthscale)
-  #     for lengthscale in np.logspace(-2, 1, 5)
-  #   ]
-  # }
-  param_grid = [
-    {'C': np.logspace(0,2,3), 'kernel': ['linear']},
-    {'C': np.logspace(0,2,3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
-  ]
-
   fair_models = {}
 
-  print(f'Training fair models')
+  print(f'Training fair models...\n')
 
   for fair_model_type in fair_model_types:
 
     if fair_model_type != 'iw_fair_svm':
 
+      param_grid = [
+        {'C': np.logspace(0,2,3), 'kernel': ['linear']},
+        {'C': np.logspace(0,2,3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
+      ]
+
       print(f'\t[INFO] Training `{fair_model_type}`...')
-      model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
-      trainable_endogenous_nodes, trainable_exogenous_nodes = \
-        getTrainableNodesForFairModel(args, objs, fair_model_type)
-      if len(trainable_endogenous_nodes) == 0 and len(trainable_exogenous_nodes) == 0:
-        print(f'\t\tNo trainable set of nodes founds to train `{fair_model_type}`. Skipping.\n')
+      data_frame = getDataFrameForFairModel(args, objs, fair_model_type, with_label = True, data_split = 'train_and_test')
+
+      if len(data_frame.drop('y', axis=1).columns) == 0:
+        print(f'\t\tNo trainable set of nodes founds to train `{fair_model_type}`. Skipping.')
         print(f'\t[INFO] done.\n')
         continue
-      model.fit(
-        pd.concat([
-          X_train[trainable_endogenous_nodes],
-          U_train[trainable_exogenous_nodes]
-        ], axis = 1),
-        y_train
+
+      fair_model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
+      fair_model.fit(
+        data_frame.drop('y', axis=1),
+        data_frame['y']
       )
-      fair_models[fair_model_type] = model.best_estimator_
+      fair_models[fair_model_type] = fair_model.best_estimator_
       print(f'\t[INFO] done.\n')
 
     else:
