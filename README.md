@@ -6,7 +6,7 @@ This repository provides code and examples for generating sub-population based a
 
 First,
 ```console
-$ git clone https://github.com/pseudonym/recourse.git
+$ git clone https://github.com/amirhk/recourse.git
 $ pip install virtualenv
 $ cd recourse
 $ virtualenv -p python3 _venv

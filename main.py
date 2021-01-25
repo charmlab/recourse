@@ -25,6 +25,7 @@ import loadData
 import loadModel
 import gpHelper
 import skHelper
+from scatter import *
 
 from sklearn.svm import SVC
 from sklearn.model_selection import GridSearchCV
@@ -1427,101 +1428,6 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
   return min_cost_action_set
 
 
-def scatterDecisionBoundary(args, objs, ax):
-  assert len(objs.dataset_obj.getInputAttributeNames()) == 3
-  sklearn_model = objs.classifier_obj
-  fixed_model_w = sklearn_model.coef_
-  fixed_model_b = sklearn_model.intercept_
-
-  x_range = ax.get_xlim()[1] - ax.get_xlim()[0]
-  y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
-  X = np.linspace(ax.get_xlim()[0] - x_range / 10, ax.get_xlim()[1] + x_range / 10, 10)
-  Y = np.linspace(ax.get_ylim()[0] - y_range / 10, ax.get_ylim()[1] + y_range / 10, 10)
-  X, Y = np.meshgrid(X, Y)
-  Z = - (fixed_model_w[0][0] * X + fixed_model_w[0][1] * Y + fixed_model_b) / fixed_model_w[0][2]
-
-  surf = ax.plot_wireframe(X, Y, Z, alpha=0.3)
-
-
-def scatterDataset(args, objs, ax): # TODO (refactor): merge with those in loadModel.py
-  assert len(objs.dataset_obj.getInputAttributeNames()) == 3
-  X_train, X_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit()
-  X_train_numpy = X_train.to_numpy()
-  X_test_numpy = X_test.to_numpy()
-  y_train = y_train.to_numpy()
-  y_test = y_test.to_numpy()
-  number_of_samples_to_plot = args.num_display_samples
-  for idx in range(number_of_samples_to_plot):
-    color_train = 'black' if y_train[idx] == 1 else 'magenta'
-    color_test = 'black' if y_test[idx] == 1 else 'magenta'
-    ax.scatter(X_train_numpy[idx, 0], X_train_numpy[idx, 1], X_train_numpy[idx, 2], marker='s', color=color_train, alpha=0.2, s=10)
-    ax.scatter(X_test_numpy[idx, 0], X_test_numpy[idx, 1], X_test_numpy[idx, 2], marker='o', color=color_test, alpha=0.2, s=15)
-
-
-def scatterFactual(args, objs, factual_instance, ax):
-  assert len(objs.dataset_obj.getInputAttributeNames()) == 3
-  ax.scatter(
-    factual_instance['x1'],
-    factual_instance['x2'],
-    factual_instance['x3'],
-    marker='P',
-    color='black',
-    s=70
-  )
-
-
-def scatterRecourse(args, objs, factual_instance, action_set, recourse_type, marker_type, legend_label, ax):
-
-  assert len(objs.dataset_obj.getInputAttributeNames()) == 3
-
-  if recourse_type in ACCEPTABLE_POINT_RECOURSE:
-    # point recourse
-
-    point = computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type)
-    color_string = 'green' if didFlip(args, objs, factual_instance, point) else 'red'
-    ax.scatter(point['x1'], point['x2'], point['x3'], marker=marker_type, color=color_string, s=70, label=legend_label)
-
-  elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
-    # distr recourse
-
-    samples_df = getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, args.num_display_samples)
-    x1s = samples_df.iloc[:,0]
-    x2s = samples_df.iloc[:,1]
-    x3s = samples_df.iloc[:,2]
-    color_strings = ['green' if didFlip(args, objs, factual_instance, sample.to_dict()) else 'red' for _, sample in samples_df.iterrows()]
-    ax.scatter(x1s, x2s, x3s, marker=marker_type, color=color_strings, alpha=0.1, s=30, label=legend_label)
-
-    # mean_distr_samples = {
-    #   'x1': np.mean(samples_df['x1']),
-    #   'x2': np.mean(samples_df['x2']),
-    #   'x3': np.mean(samples_df['x3']),
-    # }
-    # color_string = 'green' if didFlip(args, objs, factual_instance, mean_distr_samples) else 'red'
-    # ax.scatter(mean_distr_samples['x1'], mean_distr_samples['x2'], mean_distr_samples['x3'], marker=marker_type, color=color_string, alpha=0.5, s=70, label=legend_label)
-
-  else:
-
-    raise Exception(f'{recourse_type} not recognized.')
-
-
-def visualizeDatasetAndFixedModel(args, objs):
-
-  fig = plt.figure()
-  ax = plt.subplot(1, 1, 1, projection='3d')
-
-  scatterDataset(args, objs, ax)
-  # scatterDecisionBoundary(args, objs, ax)
-
-  ax.set_xlabel('x1')
-  ax.set_ylabel('x2')
-  ax.set_zlabel('x3')
-  ax.set_title(f'datatset')
-  # ax.legend()
-  ax.grid(True)
-
-  plt.show()
-
-
 def getNegativelyPredictedInstances(args, objs, fair_model_type = ''):
 
   if fair_model_type != '':
@@ -1807,7 +1713,7 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
   #     scatterRecourse(args, objs, factual_instance, optimal_action_set, 'm0_true', marker, legend_label, ax)
   #     # scatterRecourse(args, objs, factual_instance, optimal_action_set, recourse_type, marker, legend_label, ax)
 
-  #   scatterDecisionBoundary(args, objs, ax)
+  #   scatterDecisionBoundary(objs.dataset_obj, objs.classifier_obj, ax)
   #   ax.set_xlabel('x1', fontsize=8)
   #   ax.set_ylabel('x2', fontsize=8)
   #   ax.set_zlabel('x3', fontsize=8)
@@ -1823,27 +1729,6 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
 
 
 # TODO (refactor): DEPRECATED def experiment7
-
-
-def scatterFit(args, objs, experiment_folder_name, experimental_setups, node, parents, total_df):
-
-  fig, axes = plt.subplots(1, len(parents))
-  if len(parents) == 1:
-    axes = [axes]
-  for idx, parent in enumerate(parents):
-    for recourse_type in np.setdiff1d(np.unique(total_df['recourse_type']), 'true data'):
-      tmp = total_df[total_df['recourse_type'] == recourse_type]
-      marker = [elem[1] for elem in experimental_setups if elem[0] == recourse_type][0]
-      axes[idx].scatter(tmp[parent], tmp[node], marker=marker, alpha=0.3, s=8, label=recourse_type)
-      axes[idx].set_xlabel(parent, fontsize='xx-small')
-      axes[idx].set_ylabel(node, fontsize='xx-small')
-      axes[idx].set_title(f'{node} on {parent}', fontsize='xx-small')
-      axes[idx].grid(True)
-      axes[idx].legend(fontsize='xx-small')
-      axes[idx].tick_params(axis='both', which='major', labelsize='xx-small')
-      axes[idx].tick_params(axis='both', which='minor', labelsize='xx-small')
-  plt.savefig(f'{experiment_folder_name}/_sanity_fit_{getConditionalString(node, parents)}.pdf')
-  plt.close()
 
 
 def experiment8(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
@@ -2058,7 +1943,7 @@ def trainFairModels(args, objs, fair_model_types):
 def fairRecourse(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
 
   fair_model_types = [
-    # 'vanilla_svm', # train model on all endogenous variables (baseline)
+    'vanilla_svm', # train model on all endogenous variables (baseline)
     'nonsens_svm', # train model on all endogenous variables, except sensitive attributes
     'unaware_svm', # train model on all endogenous variables that are non-descendants of all sensitive attributes
     'cw_fair_svm', # train model on all endogenous variables for unaware nodes + exogenous variables (true; non-abducted) for aware nodes
@@ -2206,7 +2091,7 @@ if __name__ == "__main__":
   # if only visualizing
   if args.experiment == 0:
     args.num_display_samples = 150
-    visualizeDatasetAndFixedModel(args, objs)
+    visualizeDatasetAndFixedModel(objs.dataset_obj, objs.classifier_obj, experiment_folder_name)
     quit()
 
   # setup
@@ -2247,12 +2132,6 @@ if __name__ == "__main__":
   elif args.experiment == 9: # fair recourse
     fairRecourse(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
 
-  # sanity check
-  # visualizeDatasetAndFixedModel(args, objs)
-
-
-
-# checkpoint
 
 
 
