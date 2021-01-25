@@ -1494,165 +1494,6 @@ def hotTrainRecourseTypes(args, objs, recourse_types):
   print(f'\n' + '='*80 + '\n')
 
 
-# DEPRECATED def experiment1
-
-
-# DEPRECATED def experiment2
-
-
-# DEPRECATED def experiment3
-
-
-# DEPRECATED def experiment4
-
-
-# TODO (refactor): s/experiment5/runSubplotSanity
-def experiment5(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
-  ''' sub-plot sanity '''
-
-  # action_sets = [
-  #   {'x1': objs.scm_obj.noises_distributions['u1'].sample()}
-  #   for _ in range(4)
-  # ]
-  range_x1 = objs.dataset_obj.data_frame_kurz.describe()['x1']
-  action_sets = [
-    {'x1': value_x1}
-    for value_x1 in np.linspace(range_x1['min'], range_x1['max'], 9)
-  ]
-
-  factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
-
-  fig, axes = plt.subplots(
-    int(np.sqrt(len(action_sets))),
-    int(np.sqrt(len(action_sets))),
-    # tight_layout=True,
-    # sharex='row',
-    # sharey='row',
-  )
-  fig.suptitle(f'FC: {prettyPrintDict(factual_instance)}', fontsize='x-small')
-  if len(action_sets) == 1:
-    axes = np.array(axes) # weird hack we need to use so to later use flatten()
-
-  print(f'\nFC: \t\t{prettyPrintDict(factual_instance)}')
-
-  for idx, action_set in enumerate(action_sets):
-
-    print(f'\n\n[INFO] ACTION SET: {str(prettyPrintDict(action_set))}' + ' =' * 60)
-
-    for experimental_setup in experimental_setups:
-      recourse_type, marker = experimental_setup[0], experimental_setup[1]
-
-      if recourse_type in ACCEPTABLE_POINT_RECOURSE:
-        sample = computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type)
-        print(f'{recourse_type}:\t{prettyPrintDict(sample)}')
-        axes.flatten()[idx].plot(sample['x2'], sample['x3'], marker, alpha=1.0, markersize = 7, label=recourse_type)
-      elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
-        samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, args.num_display_samples)
-        print(f'{recourse_type}:\n{samples.head()}')
-        axes.flatten()[idx].plot(samples['x2'], samples['x3'], marker, alpha=0.3, markersize = 4, label=recourse_type)
-      else:
-        raise Exception(f'{recourse_type} not supported.')
-
-    axes.flatten()[idx].set_xlabel('$x2$', fontsize='x-small')
-    axes.flatten()[idx].set_ylabel('$x3$', fontsize='x-small')
-    axes.flatten()[idx].tick_params(axis='both', which='major', labelsize=6)
-    axes.flatten()[idx].tick_params(axis='both', which='minor', labelsize=4)
-    axes.flatten()[idx].set_title(f'action_set: {str(prettyPrintDict(action_set))}', fontsize='x-small')
-
-  # for ax in axes.flatten():
-  #   ax.legend(fontsize='xx-small')
-
-  # handles, labels = axes.flatten()[-1].get_legend_handles_labels()
-  # # https://stackoverflow.com/a/43439132/2759976
-  # fig.legend(handles, labels, bbox_to_anchor=(1.04, 0.5), loc='center left', fontsize='x-small')
-
-  # https://riptutorial.com/matplotlib/example/10473/single-legend-shared-across-multiple-subplots
-  handles, labels = axes.flatten()[-1].get_legend_handles_labels()
-  fig.legend(
-    handles=handles,
-    labels=labels,        # The labels for each line
-    loc="center right",   # Position of legend
-    borderaxespad=0.1,    # Small spacing around legend box
-    # title="Legend Title", # Title for the legend
-    fontsize='xx-small',
-  )
-  fig.tight_layout()
-  plt.subplots_adjust(right=0.85)
-  # plt.show()
-  plt.savefig(f'{experiment_folder_name}/_comparison.pdf')
-  plt.close()
-
-
-def experiment6(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
-  ''' optimal action set: figure + table '''
-
-  dir_path = f'{experiment_folder_name}/_optimization_curves'
-  if not os.path.exists(dir_path):
-    os.mkdir(dir_path)
-
-  per_instance_results = {}
-  for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
-    factual_instance_idx = f'sample_{key}'
-    factual_instance = value
-
-    os.mkdir(f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_idx}')
-
-    print(f'\n\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
-
-    per_instance_results[factual_instance_idx] = {}
-    per_instance_results[factual_instance_idx]['factual_instance'] = factual_instance
-
-    for recourse_type in recourse_types:
-
-      tmp = {}
-      save_path = f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_idx}/{recourse_type}'
-      os.mkdir(save_path)
-
-      start_time = time.time()
-      tmp['optimal_action_set'] = computeOptimalActionSet(
-        args,
-        objs,
-        factual_instance,
-        save_path,
-        recourse_type,
-      )
-      end_time = time.time()
-
-      # If a solution is NOT found, return the minimum observable instance (the
-      # action will be to intervene on all variables with intervention values set
-      # to the corresponding dimension of the nearest observable instance)
-      tmp['default_to_MO'] = False
-      # if tmp['optimal_action_set'] == dict():
-      #   tmp['optimal_action_set'] = getMinimumObservableInstance(args, objs, factual_instance)
-      #   tmp['default_to_MO'] = True
-
-      tmp['runtime'] = np.around(end_time - start_time, 3)
-
-      # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
-
-      tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance, tmp['optimal_action_set'], 'm0_true')
-      tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
-      if recourse_type in ACCEPTABLE_DISTR_RECOURSE and recourse_type != 'm2_true':
-        tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], recourse_type), 3)
-      else:
-        tmp['ic_rec_type'] = np.NaN
-      tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'])
-      tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
-
-      # print(f'\t done.')
-
-      per_instance_results[factual_instance_idx][recourse_type] = tmp
-
-    print(f'[INFO] Saving (overwriting) results...')
-    pickle.dump(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results', 'wb'))
-    pprint(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results.txt', 'w'))
-    print(f'done.')
-
-    createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_folder_name)
-
-  return per_instance_results
-
-
 def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_folder_name, file_suffix=''):
   # Table
   metrics_summary = {}
@@ -1728,10 +1569,83 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
   plt.close()
 
 
-# TODO (refactor): DEPRECATED def experiment7
+def runSubPlotSanity(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
+  ''' sub-plot sanity '''
+
+  # action_sets = [
+  #   {'x1': objs.scm_obj.noises_distributions['u1'].sample()}
+  #   for _ in range(4)
+  # ]
+  range_x1 = objs.dataset_obj.data_frame_kurz.describe()['x1']
+  action_sets = [
+    {'x1': value_x1}
+    for value_x1 in np.linspace(range_x1['min'], range_x1['max'], 9)
+  ]
+
+  factual_instance = factual_instances_dict[list(factual_instances_dict.keys())[0]]
+
+  fig, axes = plt.subplots(
+    int(np.sqrt(len(action_sets))),
+    int(np.sqrt(len(action_sets))),
+    # tight_layout=True,
+    # sharex='row',
+    # sharey='row',
+  )
+  fig.suptitle(f'FC: {prettyPrintDict(factual_instance)}', fontsize='x-small')
+  if len(action_sets) == 1:
+    axes = np.array(axes) # weird hack we need to use so to later use flatten()
+
+  print(f'\nFC: \t\t{prettyPrintDict(factual_instance)}')
+
+  for idx, action_set in enumerate(action_sets):
+
+    print(f'\n\n[INFO] ACTION SET: {str(prettyPrintDict(action_set))}' + ' =' * 60)
+
+    for experimental_setup in experimental_setups:
+      recourse_type, marker = experimental_setup[0], experimental_setup[1]
+
+      if recourse_type in ACCEPTABLE_POINT_RECOURSE:
+        sample = computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type)
+        print(f'{recourse_type}:\t{prettyPrintDict(sample)}')
+        axes.flatten()[idx].plot(sample['x2'], sample['x3'], marker, alpha=1.0, markersize = 7, label=recourse_type)
+      elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
+        samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, args.num_display_samples)
+        print(f'{recourse_type}:\n{samples.head()}')
+        axes.flatten()[idx].plot(samples['x2'], samples['x3'], marker, alpha=0.3, markersize = 4, label=recourse_type)
+      else:
+        raise Exception(f'{recourse_type} not supported.')
+
+    axes.flatten()[idx].set_xlabel('$x2$', fontsize='x-small')
+    axes.flatten()[idx].set_ylabel('$x3$', fontsize='x-small')
+    axes.flatten()[idx].tick_params(axis='both', which='major', labelsize=6)
+    axes.flatten()[idx].tick_params(axis='both', which='minor', labelsize=4)
+    axes.flatten()[idx].set_title(f'action_set: {str(prettyPrintDict(action_set))}', fontsize='x-small')
+
+  # for ax in axes.flatten():
+  #   ax.legend(fontsize='xx-small')
+
+  # handles, labels = axes.flatten()[-1].get_legend_handles_labels()
+  # # https://stackoverflow.com/a/43439132/2759976
+  # fig.legend(handles, labels, bbox_to_anchor=(1.04, 0.5), loc='center left', fontsize='x-small')
+
+  # https://riptutorial.com/matplotlib/example/10473/single-legend-shared-across-multiple-subplots
+  handles, labels = axes.flatten()[-1].get_legend_handles_labels()
+  fig.legend(
+    handles=handles,
+    labels=labels,        # The labels for each line
+    loc="center right",   # Position of legend
+    borderaxespad=0.1,    # Small spacing around legend box
+    # title="Legend Title", # Title for the legend
+    fontsize='xx-small',
+  )
+  fig.tight_layout()
+  plt.subplots_adjust(right=0.85)
+  # plt.show()
+  plt.savefig(f'{experiment_folder_name}/_comparison.pdf')
+  plt.close()
 
 
-def experiment8(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
+def runBoxPlotSanity(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
   ''' box-plot sanity '''
 
   PER_DIM_GRANULARITY = 8
@@ -1840,6 +1754,76 @@ def experiment8(args, objs, experiment_folder_name, experimental_setups, factual
       scatterFit(args, objs, experiment_folder_name, experimental_setups, node, parents, total_df)
 
 
+def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
+  ''' optimal action set: figure + table '''
+
+  dir_path = f'{experiment_folder_name}/_optimization_curves'
+  if not os.path.exists(dir_path):
+    os.mkdir(dir_path)
+
+  per_instance_results = {}
+  for enumeration_idx, (key, value) in enumerate(factual_instances_dict.items()):
+    factual_instance_idx = f'sample_{key}'
+    factual_instance = value
+
+    os.mkdir(f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_idx}')
+
+    print(f'\n\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
+
+    per_instance_results[factual_instance_idx] = {}
+    per_instance_results[factual_instance_idx]['factual_instance'] = factual_instance
+
+    for recourse_type in recourse_types:
+
+      tmp = {}
+      save_path = f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_idx}/{recourse_type}'
+      os.mkdir(save_path)
+
+      start_time = time.time()
+      tmp['optimal_action_set'] = computeOptimalActionSet(
+        args,
+        objs,
+        factual_instance,
+        save_path,
+        recourse_type,
+      )
+      end_time = time.time()
+
+      # If a solution is NOT found, return the minimum observable instance (the
+      # action will be to intervene on all variables with intervention values set
+      # to the corresponding dimension of the nearest observable instance)
+      tmp['default_to_MO'] = False
+      # if tmp['optimal_action_set'] == dict():
+      #   tmp['optimal_action_set'] = getMinimumObservableInstance(args, objs, factual_instance)
+      #   tmp['default_to_MO'] = True
+
+      tmp['runtime'] = np.around(end_time - start_time, 3)
+
+      # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
+
+      tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance, tmp['optimal_action_set'], 'm0_true')
+      tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
+      if recourse_type in ACCEPTABLE_DISTR_RECOURSE and recourse_type != 'm2_true':
+        tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], recourse_type), 3)
+      else:
+        tmp['ic_rec_type'] = np.NaN
+      tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'])
+      tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
+
+      # print(f'\t done.')
+
+      per_instance_results[factual_instance_idx][recourse_type] = tmp
+
+    print(f'[INFO] Saving (overwriting) results...')
+    pickle.dump(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results', 'wb'))
+    pprint(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results.txt', 'w'))
+    print(f'done.')
+
+    createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_folder_name)
+
+  return per_instance_results
+
+
 def getTrainableNodesForFairModel(args, objs, fair_model_type):
 
   sensitive_attribute_nodes = args.sensitive_attribute_nodes
@@ -1940,7 +1924,7 @@ def trainFairModels(args, objs, fair_model_types):
   return fair_models
 
 
-def fairRecourse(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
+def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
 
   fair_model_types = [
     'vanilla_svm', # train model on all endogenous variables (baseline)
@@ -1994,8 +1978,8 @@ def fairRecourse(args, objs, experiment_folder_name, experimental_setups, factua
 
     # Metric #1: compute cost of recourse
 
-    per_instance_results_group_1 = experiment6(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_1, recourse_types)
-    per_instance_results_group_2 = experiment6(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_2, recourse_types)
+    per_instance_results_group_1 = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_1, recourse_types)
+    per_instance_results_group_2 = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_2, recourse_types)
     print(f'\n\nModel: `{fair_model_type}`')
     print(f'group 1: \n')
     createAndSaveMetricsTable(per_instance_results_group_1, recourse_types, experiment_folder_name, f'_{fair_model_type}_group_1')
@@ -2123,14 +2107,14 @@ if __name__ == "__main__":
   hotTrainRecourseTypes(args, objs, recourse_types)
 
   if args.experiment == 5:
-    experiment5(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
+    runSubPlotSanity(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
   elif args.experiment == 6:
-    experiment8(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
-    experiment6(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
+    runBoxPlotSanity(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
+    runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
   elif args.experiment == 8:
-    experiment8(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
+    runBoxPlotSanity(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
   elif args.experiment == 9: # fair recourse
-    fairRecourse(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
+    runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
 
 
 

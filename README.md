@@ -32,3 +32,7 @@ python main.py --scm_class german-credit --classifier_class forest --lambda_lcb 
 ```
 
 
+### Fair recourse:
+```python
+python main.py -e 9 -s fair-3-lin --batch_number 0 --sample_count 50 --sensitive_attribute_nodes x1 --optimization_approach brute_force --grid_search_bins 5
+```
