@@ -971,6 +971,9 @@ def isDistrConstraintSatisfied(args, objs, factual_instance, action_set, recours
 
 
 def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recourse_type):
+  if 'svm' in str(objs.classifier_obj.__class__):
+    # raise NotImplementedError
+    print('[WARNING] computing lower confidence bound with SVM model using predict_proba() may not work as intended.')
   monte_carlo_samples_df = getRecourseDistributionSample(
     args,
     objs,
@@ -984,8 +987,6 @@ def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recour
   #   objs,
   #   monte_carlo_samples_df.to_numpy(),
   # ) # gives hard classification
-  if 'svm' in str(objs.classifier_obj.__class__):
-    raise NotImplementedError
   monte_carlo_predictions = objs.classifier_obj.predict_proba(monte_carlo_samples_df)[:,1] # class 1 probabilities.
 
   expectation = np.mean(monte_carlo_predictions)
@@ -1690,12 +1691,11 @@ def experiment6(args, objs, experiment_folder_name, factual_instances_dict, expe
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
       tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance, tmp['optimal_action_set'], 'm0_true')
-      # TODO (fair): uncomment after fair recourse
-      # tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
-      # if recourse_type in ACCEPTABLE_DISTR_RECOURSE and recourse_type != 'm2_true':
-      #   tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], recourse_type), 3)
-      # else:
-      #   tmp['ic_rec_type'] = np.NaN
+      tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
+      if recourse_type in ACCEPTABLE_DISTR_RECOURSE and recourse_type != 'm2_true':
+        tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], recourse_type), 3)
+      else:
+        tmp['ic_rec_type'] = np.NaN
       tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'])
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
 
@@ -1717,9 +1717,7 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
   # Table
   metrics_summary = {}
   # metrics = ['scf_validity', 'ic_m1_gaus', 'ic_m1_cvae', 'ic_m2_true', 'ic_m2_gaus', 'ic_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
-  # metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime', 'default_to_MO']
-  # TODO (fair): uncomment after fair recourse
-  metrics = ['scf_validity', 'cost_all', 'cost_valid', 'runtime', 'default_to_MO']
+  metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime', 'default_to_MO']
 
   for metric in metrics:
     metrics_summary[metric] = []
