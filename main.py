@@ -53,6 +53,32 @@ PROCESSING_SKLEARN = 'raw'
 PROCESSING_GAUS = 'raw'
 PROCESSING_CVAE = 'raw'
 
+class Instance(object):
+
+  def __init__(self, factual_instance_dict):
+
+    # self.factual_instance_idx = ...
+    self.endogenous_nodes_dict = dict()
+    self.exogenous_nodes_dict = dict()
+    for key, value in factual_instance_dict.items():
+      if 'x' in key:
+        self.endogenous_nodes_dict[key] = value
+      elif 'u' in key:
+        self.exogenous_nodes_dict[key] = value
+      else:
+        raise Exception(f'Node type not recognized.')
+
+  def dict(self, node_types = 'endogenous'):
+    if node_types == 'endogenous':
+      return self.endogenous_nodes_dict
+    elif node_types == 'exogenous':
+      return self.exogenous_nodes_dict
+    elif node_types == 'endogenous_and_exogenous':
+      return {**self.endogenous_nodes_dict, **self.exogenous_nodes_dict}
+    else:
+      raise Exception(f'Node type not recognized.')
+
+
 @utils.Memoize
 def loadCausalModel(args, experiment_folder_name):
   return loadSCM.loadSCM(args.scm_class, experiment_folder_name)
@@ -988,20 +1014,32 @@ def isPredictionOfInstanceInClass(args, objs, instance, prediction_class):
     assert np.all(objs.dataset_obj.getInputAttributeNames() == list(instance.keys()))
 
     # get data_frame of everything; TODO (fair): both of the lines below should work
+    # find original instance
     # XUY_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True, with_label = True, data_split = 'train_and_test')
     XUY_all = objs.dataset_obj.data_frame_kurz
+    # instance_with_meta_and_label = instance
 
-    # find original instance
+
+    # Can't use below because for counterfactual (intervened-upon) instances, we
+    # can't find the instance in the data frame to then use it's noise variables
     # instance_with_meta_and_label = XUY_all.iloc[getIndexOfFactualInstanceInDataFrame(instance, XUY_all)]
-    instance_with_meta_and_label = instance
 
-    # select only those keys that are used as input to the fair model
+    # instead, keep track of the factual_instance_obj and it's exogenous variables.
+    factual_instance_dict = objs.factual_instance_obj.dict('endogenous_and_exogenous')
+
+    # then overwrite the above with endogenous values (possible intervened-upon
+    # or down-stream values) from the counterfactual instance
+
+    instance = {**factual_instance_dict, **instance}
+
+    # then select only those keys that are used as input to the fair model
     fair_endogenous_nodes, fair_exogenous_nodes = getTrainableNodesForFairModel(args, objs)
 
     fair_nodes = np.concatenate((fair_endogenous_nodes, fair_exogenous_nodes))
     instance = dict(zip(
       fair_nodes,
-      [instance_with_meta_and_label[key] for key in fair_nodes]
+      # [instance_with_meta_and_label[key] for key in fair_nodes]
+      [instance[key] for key in fair_nodes]
     ))
 
   else:
@@ -1479,8 +1517,8 @@ def getNegativelyPredictedInstances(args, objs):
     # return the complete factual indices including all endegenous nodes. this
     # is done because almost all of the code assumes that factual_instance
     # always includes all of the endogenous nodes.
-    X_all = getOriginalDataFrame(objs, args.num_train_samples)
-    negatively_predicted_instances = X_all.loc[negatively_predicted_instances.index]
+    XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True)
+    negatively_predicted_instances = XU_all.loc[negatively_predicted_instances.index]
 
   else:
 
@@ -1809,6 +1847,12 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
     factual_instance_idx = f'sample_{key}'
     factual_instance = value
 
+    ######### hack; better to pass around factual_instance_obj always ##########
+    factual_instance = factual_instance.copy()
+    objs.factual_instance_obj = Instance(factual_instance)
+    factual_instance = dict(filter(lambda elem: 'u' not in elem[0], factual_instance.items()))
+    ############################################################################
+
     os.mkdir(f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_idx}')
 
     print(f'\n\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
@@ -1934,8 +1978,10 @@ def trainFairModels(args, objs, fair_model_types):
       args.fair_model_type = fair_model_type
       data_frame = getDataFrameForFairModel(args, objs, with_label = True, data_split = 'train_only')
 
-      if len(data_frame.drop('y', axis=1).columns) == 0:
-        print(f'\t\tNo trainable set of nodes founds to train `{fair_model_type}`. Skipping.')
+      # must have at least 1 endogenous node in the training set, otherwise we
+      # cannot identify an action set (interventions do not affect exogenous nodes)
+      if len([elem for elem in data_frame.columns if 'x' in elem]) == 0:
+        print(f'\t\tNo intervenable set of nodes founds to train `{fair_model_type}`. Skipping.')
         print(f'\t[INFO] done.\n')
         continue
 
@@ -1971,10 +2017,10 @@ def trainFairModels(args, objs, fair_model_types):
 def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
 
   fair_model_types = [
-    # 'vanilla_svm', # train model on all endogenous variables (baseline)
-    'nonsens_svm', # train model on all endogenous variables, except sensitive attributes
-    'unaware_svm', # train model on all endogenous variables that are non-descendants of all sensitive attributes
-    'cw_fair_svm', # train model on all endogenous variables for unaware nodes + exogenous variables (true; non-abducted) for aware nodes
+    'vanilla_svm', # train model on all endogenous variables (baseline)
+    # 'nonsens_svm', # train model on all endogenous variables, except sensitive attributes
+    # 'unaware_svm', # train model on all endogenous variables that are non-descendants of all sensitive attributes
+    # 'cw_fair_svm', # train model on all endogenous variables for unaware nodes + exogenous variables (true; non-abducted) for aware nodes
     # 'iw_fair_svm',
   ]
 
