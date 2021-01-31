@@ -97,8 +97,8 @@ class RecourseSVM(BaseEstimator, ClassifierMixin):
     def kernel(self, *params):
         if (self.kernel_fn =='linear'):
             return linear_kernel(*params)
-        # elif (self.kernel_fn =='rbf'):
-        #     return partial(rbf_kernel, gamma=self.gamma)(*params)
+        elif (self.kernel_fn =='rbf'):
+            return partial(rbf_kernel, gamma=self.gamma)(*params)
         elif (self.kernel_fn =='poly'):
             return partial(polynomial_kernel, degree=self.degree)(*params)
 
@@ -234,7 +234,8 @@ class RecourseSVM(BaseEstimator, ClassifierMixin):
 
         return results
 
-    def main_predict(self, trained_model, X, y=None):
+    def predict_core(self, X):
+        trained_model = self.converged
         if not self.fitted:
             print('Call fit first!!')
             return
@@ -253,7 +254,42 @@ class RecourseSVM(BaseEstimator, ClassifierMixin):
         tpreds = np.matmul(trained_model['coeff2'], k1) + np.matmul(trained_model['coeff1'], k2) + trained_model['bias']
         tpreds = vlabel(tpreds)
 
-        test_acc = float(np.sum(tpreds * y > 0))/len(y)
+        neg_gtest = gtst[tpreds == -1]
+        cntest = {1:neg_gtest[neg_gtest==1].shape[0], -1:neg_gtest[neg_gtest==-1].shape[0]}
+
+        s1tst = np.array(gtst)
+        s2tst = np.array(([float(1 - tpreds[i]) / (2 * cntest[gtst[i]]) if cntest[gtst[i]] > 0 else 0 for (i, _) in enumerate(gtst)]))
+        stst = s1tst * s2tst
+
+        rec_diff_test = np.sum(stst * (np.matmul(trained_model['coeff2'], k3) + np.matmul(trained_model['coeff1'], k4) + trained_model['bias']))/trained_model['wnorm']
+        return tpreds, rec_diff_test
+
+    def predict(self, X):
+        tpreds, rec_diff_test = self.predict_core(X)
+        return tpreds
+
+    def decision_function(self, X):
+        tpreds, rec_diff_test = self.predict_core(X)
+        return rec_diff_test
+
+    def main_eval(self, trained_model, X, y=None):
+        if not self.fitted:
+            print('Call fit first!!')
+            return
+
+        xtst = X[:,1:]
+        gtst = X[:,0]
+
+        cx = np.matmul(self.train_samples, self.C)
+        cxtst = np.matmul(xtst, self.C)
+
+        k1 = self.kernel(self.train_samples, xtst)
+        k2 = self.kernel(cx, xtst)
+        k3 = self.kernel(self.train_samples, cxtst)
+        k4 = self.kernel(cx, cxtst)
+
+        tpreds = np.matmul(trained_model['coeff2'], k1) + np.matmul(trained_model['coeff1'], k2) + trained_model['bias']
+        tpreds = vlabel(tpreds)
 
         neg_gtest = gtst[tpreds == -1]
         cntest = {1:neg_gtest[neg_gtest==1].shape[0], -1:neg_gtest[neg_gtest==-1].shape[0]}
@@ -264,17 +300,19 @@ class RecourseSVM(BaseEstimator, ClassifierMixin):
 
         rec_diff_test = np.sum(stst * (np.matmul(trained_model['coeff2'], k3) + np.matmul(trained_model['coeff1'], k4) + trained_model['bias']))/trained_model['wnorm']
 
+        test_acc = float(np.sum(tpreds * y > 0))/len(y)
+
         return ([tpreds, test_acc, abs(rec_diff_test)])
 
-    def vanilla_predict(self, X, y=None):
-        return main_predict(self.vanilla, X, y)
+    def vanilla_eval(self, X, y=None):
+        return self.main_eval(self.vanilla, X, y)
 
-    def fairrec_predict(self, X, y=None):
-        return main_predict(self.converged, X, y)
+    def fairrec_eval(self, X, y=None):
+        return self.main_eval(self.converged, X, y)
 
     def score(self, X, y=None):
-        _, _, rec1 = self.vanilla_predict(X, y)
-        _, _, rec2 = self.fairrec_predict(X, y)
+        _, _, rec1 = self.vanilla_eval(X, y)
+        _, _, rec2 = self.fairrec_eval(X, y)
 
         if rec2 < rectol and rec1 < rectol:
             return 0
@@ -392,8 +430,8 @@ if __name__ == '__main__':
                 print(r)
             print('\n')
 
-            res0 = rsvm.vanilla_predict(data['test'], data['testy'])[1:]
-            res2 = rsvm.fairrec_predict(data['test'], data['testy'])[1:]
+            res0 = rsvm.vanilla_eval(data['test'], data['testy'])[1:]
+            res2 = rsvm.fairrec_eval(data['test'], data['testy'])[1:]
 
             print(res0)
             print(res2)

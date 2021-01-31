@@ -344,7 +344,7 @@ def loadSCM(scm_class, experiment_folder_name = None):
     }
     structural_equations_ts = structural_equations_np
     noises_distributions = {
-      'u1': Bernoulli(0.5),
+      'u1': Bernoulli(0.5, '-11'),
       'u2': Normal(0, 1),
       'u3': Normal(0, 1),
       'u4': Normal(0, 1),

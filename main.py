@@ -1021,17 +1021,6 @@ def isPredictionOfInstanceInClass(args, objs, instance, prediction_class):
     # instance here should have all endogenous nodes as keys
     assert np.all(objs.dataset_obj.getInputAttributeNames() == list(instance.keys()))
 
-    # get data_frame of everything; TODO (fair): both of the lines below should work
-    # find original instance
-    # XUY_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True, with_label = True, data_split = 'train_and_test')
-    XUY_all = objs.dataset_obj.data_frame_kurz
-    # instance_with_meta_and_label = instance
-
-
-    # Can't use below because for counterfactual (intervened-upon) instances, we
-    # can't find the instance in the data frame to then use it's noise variables
-    # instance_with_meta_and_label = XUY_all.iloc[getIndexOfFactualInstanceInDataFrame(instance, XUY_all)]
-
     # instead, keep track of the factual_instance_obj and it's exogenous variables.
     factual_instance_dict = objs.factual_instance_obj.dict('endogenous_and_exogenous')
 
@@ -1064,7 +1053,10 @@ def isPredictionOfInstanceInClass(args, objs, instance, prediction_class):
       return objs.classifier_obj.predict_proba(instance)[0][1] > 0.5
   elif prediction_class == 'negative':
     if 'svm' in str(objs.classifier_obj.__class__):
-      return objs.classifier_obj.predict(instance)[0] == 0
+      if args.fair_model_type == 'iw_fair_svm':
+        return objs.classifier_obj.predict(instance)[0] == -1
+      else:
+        return objs.classifier_obj.predict(instance)[0] == 0
     else:
       return objs.classifier_obj.predict_proba(instance)[0][1] <= .50 - args.epsilon_boundary
   else:
@@ -1531,8 +1523,13 @@ def getNegativelyPredictedInstances(args, objs):
 
     # if fair_model_type is specified, then call .predict() on the trained model
     # using nodes obtained from getTrainableNodesForFairModel().
-    data_frame = getDataFrameForFairModel(args, objs, with_label = False, data_split = 'train_and_test')
-    tmp = 1 - objs.classifier_obj.predict(data_frame)
+
+    # TODO (fair): using train_only, confirm that iw-fair-svm gives (nearly)
+    # identical distances to decision boundary; then replace the line below to
+    # sample from both train_and_test or test_only.
+    # data_frame = getDataFrameForFairModel(args, objs, with_label = False, data_split = 'train_and_test')
+    data_frame = getDataFrameForFairModel(args, objs, with_label = False, data_split = 'train_only')
+    tmp = 1 - objs.classifier_obj.predict(np.array(data_frame))
     tmp = tmp.astype('bool')
     negatively_predicted_instances = data_frame[tmp]
 
@@ -1574,7 +1571,7 @@ def getNegativelyPredictedInstances(args, objs):
   factual_instances_dict = negatively_predicted_instances[
     args.batch_number * args.sample_count : (args.batch_number + 1) * args.sample_count
   ].T.to_dict()
-  assert len(factual_instances_dict.keys()) == args.sample_count, 'Not enough samples.'
+  assert len(factual_instances_dict.keys()) == args.sample_count, f'Not enough samples ({len(factual_instances_dict.keys())} vs {args.sample_count}).'
   return factual_instances_dict
 
 
@@ -1992,16 +1989,16 @@ def trainFairModels(args, objs, fair_model_types):
 
   for fair_model_type in fair_model_types:
 
+    print(f'\t[INFO] Training `{fair_model_type}`...')
+    args.fair_model_type = fair_model_type
+    data_frame = getDataFrameForFairModel(args, objs, with_label = True, data_split = 'train_only')
+
     if fair_model_type != 'iw_fair_svm':
 
       param_grid = [
         {'C': np.logspace(0,2,3), 'kernel': ['linear']},
         {'C': np.logspace(0,2,3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
       ]
-
-      print(f'\t[INFO] Training `{fair_model_type}`...')
-      args.fair_model_type = fair_model_type
-      data_frame = getDataFrameForFairModel(args, objs, with_label = True, data_split = 'train_only')
 
       # must have at least 1 endogenous node in the training set, otherwise we
       # cannot identify an action set (interventions do not affect exogenous nodes)
@@ -2020,20 +2017,23 @@ def trainFairModels(args, objs, fair_model_types):
 
     else:
 
-      pass
+      # Sensitive attribute must be +1/-1 for SVMRecourse (third-part code) to work.
+      assert set(np.unique(np.array(data_frame[args.sensitive_attribute_nodes]))) == set(np.array((-1,1)))
 
-      # TODO (fair): fix
+      lams = [0.2, 0.5, 1, 2, 10, 50, 100]
+      param_grid = [
+        # {'lam': lams, 'kernel_fn': ['linear']}
+        # {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
+        {'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)},
+      ]
+      fair_model = GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
+      fair_model.fit(
+        np.array(data_frame.drop('y', axis=1)),
+        np.array(data_frame['y']) # * 2 - 1
+      )
+      fair_models[fair_model_type] = fair_model.best_estimator_
 
-      # # lams = [0.2, 0.5, 1, 2, 10, 50, 100]
-      # # param_grid = [
-      # #   {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
-      # # ]
-      # # # Train iw_fair_svm
-      # # print(f'[INFO] Training `iw_fair SVM`...')
-      # # model = GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
-      # # model.fit(X_train, y_train * 2 - 1)
-      # # fair_models['iw_fair_svm'] = model.best_estimator_
-      # # print(f'[INFO] done.\n')
+    print(f'[INFO] done.\n')
 
   print(f'[INFO] done.')
   return fair_models
@@ -2043,10 +2043,10 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
 
   fair_model_types = [
     'vanilla_svm', # train model on all endogenous variables (baseline)
-    # 'nonsens_svm', # train model on all endogenous variables, except sensitive attributes
-    # 'unaware_svm', # train model on all endogenous variables that are non-descendants of all sensitive attributes
-    # 'cw_fair_svm', # train model on all endogenous variables for unaware nodes + exogenous variables (true; non-abducted) for aware nodes
-    # 'iw_fair_svm',
+    'nonsens_svm', # train model on all endogenous variables, except sensitive attributes
+    'unaware_svm', # train model on all endogenous variables that are non-descendants of all sensitive attributes
+    'cw_fair_svm', # train model on all endogenous variables for unaware nodes + exogenous variables (true; non-abducted) for aware nodes
+    'iw_fair_svm', # train model according to the Equalizing Recourse Across Groups paper (Gupta et al., 2019)
   ]
 
   fair_models = trainFairModels(args, objs, fair_model_types)
@@ -2077,7 +2077,7 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
       # Split factual_instances_dict based on sensitive attribute (use X_all to
       # see sensitive attribute because most fair models are trained agnostically
       # to this attribute.)
-      if X_all.loc[factual_instance_idx, sensitive_attribute_node] == 0:
+      if X_all.loc[factual_instance_idx, sensitive_attribute_node] == -1:
         factual_instances_dict_1[factual_instance_idx] = factual_instance
       elif X_all.loc[factual_instance_idx, sensitive_attribute_node] == 1:
         factual_instances_dict_2[factual_instance_idx] = factual_instance
@@ -2092,7 +2092,7 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
     factual_instances_dict_1 = dict(random.sample(list(factual_instances_dict_1.items()), num_random))
     factual_instances_dict_2 = dict(random.sample(list(factual_instances_dict_2.items()), num_random))
 
-    # Metric #1: compute cost of recourse
+    # Compute metrics (incl'd cost of recourse and distance to decision boundary)
     per_instance_results_group_1 = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_1, recourse_types)
     per_instance_results_group_2 = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_2, recourse_types)
     print(f'\n\nModel: `{fair_model_type}`')
@@ -2100,9 +2100,6 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
     createAndSaveMetricsTable(per_instance_results_group_1, recourse_types, experiment_folder_name, f'_{fair_model_type}_group_1')
     print(f'group 2: \n')
     createAndSaveMetricsTable(per_instance_results_group_2, recourse_types, experiment_folder_name, f'_{fair_model_type}_group_2')
-
-    # Metric #2: compute dist to boundary TODO (fair)
-
 
   # Plot and save
   # TODO (fair)

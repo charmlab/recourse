@@ -83,15 +83,17 @@ class Uniform(BaseDistribution):
 
 class Bernoulli(BaseDistribution):
 
-  def __init__(self, prob):
+  def __init__(self, prob, btype='01'):
     assert isinstance(prob, int) or isinstance(prob, float), 'Expected `prob` to be an int or float.'
     assert prob >= 0 and prob <= 1
 
     self.prob = prob
     self.name = f'Bernoulli\t prob={self.prob}'
+    self.btype = btype # '01' is standard, '-11' also supported here
 
   def sample(self, size=1):
     tmp = bernoulli.rvs(self.prob, size=size)
+    if self.btype == '-11': tmp = tmp * 2 - 1
     return tmp[0] if size == 1 else list(tmp)
 
   def pdf(self, value):
