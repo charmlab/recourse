@@ -78,6 +78,13 @@ class Instance(object):
     else:
       raise Exception(f'Node type not recognized.')
 
+  def array(self, nested = False, node_types = 'endogenous'):
+    return np.array(
+      list(
+        self.dict(node_types).values()
+      )
+    ).reshape(1,-1)
+
 
 @utils.Memoize
 def loadCausalModel(args, experiment_folder_name):
@@ -1112,8 +1119,19 @@ def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recour
     # return expectation + args.lambda_lcb * np.sqrt(variance) # NOTE DIFFERNCE IN SIGN OF STD
 
 
-def computeLowerConfidenceBound(args, objs, factual_instance):
-
+def measureDistanceToDecisionBoundary(args, objs, factual_instance):
+  # TODO (factual_instance): DO NOT USE factual_instance, INSTEAD USE objs.factual_instance_obj
+  if 'svm' not in str(objs.classifier_obj.__class__):
+    # raise NotImplementedError
+    print('[WARNING] computing dist to decision boundary in closed-form with non-SVM model is not supported.')
+    return -1
+  # For non-linear kernels, there is no way to get the absolute distance. But
+  # you can still use the result of decision_funcion as relative distance.
+  # https://stackoverflow.com/a/32077408
+  # https://stats.stackexchange.com/a/404396
+  return objs.classifier_obj.decision_function(
+    objs.factual_instance_obj.array()
+  )
 
 
 def getValidDiscretizedActionSets(args, objs):
@@ -1584,7 +1602,7 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
   # Table
   metrics_summary = {}
   # metrics = ['scf_validity', 'ic_m1_gaus', 'ic_m1_cvae', 'ic_m2_true', 'ic_m2_gaus', 'ic_m2_cvae', 'cost_all', 'cost_valid', 'runtime']
-  metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'runtime', 'default_to_MO']
+  metrics = ['scf_validity', 'ic_m2_true', 'ic_rec_type', 'cost_all', 'cost_valid', 'dist_to_db', 'runtime', 'default_to_MO']
 
   for metric in metrics:
     metrics_summary[metric] = []
@@ -1854,7 +1872,7 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
 
     ######### hack; better to pass around factual_instance_obj always ##########
     factual_instance = factual_instance.copy()
-    objs.factual_instance_obj = Instance(factual_instance)
+    objs.factual_instance_obj = Instance(factual_instance) # TODO (factual_instance): use the factual_instance_obj everywhere? and do not add to obj so it doesn't hurt training memoization
     factual_instance = dict(filter(lambda elem: 'u' not in elem[0], factual_instance.items()))
     ############################################################################
 
@@ -1901,6 +1919,8 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
         tmp['ic_rec_type'] = np.NaN
       tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'])
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
+      tmp['dist_to_db'] = measureDistanceToDecisionBoundary(args, objs, factual_instance)
+
 
       # print(f'\t done.')
 
