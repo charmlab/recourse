@@ -1021,7 +1021,7 @@ def isPredictionOfInstanceInClass(args, objs, instance, prediction_class):
     # instance here should have all endogenous nodes as keys
     assert np.all(objs.dataset_obj.getInputAttributeNames() == list(instance.keys()))
 
-    # instead, keep track of the factual_instance_obj and it's exogenous variables.
+    # keep track of the factual_instance_obj and it's exogenous variables.
     factual_instance_dict = objs.factual_instance_obj.dict('endogenous_and_exogenous')
 
     # then overwrite the above with endogenous values (possible intervened-upon
@@ -1035,7 +1035,6 @@ def isPredictionOfInstanceInClass(args, objs, instance, prediction_class):
     fair_nodes = np.concatenate((fair_endogenous_nodes, fair_exogenous_nodes))
     instance = dict(zip(
       fair_nodes,
-      # [instance_with_meta_and_label[key] for key in fair_nodes]
       [instance[key] for key in fair_nodes]
     ))
 
@@ -1117,13 +1116,24 @@ def measureDistanceToDecisionBoundary(args, objs, factual_instance):
     # raise NotImplementedError
     print('[WARNING] computing dist to decision boundary in closed-form with non-SVM model is not supported.')
     return -1
+
+  # keep track of the factual_instance_obj and it's exogenous variables.
+  factual_instance_dict = objs.factual_instance_obj.dict('endogenous_and_exogenous')
+
+  # then select only those keys that are used as input to the fair model
+  fair_endogenous_nodes, fair_exogenous_nodes = getTrainableNodesForFairModel(args, objs)
+
+  fair_nodes = np.concatenate((fair_endogenous_nodes, fair_exogenous_nodes))
+  factual_instance = dict(zip(
+    fair_nodes,
+    [factual_instance[key] for key in fair_nodes]
+  ))
+  factual_instance = np.array(list(factual_instance.values())).reshape(1,-1)
   # For non-linear kernels, there is no way to get the absolute distance. But
   # you can still use the result of decision_funcion as relative distance.
   # https://stackoverflow.com/a/32077408
   # https://stats.stackexchange.com/a/404396
-  return objs.classifier_obj.decision_function(
-    objs.factual_instance_obj.array()
-  )
+  return objs.classifier_obj.decision_function(factual_instance)
 
 
 def getValidDiscretizedActionSets(args, objs):
@@ -1873,7 +1883,9 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
     factual_instance = dict(filter(lambda elem: 'u' not in elem[0], factual_instance.items()))
     ############################################################################
 
-    os.mkdir(f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_idx}')
+    folder_path = f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_idx}'
+    if not os.path.exists(folder_path):
+      os.mkdir(folder_path)
 
     print(f'\n\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
 
@@ -1884,7 +1896,8 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
 
       tmp = {}
       save_path = f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_idx}/{recourse_type}'
-      os.mkdir(save_path)
+      if not os.path.exists(save_path):
+        os.mkdir(save_path)
 
       start_time = time.time()
       tmp['optimal_action_set'] = computeOptimalActionSet(
@@ -2085,12 +2098,12 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
         raise Exception(f'unrecognized sensitive attribute value {value[sensitive_attribute_node]}')
 
     # Choose a balanced random subset from the factual_instances_dicts
-    num_random = 10 * (min(
+    assert min(
       len(factual_instances_dict_1.keys()),
       len(factual_instances_dict_2.keys())
-    ) // 10)
-    factual_instances_dict_1 = dict(random.sample(list(factual_instances_dict_1.items()), num_random))
-    factual_instances_dict_2 = dict(random.sample(list(factual_instances_dict_2.items()), num_random))
+    ) >= args.num_fair_samples
+    factual_instances_dict_1 = dict(random.sample(list(factual_instances_dict_1.items()), args.num_fair_samples))
+    factual_instances_dict_2 = dict(random.sample(list(factual_instances_dict_2.items()), args.num_fair_samples))
 
     # Compute metrics (incl'd cost of recourse and distance to decision boundary)
     per_instance_results_group_1 = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_1, recourse_types)
@@ -2120,6 +2133,7 @@ if __name__ == "__main__":
   parser.add_argument('--num_train_samples', type=int, default=250)
   parser.add_argument('--num_validation_samples', type=int, default=250)
   parser.add_argument('--num_display_samples', type=int, default=25)
+  parser.add_argument('--num_fair_samples', type=int, default=10)
   parser.add_argument('--num_mc_samples', type=int, default=100)
   parser.add_argument('--debug_flag', type=bool, default=False)
   parser.add_argument('--non_intervenable_nodes', nargs = '+', type=str, default='')
