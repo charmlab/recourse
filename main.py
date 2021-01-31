@@ -148,7 +148,8 @@ def getTorchClassifier(args, objs):
 
 
 def measureActionSetCost(args, objs, factual_instance, action_set, processing_type = 'raw'):
-  # TODO: add support for categorical data + measured in normalized space over all features
+  # TODO (cat): add support for categorical data
+  # TODO (cat): measured in normalized space over all features
 
   X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), processing_type)
   ranges = dict(zip(
@@ -295,7 +296,7 @@ def deprocessTensorOrDictOfTensors(args, objs, obj, processing_type, column_name
 
 
 def processDataFrameOrDict(args, objs, obj, processing_type):
-  # TODO: add support for categorical data
+  # TODO (cat): add support for categorical data
 
   if processing_type == 'raw':
     return obj
@@ -329,7 +330,7 @@ def processDataFrameOrDict(args, objs, obj, processing_type):
 
 
 def deprocessDataFrameOrDict(args, objs, obj, processing_type):
-  # TODO: add support for categorical data
+  # TODO (cat): add support for categorical data
 
   if processing_type == 'raw':
     return obj
@@ -405,7 +406,7 @@ def getDataFrameForFairModel(args, objs, with_label = False, data_split = 'train
 
 
 def getMinimumObservableInstance(args, objs, factual_instance):
-  # TODO: if we end up using this, it is important to keep in mind the processing
+  # TODO (lowpri): if we end up using this, it is important to keep in mind the processing
   # that is use when calling a specific recourse type because we would have to then
   # perhaps find the MO instance in the original data, but then initialize the action
   # set using the processed value...
@@ -545,7 +546,7 @@ def trainCVAE(args, objs, node, parents):
     sweep_lambda_kld = [5, 1, 0.5, 0.1, 0.05, 0.01, 0.005]
     sweep_encoder_layer_sizes = [
       [1, 2, 2],
-      [1, 3, 3], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO: add support for categorical variables
+      [1, 3, 3], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO (cat): add support for categorical variables
       [1, 5, 5],
       # [1, 3, 3, 3],
       # [1, 32, 32],
@@ -594,7 +595,7 @@ def trainCVAE(args, objs, node, parents):
       'debug_folder': experiment_folder_name + f'/cvae_hyperparams_setup_{idx}_of_{len(all_hyperparam_setups)}',
     }))
 
-    # # TODO: remove after models.py is corrected
+    # # TODO (lowpri): remove after models.py is corrected
     # return trained_cvae
 
     # run mmd to verify whether training is good or not (ON VALIDATION SET)
@@ -765,7 +766,7 @@ def sampleGP(args, objs, factual_instance, factual_df, samples_df, node, parents
     tmp_idx = getIndexOfFactualInstanceInDataFrame(
       factual_instance,
       processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
-    ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
+    ) # TODO (lowpri): can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
     new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'cf', tmp_idx)
   elif recourse_type == 'm2_gaus': # interventional distribution for node
     new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
@@ -918,7 +919,7 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
         X_parents = samples_ts[:, getColumnIndicesFromNames(args, objs, parents)]
 
         # Step 1. [abduction]
-        # TODO: we don't need structural_equation here... get the noise posterior some other way.
+        # TODO (lowpri): we don't need structural_equation here... get the noise posterior some other way.
         structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
         noise = _getAbductionNoise(args, objs, node, parents, factual_instance_ts, structural_equation)
 
@@ -935,7 +936,7 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
         new_samples = new_samples + noise
 
         # add back to dataframe
-        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
+        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO (lowpri): not sure if +0 is needed or not
 
       elif recourse_type in {'m1_gaus', 'm2_gaus'}:
 
@@ -947,15 +948,15 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
           #            (earlier, the factual instance was appended as the last instance)
           # DO NOT DO THIS: conversion from float64 to torch and back will make it impossible to find the instance idx
           # factual_instance = {k:v.item() for k,v in factual_instance_ts.items()}
-          tmp_idx = getIndexOfFactualInstanceInDataFrame( # TODO: write this as ts function as well?
+          tmp_idx = getIndexOfFactualInstanceInDataFrame( # TODO (lowpri): write this as ts function as well?
             factual_instance,
             processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
-          ) # TODO: can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
+          ) # TODO (lowpri): can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
           new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'cf', tmp_idx)
         elif recourse_type == 'm2_gaus': # interventional distribution for node
           new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
 
-        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
+        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO (lowpri): not sure if +0 is needed or not
 
       elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
 
@@ -973,7 +974,7 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
           pa_counter=samples_ts[:, getColumnIndicesFromNames(args, objs, parents)],
           sample_from=sample_from,
         )
-        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO: not sure if +0 is needed or not
+        samples_ts[:, getColumnIndicesFromNames(args, objs, [node])] = new_samples + 0 # TODO (lowpri): not sure if +0 is needed or not
 
   return samples_ts
 
@@ -1111,6 +1112,10 @@ def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recour
     # return expectation + args.lambda_lcb * np.sqrt(variance) # NOTE DIFFERNCE IN SIGN OF STD
 
 
+def computeLowerConfidenceBound(args, objs, factual_instance):
+
+
+
 def getValidDiscretizedActionSets(args, objs):
 
   possible_actions_per_node = []
@@ -1154,7 +1159,7 @@ def getValidDiscretizedActionSets(args, objs):
 
     else:
 
-      raise NotImplementedError # TODO: add support for categorical variables
+      raise NotImplementedError # TODO (cat): add support for categorical variables
 
   all_action_tuples = list(itertools.product(
     *possible_actions_per_node
@@ -1249,7 +1254,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   #            factual_instance_ts will also be normalized down-stream. Then
   #            at the end of this method, simply deprocess action_set_ts. One
   #            thing to note is the computation of distance may not be [0,1]
-  #            in the processed settings (TODO?)
+  #            in the processed settings (TODO (lowpri))
   if recourse_type in {'m0_true', 'm2_true'}:
     tmp_processing_type = 'raw'
   elif recourse_type in {'m1_alin', 'm1_akrr'}:
@@ -1293,7 +1298,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   action_set = initializeNonSaturatedActionSet(args, objs, factual_instance, intervention_set, recourse_type)
   action_set_ts = {k : torch.tensor(v, requires_grad = True, dtype=torch.float32) for k,v in action_set.items()}
 
-  # TODO: make input args
+  # TODO (lowpri): make input args
   min_valid_cost = 1e6  # some large number
   no_decrease_in_min_valid_cost = 0
   early_stopping_K = 10
@@ -1321,7 +1326,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 
   start_time = time.time()
   if args.debug_flag:
-    print(f'\t\t[INFO] initial action set: {str({k : np.around(v.item(), 4) for k,v in action_set_ts.items()})}') # TODO: use pretty print
+    print(f'\t\t[INFO] initial action set: {str({k : np.around(v.item(), 4) for k,v in action_set_ts.items()})}') # TODO (lowpri): use pretty print
 
   # https://stackoverflow.com/a/52017595/2759976
   iterator = tqdm(range(1, num_epochs + 1))
@@ -1601,7 +1606,7 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
     out_file.write(f'\nN = {len(per_instance_results.keys())}\n')
   tmp_df.to_pickle(f'{experiment_folder_name}/{file_name_string}')
 
-  # TODO: FIX
+  # TODO (lowpri): FIX
   # # Figure
   # if len(objs.dataset_obj.getInputAttributeNames()) != 3:
   #   print('Cannot plot in more than 3 dimensions')
@@ -1782,7 +1787,7 @@ def runBoxPlotSanity(args, objs, experiment_folder_name, experimental_setups, fa
     #   # box plot
     #   ax = sns.boxplot(x=parents[0], y=node, hue='recourse_type', data=total_df, palette='Set3', showmeans=True)
     #   # ax = sns.swarmplot(x=parents[0], y=node, hue='recourse_type', data=total_df, palette='Set3') # , showmeans=True)
-    #   # TODO: average over high dens pdf, and show a separate plot/table for the average over things...
+    #   # TODO (lowpri): average over high dens pdf, and show a separate plot/table for the average over things...
     #   # ax.set_xticklabels(
     #   #   [np.around(elem, 3) for elem in ax.get_xticks()],
     #   #   rotation=90,
@@ -2151,16 +2156,16 @@ if __name__ == "__main__":
     list(dataset_obj.getInputAttributeNames()) == \
     [elem for elem in dataset_obj.data_frame_kurz.columns if 'x' in elem] # endogenous variables must start with `x`
 
-  # TODO: add more assertions for columns of dataset matching the classifer?
+  # TODO (lowpri): add more assertions for columns of dataset matching the classifer?
   objs = AttrDict({
     'scm_obj': scm_obj,
     'dataset_obj': dataset_obj,
     'classifier_obj': classifier_obj,
   })
 
-  # TODO: describe scm_obj
+  # TODO (lowpri): describe scm_obj
   print(f'Describe original data:\n{getOriginalDataFrame(objs, args.num_train_samples).describe()}')
-  # TODO: describe classifier_obj
+  # TODO (lowpri): describe classifier_obj
 
   # if only visualizing
   if args.experiment == 0:
