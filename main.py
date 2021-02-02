@@ -1053,10 +1053,7 @@ def isPredictionOfInstanceInClass(args, objs, instance, prediction_class):
       return objs.classifier_obj.predict_proba(instance)[0][1] > 0.5
   elif prediction_class == 'negative':
     if 'svm' in str(objs.classifier_obj.__class__):
-      if args.fair_model_type == 'iw_fair_svm':
-        return objs.classifier_obj.predict(instance)[0] == -1
-      else:
-        return objs.classifier_obj.predict(instance)[0] == 0
+      return objs.classifier_obj.predict(instance)[0] == -1
     else:
       return objs.classifier_obj.predict_proba(instance)[0][1] <= .50 - args.epsilon_boundary
   else:
@@ -2042,6 +2039,8 @@ def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
         {'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)},
       ]
       fair_model = GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
+    y_train = y_train * 2 - 1
+    y_test = y_test * 2 - 1
 
     fair_model.fit(X_train, y_train)
     fair_model = fair_model.best_estimator_
