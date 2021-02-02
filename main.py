@@ -28,6 +28,7 @@ import skHelper
 from scatter import *
 
 from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Ridge
 from sklearn.kernel_ridge import KernelRidge
@@ -1994,7 +1995,7 @@ def getTrainableNodesForFairModel(args, objs):
   return trainable_endogenous_nodes, trainable_exogenous_nodes
 
 
-def trainFairModels(args, objs, fair_model_types):
+def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
 
   fair_models = {}
 
@@ -2004,7 +2005,14 @@ def trainFairModels(args, objs, fair_model_types):
 
     print(f'\t[INFO] Training `{fair_model_type}`...')
     args.fair_model_type = fair_model_type
-    data_frame = getDataFrameForFairModel(args, objs, with_label = True, data_split = 'train_only')
+    data_frame_train = getDataFrameForFairModel(args, objs, with_label = True, data_split = 'train_only')
+    # np.array() is needed for RecourseSVM class, but can be ommited for sklearn.SVC
+    X_train = np.array(data_frame_train.drop('y', axis=1))
+    y_train = np.array(data_frame_train['y'])
+    data_frame_test = getDataFrameForFairModel(args, objs, with_label = True, data_split = 'test_only')
+    # np.array() is needed for RecourseSVM class, but can be ommited for sklearn.SVC
+    X_test = np.array(data_frame_test.drop('y', axis=1))
+    y_test = np.array(data_frame_test['y'])
 
     if fair_model_type != 'iw_fair_svm':
 
@@ -2015,23 +2023,17 @@ def trainFairModels(args, objs, fair_model_types):
 
       # must have at least 1 endogenous node in the training set, otherwise we
       # cannot identify an action set (interventions do not affect exogenous nodes)
-      if len([elem for elem in data_frame.columns if 'x' in elem]) == 0:
+      if len([elem for elem in data_frame_train.columns if 'x' in elem]) == 0:
         print(f'\t\tNo intervenable set of nodes founds to train `{fair_model_type}`. Skipping.')
         print(f'\t[INFO] done.\n')
         continue
 
       fair_model = GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
-      fair_model.fit(
-        data_frame.drop('y', axis=1),
-        data_frame['y']
-      )
-      fair_models[fair_model_type] = fair_model.best_estimator_
-      print(f'\t[INFO] done.\n')
 
     else:
 
       # Sensitive attribute must be +1/-1 for SVMRecourse (third-part code) to work.
-      assert set(np.unique(np.array(data_frame[args.sensitive_attribute_nodes]))) == set(np.array((-1,1)))
+      assert set(np.unique(np.array(data_frame_train[args.sensitive_attribute_nodes]))) == set(np.array((-1,1)))
 
       lams = [0.2, 0.5, 1, 2, 10, 50, 100]
       param_grid = [
@@ -2040,13 +2042,23 @@ def trainFairModels(args, objs, fair_model_types):
         {'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)},
       ]
       fair_model = GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
-      fair_model.fit(
-        np.array(data_frame.drop('y', axis=1)),
-        np.array(data_frame['y']) # * 2 - 1
-      )
-      fair_models[fair_model_type] = fair_model.best_estimator_
 
-    print(f'[INFO] done.\n')
+    fair_model.fit(X_train, y_train)
+    fair_model = fair_model.best_estimator_
+    fair_models[fair_model_type] = fair_model
+    accuracy_score
+
+    log_file = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_training_{fair_model_type}.txt','w')
+
+    train_string = f'\tTraining accuracy: %{accuracy_score(y_train, fair_model.predict(X_train)) * 100:.2f}\n[INFO] done.\n'
+    test_string = f'\tTesting accuracy: %{accuracy_score(y_test, fair_model.predict(X_test)) * 100:.2f}\n[INFO] done.\n'
+
+    print(train_string, file=log_file)
+    print(test_string, file=log_file)
+    print(train_string)
+    print(test_string)
+
+    print(f'\t[INFO] done.\n')
 
   print(f'[INFO] done.')
   return fair_models
@@ -2062,7 +2074,7 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
     'iw_fair_svm', # train model according to the Equalizing Recourse Across Groups paper (Gupta et al., 2019)
   ]
 
-  fair_models = trainFairModels(args, objs, fair_model_types)
+  fair_models = trainFairModels(args, objs, experiment_folder_name, fair_model_types)
   print(f'\n' + '='*80 + '\n')
 
   assert \
