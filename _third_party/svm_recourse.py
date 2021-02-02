@@ -267,6 +267,18 @@ class RecourseSVM(BaseEstimator, ClassifierMixin):
         s2tst = np.array(([float(1 - tpreds[i]) / (2 * cntest[gtst[i]]) if cntest[gtst[i]] > 0 else 0 for (i, _) in enumerate(gtst)]))
         stst = s1tst * s2tst
 
+        # # Amir's additions
+        # stst_group_1 = stst.copy()
+        # stst_group_2 = stst.copy()
+
+        # stst_group_1[stst_group_1 < 0] = 0
+        # stst_group_2[stst_group_2 > 0] = 0
+
+        # rec_dist_group_1 = np.sum(stst_group_1 * (np.matmul(trained_model['coeff2'], k3) + np.matmul(trained_model['coeff1'], k4) + trained_model['bias']))/trained_model['wnorm']
+        # rec_dist_group_2 = np.sum(stst_group_2 * (np.matmul(trained_model['coeff2'], k3) + np.matmul(trained_model['coeff1'], k4) + trained_model['bias']))/trained_model['wnorm']
+
+        # rec_diff_test = rec_dist_group_1 + rec_dist_group_2 # one is neg, other is pos. take abs() for true distances.
+
         rec_diff_test = np.sum(stst * (np.matmul(trained_model['coeff2'], k3) + np.matmul(trained_model['coeff1'], k4) + trained_model['bias']))/trained_model['wnorm']
         return tpreds, rec_diff_test
 
@@ -276,7 +288,7 @@ class RecourseSVM(BaseEstimator, ClassifierMixin):
 
     def decision_function(self, X):
         tpreds, rec_diff_test = self.predict_core(X)
-        return rec_diff_test
+        return np.abs(rec_diff_test)
 
     def main_eval(self, trained_model, X, y=None):
         if not self.fitted:
