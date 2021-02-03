@@ -81,7 +81,7 @@ class Instance(object):
 
   def array(self, nested = False, node_types = 'endogenous'):
     return np.array(
-      list(
+      list( # TODO (BUG???) what happens to this order? are values always ordered correctly?
         self.dict(node_types).values()
       )
     ).reshape(1,-1)
@@ -405,8 +405,9 @@ def getOriginalDataFrame(objs, num_samples, with_meta = False, with_label = Fals
 def getDataFrameForFairModel(args, objs, with_label = False, data_split = 'train_and_test'):
 
   fair_endogenous_nodes, fair_exogenous_nodes = getTrainableNodesForFairModel(args, objs)
-  data_frame = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True, with_label = with_label, data_split = data_split)
   fair_nodes = np.concatenate((fair_endogenous_nodes, fair_exogenous_nodes))
+  data_frame = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True, with_label = with_label, data_split = data_split)
+
   if with_label:
     return data_frame[np.concatenate((fair_nodes, ['y']))]
   else:
@@ -1032,7 +1033,6 @@ def isPredictionOfInstanceInClass(args, objs, instance, prediction_class):
 
     # then select only those keys that are used as input to the fair model
     fair_endogenous_nodes, fair_exogenous_nodes = getTrainableNodesForFairModel(args, objs)
-
     fair_nodes = np.concatenate((fair_endogenous_nodes, fair_exogenous_nodes))
     instance = dict(zip(
       fair_nodes,
@@ -1120,7 +1120,6 @@ def measureDistanceToDecisionBoundary(args, objs, factual_instance):
 
   # then select only those keys that are used as input to the fair model
   fair_endogenous_nodes, fair_exogenous_nodes = getTrainableNodesForFairModel(args, objs)
-
   fair_nodes = np.concatenate((fair_endogenous_nodes, fair_exogenous_nodes))
   factual_instance = dict(zip(
     fair_nodes,
@@ -1970,26 +1969,32 @@ def getTrainableNodesForFairModel(args, objs):
 
 
   if args.fair_model_type == 'vanilla_svm':
-    trainable_endogenous_nodes = objs.dataset_obj.getInputAttributeNames('kurz')
-    trainable_exogenous_nodes = []
+    fair_endogenous_nodes = objs.dataset_obj.getInputAttributeNames('kurz')
+    fair_exogenous_nodes = []
 
   elif args.fair_model_type == 'nonsens_svm':
-    trainable_endogenous_nodes = non_sensitive_attribute_nodes
-    trainable_exogenous_nodes = []
+    fair_endogenous_nodes = non_sensitive_attribute_nodes
+    fair_exogenous_nodes = []
 
   elif args.fair_model_type == 'unaware_svm':
-    trainable_endogenous_nodes = unaware_nodes
-    trainable_exogenous_nodes = []
+    fair_endogenous_nodes = unaware_nodes
+    fair_exogenous_nodes = []
 
   elif args.fair_model_type == 'cw_fair_svm':
-    trainable_endogenous_nodes = unaware_nodes
-    trainable_exogenous_nodes = aware_nodes_noise
+    fair_endogenous_nodes = unaware_nodes
+    fair_exogenous_nodes = aware_nodes_noise
 
   elif args.fair_model_type == 'iw_fair_svm':
-    trainable_endogenous_nodes = objs.dataset_obj.getInputAttributeNames('kurz')
-    trainable_exogenous_nodes = []
+    fair_endogenous_nodes = objs.dataset_obj.getInputAttributeNames('kurz')
+    fair_exogenous_nodes = []
 
-  return trainable_endogenous_nodes, trainable_exogenous_nodes
+  # just to be safe (does happens sometimes) that columns are not ordered;
+  # if not sorted, this will be a problem for iw-fair-train which assumes
+  # that the first column is the sensitive attribute.
+  fair_endogenous_nodes = np.sort(fair_endogenous_nodes)
+  fair_exogenous_nodes = np.sort(fair_exogenous_nodes)
+
+  return fair_endogenous_nodes, fair_exogenous_nodes
 
 
 def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
@@ -2039,6 +2044,7 @@ def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
         {'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)},
       ]
       fair_model = GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
+
     y_train = y_train * 2 - 1
     y_test = y_test * 2 - 1
 
@@ -2049,8 +2055,8 @@ def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
 
     log_file = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_training_{fair_model_type}.txt','w')
 
-    train_string = f'\tTraining accuracy: %{accuracy_score(y_train, fair_model.predict(X_train)) * 100:.2f}\n[INFO] done.\n'
-    test_string = f'\tTesting accuracy: %{accuracy_score(y_test, fair_model.predict(X_test)) * 100:.2f}\n[INFO] done.\n'
+    train_string = f'\t\tTraining accuracy: %{accuracy_score(y_train, fair_model.predict(X_train)) * 100:.2f}'
+    test_string = f'\t\tTesting accuracy: %{accuracy_score(y_test, fair_model.predict(X_test)) * 100:.2f}'
 
     print(train_string, file=log_file)
     print(test_string, file=log_file)
