@@ -355,7 +355,7 @@ def loadSCM(scm_class, experiment_folder_name = None):
     structural_equations_np = {
       'x1': lambda n_samples,            :                 n_samples,  # A
       'x2': lambda n_samples, x1         :            x1 + n_samples,  # A-->X_1
-      'x3': lambda n_samples, x2           :               n_samples,  # X_2
+      'x3': lambda n_samples,            :                 n_samples,  # X_2
       'x4': lambda n_samples, x1, x2, x3 :  x1 - x2 + x3 + n_samples,  # {A, X_1, X_2} --> X_3
     }
     structural_equations_ts = structural_equations_np
@@ -389,7 +389,7 @@ def loadSCM(scm_class, experiment_folder_name = None):
     'endogenous variables must start with `x`.'
 
   scm = CausalModel(scm_class, structural_equations_np, structural_equations_ts, noises_distributions)
-  # if experiment_folder_name is not None:
-  #   scm.visualizeGraph(experiment_folder_name)
+  if experiment_folder_name is not None:
+    scm.visualizeGraph(experiment_folder_name)
   return scm
 
