@@ -338,9 +338,25 @@ def loadSCM(scm_class, experiment_folder_name = None):
 
     structural_equations_np = {
       'x1': lambda n_samples,        :                     n_samples,
-      'x2': lambda n_samples, x1     :        1 - 2 * x1 + n_samples,
-      'x3': lambda n_samples, x2     :            2 * x2 + n_samples,
-      'x4': lambda n_samples, x2, x3 : x2 - x3 + x2 * x3 + n_samples,
+      'x2': lambda n_samples, x1     :                x1 + n_samples,
+      'x3': lambda n_samples, x2     :                x2 + n_samples,
+      'x4': lambda n_samples, x2, x3 :          x2 - x3  + n_samples,
+    }
+    structural_equations_ts = structural_equations_np
+    noises_distributions = {
+      'u1': Bernoulli(0.5, '-11'),
+      'u2': Normal(0, 1),
+      'u3': Normal(0, 1),
+      'u4': Normal(0, 1),
+    }
+
+  elif scm_class == 'fair-3-root':
+
+    structural_equations_np = {
+      'x1': lambda n_samples,            :                 n_samples,  # A
+      'x2': lambda n_samples, x1         :            x1 + n_samples,  # A-->X_1
+      'x3': lambda n_samples, x2           :               n_samples,  # X_2
+      'x4': lambda n_samples, x1, x2, x3 :  x1 - x2 + x3 + n_samples,  # {A, X_1, X_2} --> X_3
     }
     structural_equations_ts = structural_equations_np
     noises_distributions = {
