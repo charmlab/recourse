@@ -389,7 +389,8 @@ def loadSCM(scm_class, experiment_folder_name = None):
     'endogenous variables must start with `x`.'
 
   scm = CausalModel(scm_class, structural_equations_np, structural_equations_ts, noises_distributions)
-  if experiment_folder_name is not None:
-    scm.visualizeGraph(experiment_folder_name)
+  # TODO uncomment and repro on other machines
+  # if experiment_folder_name is not None:
+  #   scm.visualizeGraph(experiment_folder_name)
   return scm
 
