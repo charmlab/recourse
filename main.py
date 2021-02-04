@@ -1123,7 +1123,7 @@ def measureDistanceToDecisionBoundary(args, objs, factual_instance):
   fair_nodes = np.concatenate((fair_endogenous_nodes, fair_exogenous_nodes))
   factual_instance = dict(zip(
     fair_nodes,
-    [factual_instance[key] for key in fair_nodes]
+    [factual_instance_dict[key] for key in fair_nodes]
   ))
   factual_instance = np.array(list(factual_instance.values())).reshape(1,-1)
   # For non-linear kernels, there is no way to get the absolute distance. But
