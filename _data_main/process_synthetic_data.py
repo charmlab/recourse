@@ -64,9 +64,18 @@ def load_synthetic_data(scm_class, variable_type = 'real'):
     X = np.round(4 * X)
 
   if scm_class == 'fair-3-lin':
-
+    # h = (1 + np.exp(X['x3'])) ** (-1)
+    # h = (1 + np.exp(- X['x2'] + X['x3'] - X['x4'])) ** (-1)
     h = (1 + np.exp(1 - X['x2'] + X['x3'] - X['x4'] + X['x2'] * X['x3'] - 0.1 * X['x2'] * X['x4'] + 0.01 * X['x3'] * X['x4']))**(-1)
     # y = 2 * (h > 0.5) - 1  # needs to be +1 or -1
+    y = h > 0.5
+    y = pd.DataFrame(data=y, columns={'label'})
+
+  elif scm_class == 'fair-3-root':
+    # h = (1 + np.exp(X['x3'])) ** (-1)  # LINEAR, only look at non-descendant 'x3' (X_2)
+    h = (1 + np.exp(- X['x2'] + X['x3'] - X['x4'])) ** (-1)  # LINEAR in all X
+    # h = (1 + np.exp(5 - (X['x2'] + X['x3'] + X['x4'])**2)) ** (-1)  # NONLINEAR (radial)
+    # h = (1 + np.exp(1 - X['x2'] + X['x3'] - X['x4'] + X['x2'] * X['x3'] - 0.1 * X['x2'] * X['x4'] + 0.01 * X['x3'] * X['x4']))**(-1)  # NONLINEAR (polynomial)
     y = h > 0.5
     y = pd.DataFrame(data=y, columns={'label'})
 

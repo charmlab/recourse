@@ -2039,7 +2039,7 @@ def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
 
       lams = [0.2, 0.5, 1, 2, 10, 50, 100]
       param_grid = [
-        # {'lam': lams, 'kernel_fn': ['linear']}
+        {'lam': lams, 'kernel_fn': ['linear']},
         # {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
         {'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)},
       ]
