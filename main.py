@@ -2053,6 +2053,9 @@ def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
     fair_models[fair_model_type] = fair_model
     accuracy_score
 
+    print('\t[INFO] Hyper-parameters of best classifier selected by CV for:', fair_model_type)
+    print(fair_model)
+
     log_file = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_training_{fair_model_type}.txt','w')
 
     train_string = f'\t\tTraining accuracy: %{accuracy_score(y_train, fair_model.predict(X_train)) * 100:.2f}'
