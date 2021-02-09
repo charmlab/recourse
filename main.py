@@ -1130,7 +1130,17 @@ def measureDistanceToDecisionBoundary(args, objs, factual_instance):
   # you can still use the result of decision_funcion as relative distance.
   # https://stackoverflow.com/a/32077408
   # https://stats.stackexchange.com/a/404396
-  return objs.classifier_obj.decision_function(factual_instance)
+  try:
+    # For linear kernels, the ABSOLUTE distance to the decision boundary is obtained by dividing by the norm of the
+    # weight vector stored in SVC.coef_; This will not work for RecourseSVM for which this normalisation by the norm
+    # of the weight vector is hardcoded into .decision_function
+    distance_to_decision_boundary = objs.classifier_obj.decision_function(factual_instance)/np.linalg.norm(objs.classifier_obj.coef_)
+  except:
+    # For nonlinear kernels and RecourseSVM, .coef_ is not accessible so we use the output of decision_function as a
+    # relative distance instead.
+    print('\t [WARNING] Using relative (i.e., unnormalised) distance to decision boundary: distances may not be comparable across models.')
+    distance_to_decision_boundary = objs.classifier_obj.decision_function(factual_instance)
+  return distance_to_decision_boundary
 
 
 def getValidDiscretizedActionSets(args, objs):
@@ -2053,12 +2063,17 @@ def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
     fair_models[fair_model_type] = fair_model
     accuracy_score
 
+    log_file_hyperparams = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_hyperparams_{fair_model_type}.txt','w')
     print('\t[INFO] Hyper-parameters of best classifier selected by CV for:', fair_model_type)
     print(fair_model)
+    print(fair_model, file=log_file_hyperparams)
     try:
       print('\t[INFO] Weight vector (linear kernel only) =', fair_model.coef_)
       print('\t[INFO] Norm of weight vector (linear kernel only) =', np.linalg.norm(fair_model.coef_))
+      log_file_norm_of_weight_vector = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_norm_of_weight_vector_{fair_model_type}.txt', 'w')
+      print(np.linalg.norm(fair_model.coef_), file=log_file_norm_of_weight_vector)
     except:
+      print('\t[INFO] Weight vector not available.')
       pass
 
     log_file = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_training_{fair_model_type}.txt','w')
