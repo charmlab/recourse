@@ -35,6 +35,8 @@ from sklearn.kernel_ridge import KernelRidge
 from sklearn.gaussian_process.kernels import WhiteKernel, RBF
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
+from sklearn.metrics.pairwise import linear_kernel, rbf_kernel, polynomial_kernel
+from functools import partial
 
 from _cvae.train import *
 from _third_party.svm_recourse import RecourseSVM, vanillasvm
@@ -1108,6 +1110,16 @@ def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recour
     # return expectation + args.lambda_lcb * np.sqrt(variance) # NOTE DIFFERNCE IN SIGN OF STD
 
 
+def evaluateKernelForFairSVM(classifier, *params):
+  # similar to the kernel() method of RecourseSVM (third_party code)
+  if (classifier.kernel == 'linear'):
+    return linear_kernel(*params)
+  elif (classifier.kernel == 'rbf'):
+    return partial(rbf_kernel, gamma=classifier.gamma)(*params)
+  elif (classifier.kernel == 'poly'):
+    return partial(polynomial_kernel, degree=classifier.degree)(*params)
+
+
 def measureDistanceToDecisionBoundary(args, objs, factual_instance):
   # TODO (factual_instance): DO NOT USE factual_instance, INSTEAD USE objs.factual_instance_obj
   if 'svm' not in str(objs.classifier_obj.__class__):
@@ -1126,19 +1138,22 @@ def measureDistanceToDecisionBoundary(args, objs, factual_instance):
     [factual_instance_dict[key] for key in fair_nodes]
   ))
   factual_instance = np.array(list(factual_instance.values())).reshape(1,-1)
-  # For non-linear kernels, there is no way to get the absolute distance. But
-  # you can still use the result of decision_funcion as relative distance.
-  # https://stackoverflow.com/a/32077408
-  # https://stats.stackexchange.com/a/404396
+  # For non-linear kernels, the weight vector of the SVM hyperplane is not available,
+  # in fact for the 'rbf' kernel it is infinite dimensional.
+  # However, its norm in the RKHS can be computed in closed form in terms of the kernel matrix evaluated
+  # at the support vectors and the dual coefficients. For more info, see, e.g.,
+  # https://stats.stackexchange.com/questions/14876/interpreting-distance-from-hyperplane-in-svm
   try:
-    # For linear kernels, the ABSOLUTE distance to the decision boundary is obtained by dividing by the norm of the
-    # weight vector stored in SVC.coef_; This will not work for RecourseSVM for which this normalisation by the norm
-    # of the weight vector is hardcoded into .decision_function
-    distance_to_decision_boundary = objs.classifier_obj.decision_function(factual_instance)/np.linalg.norm(objs.classifier_obj.coef_)
+    # This should work for all normal instances of SVC except for RecourseSVM (third_party code)
+    dual_coefficients = objs.classifier_obj.dual_coef_
+    support_vectors = objs.classifier_obj.support_vectors_
+    kernel_matrix_for_support_vectors = evaluateKernelForFairSVM(objs.classifier_obj, support_vectors)
+    squared_norm_of_weight_vector = np.einsum('ij, jk, lk', dual_coefficients, kernel_matrix_for_support_vectors, dual_coefficients)
+    norm_of_weight_vector = np.sqrt(squared_norm_of_weight_vector.flatten())
+    distance_to_decision_boundary = objs.classifier_obj.decision_function(factual_instance)/norm_of_weight_vector
   except:
-    # For nonlinear kernels and RecourseSVM, .coef_ is not accessible so we use the output of decision_function as a
-    # relative distance instead.
-    print('\t [WARNING] Using relative (i.e., unnormalised) distance to decision boundary: distances may not be comparable across models.')
+    # For RecourseSVM (third_party code) normalisation by the norm of the weight vector is hardcoded into
+    # .decision_function so that the output is already an absolute distance.
     distance_to_decision_boundary = objs.classifier_obj.decision_function(factual_instance)
   return distance_to_decision_boundary
 
@@ -2029,8 +2044,9 @@ def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
     if fair_model_type != 'iw_fair_svm':
 
       param_grid = [
-        {'C': np.logspace(0,2,3), 'kernel': ['linear']},
-        # {'C': np.logspace(0,2,3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
+        {'C': np.logspace(0, 2, 3), 'kernel': ['linear']},
+        {'C': np.logspace(0, 2, 3), 'kernel': ['poly'], 'degree':[2, 3, 5]},
+        {'C': np.logspace(0, 2, 3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
       ]
 
       # must have at least 1 endogenous node in the training set, otherwise we
@@ -2047,11 +2063,13 @@ def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
       # Sensitive attribute must be +1/-1 for SVMRecourse (third-part code) to work.
       assert set(np.unique(np.array(data_frame_train[args.sensitive_attribute_nodes]))) == set(np.array((-1,1)))
 
+      # Note: regularisation strength C is referred to as 'ups' in RecourseSVM and is fixed to 10 by default;
+      # (this correspondes to the Greek nu in the paper, see the primal form on p.3 of https://arxiv.org/pdf/1909.03166.pdf )
       lams = [0.2, 0.5, 1, 2, 10, 50, 100]
       param_grid = [
         {'lam': lams, 'kernel_fn': ['linear']},
-        # {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}
-        # {'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)},
+        {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]},
+        {'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)},
       ]
       fair_model = GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
 
@@ -2067,14 +2085,6 @@ def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
     print('\t[INFO] Hyper-parameters of best classifier selected by CV for:', fair_model_type)
     print(fair_model)
     print(fair_model, file=log_file_hyperparams)
-    try:
-      print('\t[INFO] Weight vector (linear kernel only) =', fair_model.coef_)
-      print('\t[INFO] Norm of weight vector (linear kernel only) =', np.linalg.norm(fair_model.coef_))
-      log_file_norm_of_weight_vector = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_norm_of_weight_vector_{fair_model_type}.txt', 'w')
-      print(np.linalg.norm(fair_model.coef_), file=log_file_norm_of_weight_vector)
-    except:
-      print('\t[INFO] Weight vector not available.')
-      pass
 
     log_file = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_training_{fair_model_type}.txt','w')
 
