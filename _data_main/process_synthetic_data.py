@@ -73,10 +73,15 @@ def load_synthetic_data(scm_class, variable_type = 'real'):
 
   elif scm_class == 'fair-3-root':
     # h = (1 + np.exp(X['x3'])) ** (-1)  # LINEAR, only look at non-descendant 'x3' (X_2)
-    h = (1 + np.exp(- X['x2'] + X['x3'] - X['x4'])) ** (-1)  # LINEAR in all X
+    h = (1 + np.exp(-2 * (X['x2'] - X['x3'] + X['x4']))) ** (-1)  # LINEAR in all X
     # h = (1 + np.exp(5 - (X['x2'] + X['x3'] + X['x4'])**2)) ** (-1)  # NONLINEAR (radial)
     # h = (1 + np.exp(1 - X['x2'] + X['x3'] - X['x4'] + X['x2'] * X['x3'] - 0.1 * X['x2'] * X['x4'] + 0.01 * X['x3'] * X['x4']))**(-1)  # NONLINEAR (polynomial)
-    y = h > 0.5
+
+    print('\t[INFO] Standard deviation of predictions is:', np.std(h), '(maximum 0.5)')
+
+    uniform_rv = np.random.uniform(0,1,X.shape[0])
+    # y = h > 0.5
+    y = uniform_rv < h
     y = pd.DataFrame(data=y, columns={'label'})
 
   else:

@@ -2045,8 +2045,8 @@ def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
 
       param_grid = [
         {'C': np.logspace(0, 2, 3), 'kernel': ['linear']},
-        {'C': np.logspace(0, 2, 3), 'kernel': ['poly'], 'degree':[2, 3, 5]},
-        {'C': np.logspace(0, 2, 3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
+        # {'C': np.logspace(0, 2, 3), 'kernel': ['poly'], 'degree':[2, 3, 5]},
+        # {'C': np.logspace(0, 2, 3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
       ]
 
       # must have at least 1 endogenous node in the training set, otherwise we
@@ -2068,8 +2068,8 @@ def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
       lams = [0.2, 0.5, 1, 2, 10, 50, 100]
       param_grid = [
         {'lam': lams, 'kernel_fn': ['linear']},
-        {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]},
-        {'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)},
+        # {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]},
+        # {'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)},
       ]
       fair_model = GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
 
