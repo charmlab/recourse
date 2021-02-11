@@ -11,18 +11,20 @@ U_A = np.random.uniform(0, 1, n_samples)
 A = 2 * (U_A > 0.5) - 1  # needs to be +1 or -1
 
 U_X_1 = np.random.normal(0, 1, n_samples)
-X_1 = A + U_X_1
+X_1 = 0.5 * A + U_X_1
 
 U_X_2 = np.random.normal(0, 1, n_samples)
 X_2 = 0 + U_X_2
 
 U_X_3 = np.random.normal(0, 1, n_samples)
-X_3 = X_1 - X_2 + U_X_3
+X_3 = 0.1 * (X_1**3 - X_2**3) + U_X_3
 
-# h = (1 + np.exp(-X_1 + X_2 - X_3)) ** (-1)
+# h = (1 + np.exp(-2*(X_1 + X_2 - X_3))) ** (-1)
 h = (1 + np.exp(5-(X_1 + X_2 + X_3)**2)) ** (-1)
 # h = (1 + np.exp(1 - X_1 + X_2 - X_3 + X_1 * X_2 - 0.1 * X_1 * X_3 + 0.01 * X_2 * X_3)) ** (-1)
-Y = 2 * (h > 0.5) - 1  # needs to be +1 or -1
+noise = np.random.uniform(0, 1, n_samples)
+Y = 2 * (noise < h) - 1  # needs to be +1 or -1
+# Y = 2 * (h > 0.5) - 1  # needs to be +1 or -1
 
 print("The following 4 numbers should be roughly equal for a balanced dataset")
 print("Class +1:", sum((Y == 1)))
