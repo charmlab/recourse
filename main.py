@@ -157,7 +157,7 @@ def getTorchClassifier(args, objs):
   return fixed_model
 
 
-def measureActionSetCost(args, objs, factual_instance, action_set, processing_type = 'raw'):
+def measureActionSetCost(args, objs, factual_instance, action_set, processing_type = 'raw', range_normalized = True):
   # TODO (cat): add support for categorical data
   # TODO (cat): measured in normalized space over all features
 
@@ -166,6 +166,8 @@ def measureActionSetCost(args, objs, factual_instance, action_set, processing_ty
     X_all.columns,
     [np.max(X_all[col]) - np.min(X_all[col]) for col in X_all.columns],
   ))
+  if not range_normalized:
+    ranges = {key: 1 for key in ranges.keys()}
   if \
     np.all([isinstance(elem, float) for elem in factual_instance.values()]) and \
     np.all([isinstance(elem, float) for elem in action_set.values()]):
@@ -1945,11 +1947,17 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
 
       tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance, tmp['optimal_action_set'], 'm0_true')
       tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
+
       if recourse_type in ACCEPTABLE_DISTR_RECOURSE and recourse_type != 'm2_true':
         tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], recourse_type), 3)
       else:
         tmp['ic_rec_type'] = np.NaN
-      tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'])
+
+      if hasattr(args, 'fair_model_type'):
+        tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'], range_normalized=False)
+      else:
+        tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'])
+
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
       tmp['dist_to_db'] = measureDistanceToDecisionBoundary(args, objs, factual_instance)
 
@@ -2022,7 +2030,8 @@ def getTrainableNodesForFairModel(args, objs):
   return fair_endogenous_nodes, fair_exogenous_nodes
 
 
-def trainFairModels(args, objs, experiment_folder_name, fair_model_types):
+# TODO (fair): move to loadModel.py
+def trainFairClassifiers(args, objs, experiment_folder_name, fair_model_types):
 
   fair_models = {}
 
@@ -2112,7 +2121,7 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
     'iw_fair_svm', # train model according to the Equalizing Recourse Across Groups paper (Gupta et al., 2019)
   ]
 
-  fair_models = trainFairModels(args, objs, experiment_folder_name, fair_model_types)
+  fair_models = trainFairClassifiers(args, objs, experiment_folder_name, fair_model_types)
   print(f'\n' + '='*80 + '\n')
 
   assert \
@@ -2255,7 +2264,9 @@ if __name__ == "__main__":
     quit()
 
   # setup
-  factual_instances_dict = getNegativelyPredictedInstances(args, objs)
+  # TODO (fair): move trainFairClassifiers to loadModel.py to prevent errors in next line
+  # factual_instances_dict = getNegativelyPredictedInstances(args, objs)
+  factual_instances_dict = {}
   experimental_setups = [
     ('m0_true', '*'), \
     ('m1_alin', 'v'), \
