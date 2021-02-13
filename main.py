@@ -376,7 +376,8 @@ def deprocessDataFrameOrDict(args, objs, obj, processing_type):
 @utils.Memoize
 def getOriginalDataFrame(objs, num_samples, with_meta = False, with_label = False, data_split = 'train_and_test'):
 
-  X_train, X_test, U_train, U_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit(with_meta = True)
+  # TODO (fair): only choose non-balanced dataset for fair experiments, otherwise we cannot repro CATE paper results
+  X_train, X_test, U_train, U_test, y_train, y_test = objs.dataset_obj.getTrainTestSplit(with_meta = True, balanced = False)
 
   # order of if/elif is important
   if with_meta and with_label:
@@ -1552,7 +1553,6 @@ def getNegativelyPredictedInstances(args, objs):
 
   if hasattr(args, 'fair_model_type'):
 
-
     # if fair_model_type is specified, then call .predict() on the trained model
     # using nodes obtained from getTrainableNodesForFairModel().
 
@@ -2151,7 +2151,7 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
     assert min(
       len(factual_instances_dict_1.keys()),
       len(factual_instances_dict_2.keys())
-    ) >= args.num_fair_samples
+    ) >= args.num_fair_samples, 'Not enough negatively predicted samples from each group.'
     factual_instances_dict_1 = dict(random.sample(list(factual_instances_dict_1.items()), args.num_fair_samples))
     factual_instances_dict_2 = dict(random.sample(list(factual_instances_dict_2.items()), args.num_fair_samples))
 

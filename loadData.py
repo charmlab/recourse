@@ -402,8 +402,6 @@ class Dataset(object):
   def getBalancedDataFrame(self):
     balanced_data_frame = copy.deepcopy(self.data_frame_kurz)
 
-    meta_cols = self.getMetaAttributeNames()
-    input_cols = self.getInputAttributeNames()
     output_col = self.getOutputAttributeNames()[0]
 
     # assert only two classes in label (maybe relax later??)
@@ -425,12 +423,12 @@ class Dataset(object):
     #     balanced_data_frame[balanced_data_frame.loc[:,output_col] == 1],
     # ]).sample(frac = 1, random_state = RANDOM_SEED)
 
-    return balanced_data_frame, meta_cols, input_cols, output_col
+    return balanced_data_frame
 
   # (2020.04.15) perhaps we need a memoize here... but I tried calling this function
   # multiple times in a row from another file and it always returned the same slice
   # of data... weird.
-  def getTrainTestSplit(self, preprocessing = None, with_meta = False):
+  def getTrainTestSplit(self, preprocessing = None, with_meta = False, balanced = True):
 
     # When working only with normalized data in [0, 1], data ranges must change to [0, 1] as well
     # otherwise, in computing normalized distance we will normalize with intial ranges again!
@@ -471,11 +469,18 @@ class Dataset(object):
       X_test = (X_test - x_mean) / x_std
       return X_train, X_test
 
-    balanced_data_frame, meta_cols, input_cols, output_col = self.getBalancedDataFrame()
+    meta_cols = self.getMetaAttributeNames()
+    input_cols = self.getInputAttributeNames()
+    output_col = self.getOutputAttributeNames()[0]
+
+    if balanced:
+      data_frame = self.getBalancedDataFrame()
+    else:
+      data_frame = copy.deepcopy(self.data_frame_kurz)
 
     if with_meta:
-      all_data = balanced_data_frame.loc[:,np.array((input_cols, meta_cols)).flatten()]
-      all_true_labels = balanced_data_frame.loc[:,output_col]
+      all_data = data_frame.loc[:,np.array((input_cols, meta_cols)).flatten()]
+      all_true_labels = data_frame.loc[:,output_col]
       if preprocessing is not None:
         assert with_meta == False, 'This feature is not built yet...'
 
@@ -495,8 +500,8 @@ class Dataset(object):
 
       return X_train, X_test, U_train, U_test, y_train, y_test
     else:
-      all_data = balanced_data_frame.loc[:,input_cols]
-      all_true_labels = balanced_data_frame.loc[:,output_col]
+      all_data = data_frame.loc[:,input_cols]
+      all_true_labels = data_frame.loc[:,output_col]
 
       X_train, X_test, y_train, y_test = train_test_split(
         all_data,
