@@ -2173,6 +2173,33 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
     print(f'group 2: \n')
     createAndSaveMetricsTable(per_instance_results_group_2, recourse_types, experiment_folder_name, f'_{fair_model_type}_group_2')
 
+
+    metrics_summary = {}
+    metrics = ['dist_to_db', 'cost_valid']
+    for metric in metrics:
+      metrics_summary[f'delta_{metric}'] = []
+    # metrics_summary = dict.fromkeys(metrics, []) # BROKEN: all lists will be shared; causing massive headache!!!
+
+    for recourse_type in recourse_types:
+      for metric in metrics:
+        metrics_summary[f'delta_{metric}'].append(
+          np.around(
+            np.abs(
+              np.nanmean([v[recourse_type][metric] for k,v in per_instance_results_group_1.items()]) -
+              np.nanmean([v[recourse_type][metric] for k,v in per_instance_results_group_2.items()])
+            ),
+          3)
+        )
+
+    tmp_df = pd.DataFrame(metrics_summary, recourse_types)
+    print(tmp_df)
+    # print(f'\nN = {len(per_instance_results.keys())}')
+    file_name_string = f'_comparison_{fair_model_type}'
+    tmp_df.to_csv(f'{experiment_folder_name}/{file_name_string}.txt', sep='\t')
+    # with open(f'{experiment_folder_name}/{file_name_string}.txt', 'a') as out_file:
+    #   out_file.write(f'\nN = {len(per_instance_results.keys())}\n')
+    tmp_df.to_pickle(f'{experiment_folder_name}/{file_name_string}')
+
   # Plot and save
   # TODO (fair)
 
