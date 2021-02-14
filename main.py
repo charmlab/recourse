@@ -2114,11 +2114,11 @@ def trainFairClassifiers(args, objs, experiment_folder_name, fair_model_types):
 def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
 
   fair_model_types = [
-    'vanilla_svm', # train model on all endogenous variables (baseline)
-    'nonsens_svm', # train model on all endogenous variables, except sensitive attributes
-    'unaware_svm', # train model on all endogenous variables that are non-descendants of all sensitive attributes
+    # 'vanilla_svm', # train model on all endogenous variables (baseline)
+    # 'nonsens_svm', # train model on all endogenous variables, except sensitive attributes
+    # 'unaware_svm', # train model on all endogenous variables that are non-descendants of all sensitive attributes
     'cw_fair_svm', # train model on all endogenous variables for unaware nodes + exogenous variables (true; non-abducted) for aware nodes
-    'iw_fair_svm', # train model according to the Equalizing Recourse Across Groups paper (Gupta et al., 2019)
+    # 'iw_fair_svm', # train model according to the Equalizing Recourse Across Groups paper (Gupta et al., 2019)
   ]
 
   fair_models = trainFairClassifiers(args, objs, experiment_folder_name, fair_model_types)
@@ -2296,8 +2296,8 @@ if __name__ == "__main__":
   factual_instances_dict = {}
   experimental_setups = [
     ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
     # ('m1_gaus', 'D'), \
     # ('m1_cvae', 'x'), \
     # ('m2_true', 'o'), \
