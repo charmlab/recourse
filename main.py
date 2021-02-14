@@ -1165,12 +1165,15 @@ def getValidDiscretizedActionSets(args, objs):
       elif attr_obj.attr_type in {'numeric-int', 'binary'}:
         number_decimals = 0
 
+      # bad code pseudonym; don't access internal object attribute
+      tmp_min = objs.dataset_obj.data_frame_kurz.describe()[attr_name_kurz]['min']
+      tmp_max = objs.dataset_obj.data_frame_kurz.describe()[attr_name_kurz]['max']
+      tmp_mean = objs.dataset_obj.data_frame_kurz.describe()[attr_name_kurz]['mean']
       tmp = list(
         np.around(
           np.linspace(
-            objs.dataset_obj.data_frame_kurz.describe()[attr_name_kurz]['min'],
-            # bad code pseudonym; don't access internal object attribute
-            objs.dataset_obj.data_frame_kurz.describe()[attr_name_kurz]['max'],
+            tmp_mean - 2 * (tmp_mean - tmp_min),
+            tmp_mean + 2 * (tmp_max - tmp_mean),
             args.grid_search_bins
           ),
           number_decimals,
