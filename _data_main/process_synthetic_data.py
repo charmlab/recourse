@@ -14,7 +14,7 @@ from debug import ipsh
 
 mu_x, sigma_x = 0, 1 # mean and standard deviation for data
 mu_w, sigma_w = 0, 0.5 # mean and standard deviation for weights
-n = 2500
+n = 10000
 
 # from main import getNoiseStringForNode $ TODO: should be from ../main??
 def getNoiseStringForNode(node):

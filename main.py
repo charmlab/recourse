@@ -39,7 +39,6 @@ from sklearn.metrics.pairwise import linear_kernel, rbf_kernel, polynomial_kerne
 from functools import partial
 
 from _cvae.train import *
-from _third_party.svm_recourse import RecourseSVM, vanillasvm
 
 from debug import ipsh
 
@@ -115,6 +114,7 @@ def loadClassifier(args, objs, experiment_folder_name):
     args.classifier_class,
     args.dataset_class,
     args.scm_class,
+    args.num_train_samples,
     fair_nodes,
     args.fair_kernel_type,
     experiment_folder_name

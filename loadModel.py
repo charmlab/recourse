@@ -22,6 +22,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+# from _third_party.svm_recourse import RecourseSVM
 
 from debug import ipsh
 
@@ -86,7 +87,7 @@ def trainFairClassifier(model_class, fair_kernel_type):
 
 
 @utils.Memoize
-def loadModelForDataset(model_class, dataset_string, scm_class = None, fair_nodes = None, fair_kernel_type = None, experiment_folder_name = None):
+def loadModelForDataset(model_class, dataset_string, scm_class = None, num_train_samples = 1e5, fair_nodes = None, fair_kernel_type = None, experiment_folder_name = None):
 
   log_file = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_training.txt','w')
 
@@ -137,21 +138,24 @@ def loadModelForDataset(model_class, dataset_string, scm_class = None, fair_node
     #     print(fair_model)
     #     print(fair_model, file=log_file_hyperparams)
 
-
-  model_trained = model_pretrain.fit(X_train, y_train)
+  X_train = X_train[:num_train_samples]
+  y_train = y_train[:num_train_samples]
 
   training_setup_string = f'[INFO] Training `{model_class}` on {X_train.shape[0]:,} samples ' + \
     f'(%{100 * X_train.shape[0] / (X_train.shape[0] + X_test.shape[0]):.2f}' + \
     f'of {X_train.shape[0] + X_test.shape[0]:,} samples)...'
+  print(training_setup_string, file=log_file)
+  print(training_setup_string)
+
+  model_trained = model_pretrain.fit(X_train, y_train)
+
   train_accuracy_string = f'\t[INFO] Training accuracy: %{accuracy_score(y_train, model_trained.predict(X_train)) * 100:.2f}.'
   test_accuracy_string = f'\t[INFO] Testing accuracy: %{accuracy_score(y_test, model_trained.predict(X_test)) * 100:.2f}.'
   hyperparams_string = f'\t[INFO] Hyper-parameters of best classifier selected by CV:\n\t{model_trained}'
 
-  print(training_setup_string, file=log_file)
   print(train_accuracy_string, file=log_file)
   print(test_accuracy_string, file=log_file)
   print(hyperparams_string, file=log_file)
-  print(training_setup_string)
   print(train_accuracy_string)
   print(test_accuracy_string)
   print(hyperparams_string)
