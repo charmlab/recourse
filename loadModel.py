@@ -12,8 +12,11 @@ from matplotlib import pyplot as plt
 
 import utils
 import loadData
+import fairRecourse
 from scatter import *
 
+from sklearn.svm import SVC
+from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import accuracy_score
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neural_network import MLPClassifier
@@ -36,23 +39,55 @@ except:
 
 SIMPLIFY_TREES = False
 
+
+def trainFairClassifier(model_class):
+  if model_class != 'iw_fair_svm':
+
+    param_grid = [
+      {'C': np.logspace(0, 2, 3), 'kernel': ['linear']},
+      # {'C': np.logspace(0, 2, 3), 'kernel': ['poly'], 'degree':[2, 3, 5]},
+      # {'C': np.logspace(0, 2, 3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
+    ]
+
+    return GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
+
+  else:
+
+    # Note: regularisation strength C is referred to as 'ups' in RecourseSVM and is fixed to 10 by default;
+    # (this correspondes to the Greek nu in the paper, see the primal form on p.3 of https://arxiv.org/pdf/1909.03166.pdf )
+    lams = [0.2, 0.5, 1, 2, 10, 50, 100]
+    param_grid = [
+      {'lam': lams, 'kernel_fn': ['linear']},
+      # {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]},
+      # {'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)},
+    ]
+    return GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
+
+
+
 @utils.Memoize
-def loadModelForDataset(model_class, dataset_string, scm_class = None, experiment_folder_name = None):
+def loadModelForDataset(model_class, dataset_string, scm_class = None, fair_nodes = None, experiment_folder_name = None):
 
   log_file = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_training.txt','w')
 
-  if not (model_class in {'lr', 'mlp', 'tree', 'forest'}):
-    raise Exception(f'{model_class} not supported.')
+  if not (model_class in {'lr', 'mlp', 'tree', 'forest'}) and not (model_class in fairRecourse.FAIR_MODELS):
+      raise Exception(f'{model_class} not supported.')
 
   if not (dataset_string in {'synthetic', 'mortgage', 'twomoon', 'german', 'credit', 'compass', 'adult', 'test'}):
     raise Exception(f'{dataset_string} not supported.')
 
   dataset_obj = loadData.loadDataset(dataset_string, return_one_hot = True, load_from_cache = False, meta_param = scm_class)
-  X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
-  X_all = pd.concat([X_train, X_test], axis = 0)
-  y_all = pd.concat([y_train, y_test], axis = 0)
-  assert sum(y_all) / len(y_all) == 0.5, 'Expected class balance should be 50/50%.'
-  feature_names = dataset_obj.getInputAttributeNames('kurz') # easier to read (nothing to do with one-hot vs non-hit!)
+
+  if model_class not in fairRecourse.FAIR_MODELS:
+    X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
+    y_all = pd.concat([y_train, y_test], axis = 0)
+    assert sum(y_all) / len(y_all) == 0.5, 'Expected class balance should be 50/50%.'
+  else:
+    X_train, X_test, U_train, U_test, y_train, y_test = dataset_obj.getTrainTestSplit(with_meta = True, balanced = False)
+    X_train = pd.concat([X_train, U_train], axis = 1)[fair_nodes]
+    X_test = pd.concat([X_test, U_test], axis = 1)[fair_nodes]
+    y_train = y_train * 2 - 1
+    y_test = y_test * 2 - 1
 
   if model_class == 'tree':
     model_pretrain = DecisionTreeClassifier()
@@ -64,26 +99,47 @@ def loadModelForDataset(model_class, dataset_string, scm_class = None, experimen
     model_pretrain = LogisticRegression() # default penalty='l2', i.e., ridge
   elif model_class == 'mlp':
     model_pretrain = MLPClassifier(hidden_layer_sizes = (10, 10))
+  else:
+    model_pretrain = trainFairClassifier(model_class)
 
-  tmp_text = f'[INFO] Training `{model_class}` on {X_train.shape[0]:,} samples ' + \
-    f'(%{100 * X_train.shape[0] / (X_train.shape[0] + X_test.shape[0]):.2f}' + \
-    f'of {X_train.shape[0] + X_test.shape[0]:,} samples)...'
-  print(tmp_text)
-  print(tmp_text, file=log_file)
+    # TODO (fair): getDataFrameForFairModel and overwrite X_train, X_test
+
+    #     y_train = y_train * 2 - 1
+    #     y_test = y_test * 2 - 1
+
+    #     fair_model.fit(X_train, y_train)
+    #     fair_model = fair_model.best_estimator_
+    #     fair_models[fair_model_type] = fair_model
+    #     accuracy_score
+
+    #     log_file_hyperparams = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_hyperparams_{fair_model_type}.txt','w')
+    #     print('\t[INFO] Hyper-parameters of best classifier selected by CV for:', fair_model_type)
+    #     print(fair_model)
+    #     print(fair_model, file=log_file_hyperparams)
+
+
   model_trained = model_pretrain.fit(X_train, y_train)
 
-  train_string = f'\tTraining accuracy: %{accuracy_score(y_train, model_trained.predict(X_train)) * 100:.2f}\n[INFO] done.\n'
-  test_string = f'\tTesting accuracy: %{accuracy_score(y_test, model_trained.predict(X_test)) * 100:.2f}\n[INFO] done.\n'
+  training_setup_string = f'[INFO] Training `{model_class}` on {X_train.shape[0]:,} samples ' + \
+    f'(%{100 * X_train.shape[0] / (X_train.shape[0] + X_test.shape[0]):.2f}' + \
+    f'of {X_train.shape[0] + X_test.shape[0]:,} samples)...'
+  train_accuracy_string = f'\t[INFO] Training accuracy: %{accuracy_score(y_train, model_trained.predict(X_train)) * 100:.2f}.'
+  test_accuracy_string = f'\t[INFO] Testing accuracy: %{accuracy_score(y_test, model_trained.predict(X_test)) * 100:.2f}.'
+  hyperparams_string = f'\t[INFO] Hyper-parameters of best classifier selected by CV:\n\t{model_trained}'
 
-  print(train_string, file=log_file)
-  print(test_string, file=log_file)
-  print(train_string)
-  print(test_string)
+  print(training_setup_string, file=log_file)
+  print(train_accuracy_string, file=log_file)
+  print(test_accuracy_string, file=log_file)
+  print(hyperparams_string, file=log_file)
+  print(training_setup_string)
+  print(train_accuracy_string)
+  print(test_accuracy_string)
+  print(hyperparams_string)
 
   # shouldn't deal with bad model; arbitrarily select offset to be 70% accuracy
   tmp = accuracy_score(y_train, model_trained.predict(X_train))
 
-  # added try except loop for use of nonlinear classifiers in fairness experiments
+  # TODO (fair): added try except loop for use of nonlinear classifiers in fairness experiments
   try:
     assert tmp > 0.70, f'Model accuracy only {tmp}'
   except:
@@ -93,6 +149,7 @@ def loadModelForDataset(model_class, dataset_string, scm_class = None, experimen
   classifier_obj = model_trained
   visualizeDatasetAndFixedModel(dataset_obj, classifier_obj, experiment_folder_name)
 
+  feature_names = dataset_obj.getInputAttributeNames('kurz') # easier to read (nothing to do with one-hot vs non-hit!)
   if model_class == 'tree':
     if SIMPLIFY_TREES:
       print('[INFO] Simplifying decision tree...', end = '', file=log_file)

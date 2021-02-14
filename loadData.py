@@ -399,32 +399,6 @@ class Dataset(object):
     else:
       raise Exception(f'{long_or_kurz} not recognized as a valid `long_or_kurz`.')
 
-  def getBalancedDataFrame(self):
-    balanced_data_frame = copy.deepcopy(self.data_frame_kurz)
-
-    output_col = self.getOutputAttributeNames()[0]
-
-    # assert only two classes in label (maybe relax later??)
-    unique_labels = np.unique(balanced_data_frame[output_col])
-    assert np.array_equal(
-      unique_labels,
-      np.array([0, 1]) # only allowing {0, 1} labels,
-    ), f'expected unique labels to be [0, 1], but got {unique_labels}'
-
-    # get balanced dataframe (take minimum of the count, then round down to nearest 250)
-    unique_values_and_count = balanced_data_frame[output_col].value_counts()
-    number_of_subsamples_in_each_class = unique_values_and_count.min() // 250 * 250
-    balanced_data_frame = pd.concat([
-        balanced_data_frame[balanced_data_frame.loc[:,output_col] == 0].sample(number_of_subsamples_in_each_class, random_state = RANDOM_SEED),
-        balanced_data_frame[balanced_data_frame.loc[:,output_col] == 1].sample(number_of_subsamples_in_each_class, random_state = RANDOM_SEED),
-    ]).sample(frac = 1, random_state = RANDOM_SEED)
-    # balanced_data_frame = pd.concat([
-    #     balanced_data_frame[balanced_data_frame.loc[:,output_col] == 0],
-    #     balanced_data_frame[balanced_data_frame.loc[:,output_col] == 1],
-    # ]).sample(frac = 1, random_state = RANDOM_SEED)
-
-    return balanced_data_frame
-
   # (2020.04.15) perhaps we need a memoize here... but I tried calling this function
   # multiple times in a row from another file and it always returned the same slice
   # of data... weird.
@@ -469,14 +443,35 @@ class Dataset(object):
       X_test = (X_test - x_mean) / x_std
       return X_train, X_test
 
+    def getBalancedDataFrame(data_frame, output_col):
+      # assert only two classes in label (maybe relax later??)
+      unique_labels = np.unique(data_frame[output_col])
+      assert np.array_equal(
+        unique_labels,
+        np.array([0, 1]) # only allowing {0, 1} labels,
+      ), f'expected unique labels to be [0, 1], but got {unique_labels}'
+
+      # get balanced dataframe (take minimum of the count, then round down to nearest 250)
+      unique_values_and_count = data_frame[output_col].value_counts()
+      number_of_subsamples_in_each_class = unique_values_and_count.min() // 250 * 250
+      data_frame = pd.concat([
+          data_frame[data_frame.loc[:,output_col] == 0].sample(number_of_subsamples_in_each_class, random_state = RANDOM_SEED),
+          data_frame[data_frame.loc[:,output_col] == 1].sample(number_of_subsamples_in_each_class, random_state = RANDOM_SEED),
+      ]).sample(frac = 1, random_state = RANDOM_SEED)
+      # data_frame = pd.concat([
+      #     data_frame[data_frame.loc[:,output_col] == 0],
+      #     data_frame[data_frame.loc[:,output_col] == 1],
+      # ]).sample(frac = 1, random_state = RANDOM_SEED)
+
+      return data_frame
+
     meta_cols = self.getMetaAttributeNames()
     input_cols = self.getInputAttributeNames()
     output_col = self.getOutputAttributeNames()[0]
 
+    data_frame = copy.deepcopy(self.data_frame_kurz)
     if balanced:
-      data_frame = self.getBalancedDataFrame()
-    else:
-      data_frame = copy.deepcopy(self.data_frame_kurz)
+      data_frame = getBalancedDataFrame(data_frame, self.getOutputAttributeNames()[0])
 
     if with_meta:
       all_data = data_frame.loc[:,np.array((input_cols, meta_cols)).flatten()]
@@ -516,6 +511,35 @@ class Dataset(object):
         X_train, X_test = normalizeData(X_train, X_test)
 
       return X_train, X_test, y_train, y_test
+
+  def getOriginalDataFrame(self, num_samples, with_meta = False, with_label = False, balanced = True, data_split = 'train_and_test'):
+
+    X_train, X_test, U_train, U_test, y_train, y_test = self.getTrainTestSplit(with_meta = True, balanced = balanced)
+
+    # order of if/elif is important
+    if with_meta and with_label:
+      data_train = pd.concat([X_train, U_train, y_train], axis = 1)
+      data_test = pd.concat([X_test, U_test, y_test], axis = 1)
+    elif with_meta:
+      data_train = pd.concat([X_train, U_train], axis = 1)
+      data_test = pd.concat([X_test, U_test], axis = 1)
+    elif with_label:
+      data_train = pd.concat([X_train, y_train], axis = 1)
+      data_test = pd.concat([X_test, y_test], axis = 1)
+    else:
+      data_train = X_train
+      data_test = X_test
+
+    if data_split == 'train_and_test':
+      data_all = pd.concat([data_train, data_test], axis = 0)
+    elif data_split == 'train_only':
+      data_all = data_train
+    elif data_split == 'test_only':
+      data_all = data_test
+    else:
+       raise NotImplementedError
+
+    return data_all[:num_samples]
 
 
 class DatasetAttribute(object):
