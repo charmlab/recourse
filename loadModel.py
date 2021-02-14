@@ -40,14 +40,24 @@ except:
 SIMPLIFY_TREES = False
 
 
-def trainFairClassifier(model_class):
+def trainFairClassifier(model_class, fair_kernel_type):
   if model_class != 'iw_fair_svm':
 
-    param_grid = [
-      {'C': np.logspace(0, 2, 3), 'kernel': ['linear']},
-      # {'C': np.logspace(0, 2, 3), 'kernel': ['poly'], 'degree':[2, 3, 5]},
-      # {'C': np.logspace(0, 2, 3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
-    ]
+    if fair_kernel_type == 'linear':
+      param_grid = [{'C': np.logspace(0, 2, 3), 'kernel': ['linear']}]
+    elif fair_kernel_type == 'rbf':
+      param_grid = [{'C': np.logspace(0, 2, 3), 'kernel': ['poly'], 'degree':[2, 3, 5]}]
+    elif fair_kernel_type == 'poly':
+      param_grid = [{'C': np.logspace(0, 2, 3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']}]
+    elif fair_kernel_type == 'all':
+      param_grid = [
+        {'C': np.logspace(0, 2, 3), 'kernel': ['linear']},
+        {'C': np.logspace(0, 2, 3), 'kernel': ['poly'], 'degree':[2, 3, 5]},
+        {'C': np.logspace(0, 2, 3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
+      ]
+    else:
+      raise Exception(f'unrecognized fair_kernel_type: {fair_kernel_type}')
+
 
     return GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
 
@@ -56,17 +66,27 @@ def trainFairClassifier(model_class):
     # Note: regularisation strength C is referred to as 'ups' in RecourseSVM and is fixed to 10 by default;
     # (this correspondes to the Greek nu in the paper, see the primal form on p.3 of https://arxiv.org/pdf/1909.03166.pdf )
     lams = [0.2, 0.5, 1, 2, 10, 50, 100]
-    param_grid = [
-      {'lam': lams, 'kernel_fn': ['linear']},
-      # {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]},
-      # {'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)},
-    ]
+    if fair_kernel_type == 'linear':
+      param_grid = [{'lam': lams, 'kernel_fn': ['linear']}]
+    elif fair_kernel_type == 'rbf':
+      param_grid = [{'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}]
+    elif fair_kernel_type == 'poly':
+      param_grid = [{'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)}]
+    elif fair_kernel_type == 'all':
+      param_grid = [
+        {'lam': lams, 'kernel_fn': ['linear']},
+        {'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]},
+        {'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)},
+      ]
+    else:
+      raise Exception(f'unrecognized fair_kernel_type: {fair_kernel_type}')
+
     return GridSearchCV(estimator=RecourseSVM(), param_grid=param_grid, n_jobs=-1)
 
 
 
 @utils.Memoize
-def loadModelForDataset(model_class, dataset_string, scm_class = None, fair_nodes = None, experiment_folder_name = None):
+def loadModelForDataset(model_class, dataset_string, scm_class = None, fair_nodes = None, fair_kernel_type = None, experiment_folder_name = None):
 
   log_file = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_training.txt','w')
 
@@ -100,7 +120,7 @@ def loadModelForDataset(model_class, dataset_string, scm_class = None, fair_node
   elif model_class == 'mlp':
     model_pretrain = MLPClassifier(hidden_layer_sizes = (10, 10))
   else:
-    model_pretrain = trainFairClassifier(model_class)
+    model_pretrain = trainFairClassifier(model_class, fair_kernel_type)
 
     # TODO (fair): getDataFrameForFairModel and overwrite X_train, X_test
 
