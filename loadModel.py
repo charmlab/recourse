@@ -46,9 +46,9 @@ def trainFairClassifier(model_class, fair_kernel_type):
 
     if fair_kernel_type == 'linear':
       param_grid = [{'C': np.logspace(0, 2, 3), 'kernel': ['linear']}]
-    elif fair_kernel_type == 'rbf':
-      param_grid = [{'C': np.logspace(0, 2, 3), 'kernel': ['poly'], 'degree':[2, 3, 5]}]
     elif fair_kernel_type == 'poly':
+      param_grid = [{'C': np.logspace(0, 2, 3), 'kernel': ['poly'], 'degree':[2, 3, 5]}]
+    elif fair_kernel_type == 'rbf':
       param_grid = [{'C': np.logspace(0, 2, 3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']}]
     elif fair_kernel_type == 'all':
       param_grid = [
