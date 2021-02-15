@@ -16,16 +16,22 @@ import numpy as np
 # # ==============================================================================
 # # ==============================================================================
 
-SCM_CLASS_VALUES = ['german-credit']
-LAMBDA_LCB_VALUES = [2.5] # np.linspace(0, 2.5, 6)
+# SCM_CLASS_VALUES = ['german-credit']
+# LAMBDA_LCB_VALUES = [2.5] # np.linspace(0, 2.5, 6)
+# OPTIMIZATION_APPROACHES = ['brute_force']
+# CLASSIFIER_VALUES = ['tree', 'forest']
+
+# ==============================================================================
+# ==============================================================================
+
+SCM_CLASS_VALUES = ['fair-CAU-ANM-radial']
+LAMBDA_LCB_VALUES = [1]
 OPTIMIZATION_APPROACHES = ['brute_force']
-CLASSIFIER_VALUES = ['tree', 'forest']
+CLASSIFIER_VALUES = ['vanilla_svm', 'nonsens_svm', 'unaware_svm', 'cw_fair_svm', 'iw_fair_svm']
 
-# ==============================================================================
-# ==============================================================================
 
-NUM_BATCHES = 100
-NUM_NEG_SAMPLES_PER_BATCH = 1
+NUM_BATCHES = 1
+NUM_NEG_SAMPLES_PER_BATCH = 200
 request_memory = 8192*8
 
 
@@ -57,13 +63,18 @@ for scm_class in SCM_CLASS_VALUES:
             if scm_class == 'german-credit':
               command += f' --grid_search_bins 10'
             else:
-              command += f' --grid_search_bins 20'
+              command += f' --grid_search_bins 15'
 
           # if scm_class == 'sanity-3-gen':
           #   command += f' --non_intervenable_nodes x3'
 
           if scm_class == 'german-credit':
             command += f' --non_intervenable_nodes x1 x2 x5'
+
+          # for fair experiments
+          if 'fair' in scm_class:
+            command += f' --num_train_samples 500'
+            command += f' --num_fair_samples 50'
 
           # finally add batch, samples, and process id params
           command += f' --batch_number {batch_number}'

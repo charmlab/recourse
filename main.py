@@ -2112,7 +2112,7 @@ if __name__ == "__main__":
   parser.add_argument('--debug_flag', type=bool, default=False)
   parser.add_argument('--non_intervenable_nodes', nargs = '+', type=str, default='')
   parser.add_argument('--sensitive_attribute_nodes', nargs = '+', type=str, default='')
-  parser.add_argument('--fair_kernel_type', type=str, default='linear')
+  parser.add_argument('--fair_kernel_type', type=str, default='rbf')
   parser.add_argument('--max_intervention_cardinality', type=int, default=100)
   parser.add_argument('-o', '--optimization_approach', type=str, default='brute_force')
   parser.add_argument('--grid_search_bins', type=int, default=10)
