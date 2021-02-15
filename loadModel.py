@@ -69,9 +69,9 @@ def trainFairClassifier(model_class, fair_kernel_type):
     lams = [0.2, 0.5, 1, 2, 10, 50, 100]
     if fair_kernel_type == 'linear':
       param_grid = [{'lam': lams, 'kernel_fn': ['linear']}]
-    elif fair_kernel_type == 'rbf':
-      param_grid = [{'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}]
     elif fair_kernel_type == 'poly':
+      param_grid = [{'lam': lams, 'kernel_fn': ['poly'], 'degree':[2, 3, 5]}]
+    elif fair_kernel_type == 'rbf':
       param_grid = [{'lam': lams, 'kernel_fn': ['rbf'], 'gamma': np.logspace(-3,0,4)}]
     elif fair_kernel_type == 'all':
       param_grid = [
