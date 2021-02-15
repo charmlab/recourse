@@ -2104,6 +2104,8 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
       )
 
   metrics_summary['max_delta_indiv_cost'] = []
+  metrics_summary['max_delta_indiv_cost_group_1'] = []
+  metrics_summary['max_delta_indiv_cost_group_2'] = []
   for recourse_type in recourse_types:
 
     max_delta_indiv_cost_group_1 = -1
@@ -2138,11 +2140,13 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
           max_delta_indiv_cost_group_2 = delta_indiv_cost
 
     metrics_summary['max_delta_indiv_cost'].append(
-      np.abs(
-        max_delta_indiv_cost_group_1 -
+      np.max(
+        max_delta_indiv_cost_group_1,
         max_delta_indiv_cost_group_2
       )
     )
+    metrics_summary['max_delta_indiv_cost_group_1'].append(max_delta_indiv_cost_group_1)
+    metrics_summary['max_delta_indiv_cost_group_2'].append(max_delta_indiv_cost_group_2)
 
   tmp_df = pd.DataFrame(metrics_summary, recourse_types)
   print(tmp_df)
