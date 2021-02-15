@@ -672,18 +672,20 @@ def sampleTrue(args, objs, factual_instance, factual_df, samples_df, node, paren
   if recourse_type == 'm0_true':
 
     noise_pred = _getAbductionNoise(args, objs, node, parents, factual_instance, structural_equation)
-    XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True)
-    tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
-    noise_true = XU_all.iloc[tmp_idx][getNoiseStringForNode(node)]
-    # # print(f'noise_pred: {noise_pred:.8f} \t noise_true: {noise_true:.8f} \t difference: {np.abs(noise_pred - noise_true):.8f}')
+    # TODO (fair): bring back the code below; can't do so with twin_factual_instances.
+    # XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True)
+    # tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
+    # noise_true = XU_all.iloc[tmp_idx][getNoiseStringForNode(node)]
+    # # # print(f'noise_pred: {noise_pred:.8f} \t noise_true: {noise_true:.8f} \t difference: {np.abs(noise_pred - noise_true):.8f}')
 
-    # # noise_pred assume additive noise, and therefore only works with
-    # # models such as 'm1_alin' and 'm1_akrr' in general cases
-    # noise = noise_pred
+    # # # noise_pred assume additive noise, and therefore only works with
+    # # # models such as 'm1_alin' and 'm1_akrr' in general cases
+    # # noise = noise_pred
+    # # noise = noise_true
+    # if args.scm_class != 'sanity-3-gen':
+    #   assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
     # noise = noise_true
-    if args.scm_class != 'sanity-3-gen':
-      assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
-    noise = noise_true
+    noise = noise_pred
 
     samples_df[node] = structural_equation(
       np.array(noise), # may be scalar, which will be case as pd.series when being summed.
@@ -816,7 +818,6 @@ def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 
     objs.dataset_obj.getInputAttributeNames(),
     [num_samples * [counterfactual_template[node]] for node in objs.dataset_obj.getInputAttributeNames()],
   )))
-
 
   # Simply traverse the graph in order, and populate nodes as we go!
   # IMPORTANT: DO NOT use SET(topo ordering); it sometimes changes ordering!
@@ -1107,7 +1108,7 @@ def evaluateKernelForFairSVM(classifier, *params):
 
 
 def measureDistanceToDecisionBoundary(args, objs, factual_instance):
-  # TODO (factual_instance): DO NOT USE factual_instance, INSTEAD USE objs.factual_instance_obj
+  # TODO (fair): DO NOT USE factual_instance, INSTEAD USE objs.factual_instance_obj
   if args.classifier_class not in fairRecourse.FAIR_MODELS:
     # raise NotImplementedError
     print('[WARNING] computing dist to decision boundary in closed-form with non-SVM model is not supported.')
@@ -1477,7 +1478,10 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
 def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_type):
 
   # assert factual instance has prediction = `negative`
-  assert isPredictionOfInstanceInClass(args, objs, factual_instance, 'negative')
+  # assert isPredictionOfInstanceInClass(args, objs, factual_instance, 'negative')
+  # TODO (fair): bring back the code above; can't do so with twin_factual_instances.
+  if not isPredictionOfInstanceInClass(args, objs, factual_instance, 'negative'):
+    return {} # return empty action set for those twin_factual_instances that are not negatively predicted
 
   if recourse_type in ACCEPTABLE_POINT_RECOURSE:
     constraint_handle = isPointConstraintSatisfied
@@ -1886,7 +1890,7 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
 
     ######### hack; better to pass around factual_instance_obj always ##########
     factual_instance = factual_instance.copy()
-    objs.factual_instance_obj = Instance(factual_instance) # TODO (factual_instance): use the factual_instance_obj everywhere? and do not add to obj so it doesn't hurt training memoization
+    objs.factual_instance_obj = Instance(factual_instance) # TODO (fair): use the factual_instance_obj everywhere? and do not add to obj so it doesn't hurt training memoization
     factual_instance = dict(filter(lambda elem: 'u' not in elem[0], factual_instance.items()))
     ############################################################################
 
@@ -2032,8 +2036,8 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
 
   # Create two factual_instances_dicts, one per sensitive attribute group
-  factual_instances_dict_1 = {}
-  factual_instances_dict_2 = {}
+  factual_instances_dict_1_orig = {}
+  factual_instances_dict_2_orig = {}
   for factual_instance_idx, factual_instance in factual_instances_dict.items():
     X_all = getOriginalDataFrame(objs, args.num_train_samples)
 
@@ -2041,28 +2045,45 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
     # see sensitive attribute because most fair models are trained agnostically
     # to this attribute.)
     if X_all.loc[factual_instance_idx, sensitive_attribute_node] == -1:
-      factual_instances_dict_1[factual_instance_idx] = factual_instance
+      factual_instances_dict_1_orig[factual_instance_idx] = factual_instance
     elif X_all.loc[factual_instance_idx, sensitive_attribute_node] == 1:
-      factual_instances_dict_2[factual_instance_idx] = factual_instance
+      factual_instances_dict_2_orig[factual_instance_idx] = factual_instance
     else:
       raise Exception(f'unrecognized sensitive attribute value {value[sensitive_attribute_node]}')
 
   # Choose a balanced random subset from the factual_instances_dicts
   assert min(
-    len(factual_instances_dict_1.keys()),
-    len(factual_instances_dict_2.keys())
+    len(factual_instances_dict_1_orig.keys()),
+    len(factual_instances_dict_2_orig.keys())
   ) >= args.num_fair_samples, 'Not enough negatively predicted samples from each group.'
-  factual_instances_dict_1 = dict(random.sample(list(factual_instances_dict_1.items()), args.num_fair_samples))
-  factual_instances_dict_2 = dict(random.sample(list(factual_instances_dict_2.items()), args.num_fair_samples))
+  factual_instances_dict_1_orig = dict(random.sample(list(factual_instances_dict_1_orig.items()), args.num_fair_samples))
+  factual_instances_dict_2_orig = dict(random.sample(list(factual_instances_dict_2_orig.items()), args.num_fair_samples))
+
+  # Find the counterfactual twins of these above...
+  factual_instances_dict_1_twin = copy.deepcopy(factual_instances_dict_1_orig)
+  factual_instances_dict_2_twin = copy.deepcopy(factual_instances_dict_2_orig)
+  for factual_instance_idx, factual_instance in factual_instances_dict_1_orig.items():
+    twinning_action_set = {'x1': -factual_instance['x1']}
+    factual_instances_dict_1_twin[factual_instance_idx] = computeCounterfactualInstance(args, objs, factual_instance, twinning_action_set, 'm0_true')
+  for factual_instance_idx, factual_instance in factual_instances_dict_2_orig.items():
+    twinning_action_set = {'x1': -factual_instance['x1']}
+    factual_instances_dict_2_twin[factual_instance_idx] = computeCounterfactualInstance(args, objs, factual_instance, twinning_action_set, 'm0_true')
+    # ??Only add if isPredictionOfInstanceInClass(args, objs, factual_instance, 'negative')
 
   # Compute metrics (incl'd cost of recourse and distance to decision boundary)
-  per_instance_results_group_1 = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_1, recourse_types)
-  per_instance_results_group_2 = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_2, recourse_types)
+  per_instance_results_group_1_orig = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_1_orig, recourse_types)
+  per_instance_results_group_2_orig = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_2_orig, recourse_types)
+  per_instance_results_group_1_twin = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_1_twin, recourse_types)
+  per_instance_results_group_2_twin = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_2_twin, recourse_types)
   print(f'\n\nModel: `{args.classifier_class}`')
-  print(f'group 1: \n')
-  createAndSaveMetricsTable(per_instance_results_group_1, recourse_types, experiment_folder_name, f'_{args.classifier_class}_group_1')
-  print(f'group 2: \n')
-  createAndSaveMetricsTable(per_instance_results_group_2, recourse_types, experiment_folder_name, f'_{args.classifier_class}_group_2')
+  print(f'group 1 orig: \n')
+  createAndSaveMetricsTable(per_instance_results_group_1_orig, recourse_types, experiment_folder_name, f'_{args.classifier_class}_group_1_orig')
+  print(f'group 2 orig: \n')
+  createAndSaveMetricsTable(per_instance_results_group_2_orig, recourse_types, experiment_folder_name, f'_{args.classifier_class}_group_2_orig')
+  print(f'group 1 twin: \n')
+  createAndSaveMetricsTable(per_instance_results_group_1_twin, recourse_types, experiment_folder_name, f'_{args.classifier_class}_group_1_twin')
+  print(f'group 2 twin: \n')
+  createAndSaveMetricsTable(per_instance_results_group_2_twin, recourse_types, experiment_folder_name, f'_{args.classifier_class}_group_2_twin')
 
   # Compute and save diff_metrics from the group-based metrics above.
   metrics_summary = {}
@@ -2076,11 +2097,52 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
       metrics_summary[f'delta_{metric}'].append(
         np.around(
           np.abs(
-            np.nanmean([v[recourse_type][metric] for k,v in per_instance_results_group_1.items()]) -
-            np.nanmean([v[recourse_type][metric] for k,v in per_instance_results_group_2.items()])
+            np.nanmean([v[recourse_type][metric] for k,v in per_instance_results_group_1_orig.items()]) -
+            np.nanmean([v[recourse_type][metric] for k,v in per_instance_results_group_2_orig.items()])
           ),
         3)
       )
+
+  metrics_summary['max_delta_indiv_cost'] = []
+  for recourse_type in recourse_types:
+
+    max_delta_indiv_cost_group_1 = -1
+    max_delta_indiv_cost_group_2 = -1
+
+    assert \
+      set(per_instance_results_group_1_orig.keys()) == \
+      set(per_instance_results_group_1_twin.keys())
+    for factual_instance_idx in per_instance_results_group_1_orig.keys():
+      tmp_orig = per_instance_results_group_1_orig[factual_instance_idx][recourse_type]
+      tmp_twin = per_instance_results_group_1_twin[factual_instance_idx][recourse_type]
+      if tmp_orig['optimal_action_set'] != {} and tmp_twin['optimal_action_set'] != {}:
+        delta_indiv_cost = np.abs(
+          tmp_orig['cost_valid'] -
+          tmp_twin['cost_valid']
+        ) # cost_valid or cost_all; same thing for each individual
+        if delta_indiv_cost > max_delta_indiv_cost_group_1:
+          max_delta_indiv_cost_group_1 = delta_indiv_cost
+
+    assert \
+      set(per_instance_results_group_2_orig.keys()) == \
+      set(per_instance_results_group_2_twin.keys())
+    for factual_instance_idx in per_instance_results_group_2_orig.keys():
+      tmp_orig = per_instance_results_group_2_orig[factual_instance_idx][recourse_type]
+      tmp_twin = per_instance_results_group_2_twin[factual_instance_idx][recourse_type]
+      if tmp_orig['optimal_action_set'] != {} and tmp_twin['optimal_action_set'] != {}:
+        delta_indiv_cost = np.abs(
+          tmp_orig['cost_valid'] -
+          tmp_twin['cost_valid']
+        ) # cost_valid or cost_all; same thing for each individual
+        if delta_indiv_cost > max_delta_indiv_cost_group_2:
+          max_delta_indiv_cost_group_2 = delta_indiv_cost
+
+    metrics_summary['max_delta_indiv_cost'].append(
+      np.abs(
+        max_delta_indiv_cost_group_1 -
+        max_delta_indiv_cost_group_2
+      )
+    )
 
   tmp_df = pd.DataFrame(metrics_summary, recourse_types)
   print(tmp_df)
