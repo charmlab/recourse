@@ -22,7 +22,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-# from _third_party.svm_recourse import RecourseSVM
+from _third_party.svm_recourse import RecourseSVM
 
 from debug import ipsh
 
@@ -122,21 +122,10 @@ def loadModelForDataset(model_class, dataset_string, scm_class = None, num_train
     model_pretrain = MLPClassifier(hidden_layer_sizes = (10, 10))
   else:
     model_pretrain = trainFairClassifier(model_class, fair_kernel_type)
-
-    # TODO (fair): getDataFrameForFairModel and overwrite X_train, X_test
-
-    #     y_train = y_train * 2 - 1
-    #     y_test = y_test * 2 - 1
-
-    #     fair_model.fit(X_train, y_train)
-    #     fair_model = fair_model.best_estimator_
-    #     fair_models[fair_model_type] = fair_model
-    #     accuracy_score
-
-    #     log_file_hyperparams = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_hyperparams_{fair_model_type}.txt','w')
-    #     print('\t[INFO] Hyper-parameters of best classifier selected by CV for:', fair_model_type)
-    #     print(fair_model)
-    #     print(fair_model, file=log_file_hyperparams)
+    X_train = np.array(X_train)
+    X_test = np.array(X_test)
+    y_train = np.array(y_train)
+    y_test = np.array(y_test)
 
   X_train = X_train[:num_train_samples]
   y_train = y_train[:num_train_samples]

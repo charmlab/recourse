@@ -1,8 +1,8 @@
-def warn(*args, **kwargs):
-    pass
+# def warn(*args, **kwargs):
+#     pass
 
-import warnings
-warnings.warn = warn # to ignore all warnings.
+# import warnings
+# warnings.warn = warn # to ignore all warnings.
 
 from cvxopt import matrix, solvers
 import numpy as np
