@@ -353,10 +353,10 @@ def loadSCM(scm_class, experiment_folder_name = None):
   elif scm_class == 'fair-CAU-LIN' or scm_class == 'fair-CAU-LIN-radial':
     # replaces previous 'fair-3-lin'
     structural_equations_np = {
-      'x1': lambda n_samples,           :                   n_samples,  # A
-      'x2': lambda n_samples, x1        :        0.5 * x1 + n_samples,  # A --> X_1
-      'x3': lambda n_samples,           :                   n_samples,  # X_2
-      'x4': lambda n_samples, x2, x3    : 0.5 * (x2 - x3) + n_samples,  # {X_1, X_2} --> X_3
+      'x1': lambda n_samples,           :                            n_samples,  # A
+      'x2': lambda n_samples, x1        :                 0.5 * x1 + n_samples,  # A --> X_1
+      'x3': lambda n_samples,           :                            n_samples,  # X_2
+      'x4': lambda n_samples, x1, x2, x3    : 0.5 * (x1 + x2 - x3) + n_samples,  # {X_1, X_2} --> X_3
     }
     structural_equations_ts = structural_equations_np
     noises_distributions = {
@@ -369,10 +369,10 @@ def loadSCM(scm_class, experiment_folder_name = None):
   elif scm_class == 'fair-CAU-ANM' or scm_class == 'fair-CAU-ANM-radial':
 
     structural_equations_np = {
-      'x1': lambda n_samples,:                                 n_samples,  # A
-      'x2': lambda n_samples, x1:                   0.5 * x1 + n_samples,  # A --> X_1
-      'x3': lambda n_samples,:                                 n_samples,  # X_2
-      'x4': lambda n_samples, x2, x3:  0.1 * (x2**3 - x3**3) + n_samples,  # {X_1, X_2} --> X_3
+      'x1': lambda n_samples,:                                                n_samples,  # A
+      'x2': lambda n_samples, x1:                                  0.5 * x1 + n_samples,  # A --> X_1
+      'x3': lambda n_samples,:                                                n_samples,  # X_2
+      'x4': lambda n_samples, x1, x2, x3:  0.5 * x1 + 0.1 * (x2**3 - x3**3) + n_samples,  # {X_1, X_2} --> X_3
     }
     structural_equations_ts = structural_equations_np
     noises_distributions = {
