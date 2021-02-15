@@ -24,19 +24,23 @@ import numpy as np
 # ==============================================================================
 # ==============================================================================
 
-SCM_CLASS_VALUES = ['fair-CAU-ANM-radial']
+SCM_CLASS_VALUES = ['fair-IMF-LIN', 'fair-CAU-LIN', 'fair-CAU-ANM',
+                    'fair-IMF-LIN-radial', 'fair-CAU-LIN-radial', 'fair-CAU-ANM-radial']
 LAMBDA_LCB_VALUES = [1]
 OPTIMIZATION_APPROACHES = ['brute_force']
 CLASSIFIER_VALUES = ['vanilla_svm', 'nonsens_svm', 'unaware_svm', 'cw_fair_svm', 'iw_fair_svm']
 
+# if set to 'all', will select best kernel type based on CV;
+# else uses linear kernel for 'linear' datasets and 'poly' for nonlinear ones
+FAIR_KERNEL_TYPE = None
 
 NUM_BATCHES = 1
 NUM_NEG_SAMPLES_PER_BATCH = 200
 request_memory = 8192*8
 
 
-sub_file = open('test.sub','w')
-print('executable = /home/amir/dev/recourse/_venv/bin/python', file=sub_file)
+sub_file = open('fair_recourse.sub','w')
+print('executable = /home/julisuvk/recourse/_venv/bin/python', file=sub_file)
 print('error = _cluster_logs/test.$(Process).err', file=sub_file)
 print('output = _cluster_logs/test.$(Process).out', file=sub_file)
 print('log = _cluster_logs/test.$(Process).log', file=sub_file)
@@ -75,6 +79,14 @@ for scm_class in SCM_CLASS_VALUES:
           if 'fair' in scm_class:
             command += f' --num_train_samples 500'
             command += f' --num_fair_samples 50'
+
+          if FAIR_KERNEL_TYPE == 'all':
+            command += f' --fair_kernel_type all'
+          else:
+            if 'radial' in scm_class:
+              command += f' --fair_kernel_type poly'
+            else:
+              command += f' --fair_kernel_type linear'
 
           # finally add batch, samples, and process id params
           command += f' --batch_number {batch_number}'
