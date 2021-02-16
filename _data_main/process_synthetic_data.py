@@ -76,7 +76,7 @@ def load_synthetic_data(scm_class, variable_type = 'real'):
 
   elif scm_class == 'fair-IMF-LIN-radial' or scm_class == 'fair-CAU-LIN-radial' or scm_class == 'fair-CAU-ANM-radial':
     print('[INFO] using a nonlinear (radial) logistic regression to generate ground truth labels')
-    h = (1 + np.exp(5 - (X['x2'] + X['x3'] + X['x4'])**2)) ** (-1)  # NONLINEAR (radial)
+    h = (1 + np.exp(4 - (X['x2'] + 2 * X['x3'] + X['x4'])**2)) ** (-1)  # NONLINEAR (radial)
     print('[INFO] Standard deviation of predictions is:', np.std(h), '(maximum 0.5)')
 
     # noisy ground truth labels to induce non-separability
