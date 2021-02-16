@@ -4,6 +4,7 @@ import torch
 import pickle
 import inspect
 import pathlib
+import warnings
 import argparse
 import itertools
 import subprocess
@@ -1628,11 +1629,13 @@ def createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_f
 
   for recourse_type in recourse_types:
     for metric in metrics:
-      metrics_summary[metric].append(
-        f'{np.around(np.nanmean([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}' + \
-        '+/-' + \
-        f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}'
-      )
+      with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        metrics_summary[metric].append(
+          f'{np.around(np.nanmean([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}' + \
+          '+/-' + \
+          f'{np.around(np.nanstd([v[recourse_type][metric] for k,v in per_instance_results.items()]), 3):.3f}'
+        )
   tmp_df = pd.DataFrame(metrics_summary, recourse_types)
   print(tmp_df)
   print(f'\nN = {len(per_instance_results.keys())}')
@@ -1953,7 +1956,7 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
 
       per_instance_results[factual_instance_idx][recourse_type] = tmp
 
-    print(f'[INFO] Saving (overwriting) results...')
+    print(f'[INFO] Saving (overwriting) results...\t', end='')
     pickle.dump(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results', 'wb'))
     pprint(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results.txt', 'w'))
     print(f'done.')
@@ -2095,6 +2098,7 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
   for recourse_type in recourse_types:
     for metric in metrics:
       metrics_summary[f'delta_{metric}'].append(
+        # difference in average distance/cost per group
         np.around(
           np.abs(
             np.nanmean([v[recourse_type][metric] for k,v in per_instance_results_group_1_orig.items()]) -
