@@ -140,7 +140,7 @@ def loadModelForDataset(model_class, dataset_string, scm_class = None, num_train
 
   train_accuracy_string = f'\t[INFO] Training accuracy: %{accuracy_score(y_train, model_trained.predict(X_train)) * 100:.2f}.'
   test_accuracy_string = f'\t[INFO] Testing accuracy: %{accuracy_score(y_test, model_trained.predict(X_test)) * 100:.2f}.'
-  hyperparams_string = f'\t[INFO] Hyper-parameters of best classifier selected by CV:\n\t{model_trained}'
+  hyperparams_string = f'\t[INFO] Hyper-parameters of best classifier selected by CV:\n\t{model_trained.best_estimator_}'
 
   print(train_accuracy_string, file=log_file)
   print(test_accuracy_string, file=log_file)
