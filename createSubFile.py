@@ -77,16 +77,17 @@ for scm_class in SCM_CLASS_VALUES:
 
           # for fair experiments
           if 'fair' in scm_class:
+            command += f' -e 9'
+            command += f' --sensitive_attribute_nodes x1'
             command += f' --num_train_samples 500'
             command += f' --num_fair_samples 50'
-
-          if FAIR_KERNEL_TYPE == 'all':
-            command += f' --fair_kernel_type all'
-          else:
-            if 'radial' in scm_class:
-              command += f' --fair_kernel_type poly'
+            if FAIR_KERNEL_TYPE == 'all':
+              command += f' --fair_kernel_type all'
             else:
-              command += f' --fair_kernel_type linear'
+              if 'radial' in scm_class:
+                command += f' --fair_kernel_type poly'
+              else:
+                command += f' --fair_kernel_type linear'
 
           # finally add batch, samples, and process id params
           command += f' --batch_number {batch_number}'
