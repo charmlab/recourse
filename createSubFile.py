@@ -28,7 +28,11 @@ SCM_CLASS_VALUES = ['fair-IMF-LIN', 'fair-CAU-LIN', 'fair-CAU-ANM',
                     'fair-IMF-LIN-radial', 'fair-CAU-LIN-radial', 'fair-CAU-ANM-radial']
 LAMBDA_LCB_VALUES = [1]
 OPTIMIZATION_APPROACHES = ['brute_force']
-CLASSIFIER_VALUES = ['vanilla_svm', 'nonsens_svm', 'unaware_svm', 'cw_fair_svm', 'iw_fair_svm']
+CLASSIFIER_VALUES = ['vanilla_svm',
+                     'nonsens_svm',
+                     'unaware_svm',
+                     # 'cw_fair_svm',
+                     'iw_fair_svm']
 
 # if set to 'all', will select best kernel type based on CV;
 # else uses linear kernel for 'linear' datasets and 'poly' for nonlinear ones
@@ -67,7 +71,7 @@ for scm_class in SCM_CLASS_VALUES:
             if scm_class == 'german-credit':
               command += f' --grid_search_bins 10'
             else:
-              command += f' --grid_search_bins 15'
+              command += f' --grid_search_bins 10'
 
           # if scm_class == 'sanity-3-gen':
           #   command += f' --non_intervenable_nodes x3'
@@ -80,7 +84,7 @@ for scm_class in SCM_CLASS_VALUES:
             command += f' -e 9'
             command += f' --sensitive_attribute_nodes x1'
             command += f' --num_train_samples 500'
-            command += f' --num_fair_samples 50'
+            command += f' --num_fair_samples 10'
             if FAIR_KERNEL_TYPE == 'all':
               command += f' --fair_kernel_type all'
             else:
