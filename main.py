@@ -2140,7 +2140,7 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
           max_delta_indiv_cost_group_2 = delta_indiv_cost
 
     metrics_summary['max_delta_indiv_cost'].append(
-      np.max(
+      max(
         max_delta_indiv_cost_group_1,
         max_delta_indiv_cost_group_2
       )
