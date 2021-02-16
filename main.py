@@ -2067,11 +2067,28 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
   factual_instances_dict_2_twin = copy.deepcopy(factual_instances_dict_2_orig)
   for factual_instance_idx, factual_instance in factual_instances_dict_1_orig.items():
     twinning_action_set = {'x1': -factual_instance['x1']}
-    factual_instances_dict_1_twin[factual_instance_idx] = computeCounterfactualInstance(args, objs, factual_instance, twinning_action_set, 'm0_true')
+    # the factual and twin instances share the same exogenous vairables; copy them
+    # over to the twin; TODO (fair): later when pass around factual_instance_obj
+    # everywhere, the computeCounterfactualInstance function will return not only
+    # endogenous, but also the exogenous variables
+    twin_endogenous_variables = computeCounterfactualInstance(args, objs, factual_instance, twinning_action_set, 'm0_true')
+    factual_instances_dict_1_twin[factual_instance_idx] = {
+      **factual_instance, # copy endogenous and exogenous variables
+      **twin_endogenous_variables # overwrite endogenous variables
+    }
+
   for factual_instance_idx, factual_instance in factual_instances_dict_2_orig.items():
     twinning_action_set = {'x1': -factual_instance['x1']}
-    factual_instances_dict_2_twin[factual_instance_idx] = computeCounterfactualInstance(args, objs, factual_instance, twinning_action_set, 'm0_true')
-    # ??Only add if isPredictionOfInstanceInClass(args, objs, factual_instance, 'negative')
+    # the factual and twin instances share the same exogenous vairables; copy them
+    # over to the twin; TODO (fair): later when pass around factual_instance_obj
+    # everywhere, the computeCounterfactualInstance function will return not only
+    # endogenous, but also the exogenous variables
+    twin_endogenous_variables = computeCounterfactualInstance(args, objs, factual_instance, twinning_action_set, 'm0_true')
+    factual_instances_dict_2_twin[factual_instance_idx] = {
+      **factual_instance, # copy endogenous and exogenous variables
+      **twin_endogenous_variables # overwrite endogenous variables
+    }
+
 
   # Compute metrics (incl'd cost of recourse and distance to decision boundary)
   per_instance_results_group_1_orig = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_1_orig, recourse_types)
