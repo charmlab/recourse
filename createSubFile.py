@@ -36,14 +36,14 @@ CLASSIFIER_VALUES = ['vanilla_svm',
 
 # if set to 'all', will select best kernel type based on CV;
 # else uses linear kernel for 'linear' datasets and 'poly' for nonlinear ones
-FAIR_KERNEL_TYPE = None
+FAIR_KERNEL_TYPE = 'all'
 
 NUM_BATCHES = 1
 NUM_NEG_SAMPLES_PER_BATCH = 200
 request_memory = 8192*8
 
 
-sub_file = open('fair_recourse.sub','w')
+sub_file = open('fair_recourse_all_kernels.sub','w')
 print('executable = /home/julisuvk/recourse/_venv/bin/python', file=sub_file)
 print('error = _cluster_logs/test.$(Process).err', file=sub_file)
 print('output = _cluster_logs/test.$(Process).out', file=sub_file)
