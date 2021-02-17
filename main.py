@@ -2271,7 +2271,7 @@ if __name__ == "__main__":
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
-    # ('m0_true', '*'), \
+    ('m0_true', '*'), \
     ('m1_alin', 'v'), \
     ('m1_akrr', '^'), \
     # ('m1_gaus', 'D'), \
