@@ -44,7 +44,7 @@ request_memory = 8192*8
 
 
 sub_file = open('fair_recourse_all_kernels.sub','w')
-print('executable = /home/julisuvk/recourse/_venv/bin/python', file=sub_file)
+print('executable = /home/ANONYMOUS/recourse/_venv/bin/python', file=sub_file)
 print('error = _cluster_logs/test.$(Process).err', file=sub_file)
 print('output = _cluster_logs/test.$(Process).out', file=sub_file)
 print('log = _cluster_logs/test.$(Process).log', file=sub_file)

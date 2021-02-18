@@ -25,8 +25,8 @@ LAMBDA_LCB_VALUES = np.linspace(0, 2.5, 6)
 CLASSIFIER_VALUES = ['lr', 'mlp', 'tree', 'forest']
 
 
-# experiments_folder_path = '/Users/a6karimi/dev/recourse/_results/__merged_realworld/'
-experiments_folder_path = '/Users/julisuvk/__merged_realworld_bu_2020.06.03.11.13/'
+# experiments_folder_path = '/Users/ANONYMOUS/dev/recourse/_results/__merged_realworld/'
+experiments_folder_path = '/Users/ANONYMOUS/__merged_realworld_bu_2020.06.03.11.13/'
 # all_counter = len(SCM_CLASS_VALUES) * len(LAMBDA_LCB_VALUES) * len(OPTIMIZATION_APPROACHES) * len(CLASSIFIER_VALUES)
 all_counter = len(LAMBDA_LCB_VALUES) * len(CLASSIFIER_VALUES)
 counter = 0

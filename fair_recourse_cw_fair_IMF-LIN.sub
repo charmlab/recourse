@@ -1,4 +1,4 @@
-executable = /home/julisuvk/recourse/_venv/bin/python
+executable = /home/ANONYMOUS/recourse/_venv/bin/python
 error = _cluster_logs/test.$(Process).err
 output = _cluster_logs/test.$(Process).out
 log = _cluster_logs/test.$(Process).log

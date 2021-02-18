@@ -267,7 +267,7 @@ class RecourseSVM(BaseEstimator, ClassifierMixin):
         s2tst = np.array(([float(1 - tpreds[i]) / (2 * cntest[gtst[i]]) if cntest[gtst[i]] > 0 else 0 for (i, _) in enumerate(gtst)]))
         stst = s1tst * s2tst
 
-        # # Amir's additions
+        # # ANONYMOUS's additions
         # stst_group_1 = stst.copy()
         # stst_group_2 = stst.copy()
 

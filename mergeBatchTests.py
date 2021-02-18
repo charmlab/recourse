@@ -24,9 +24,9 @@ seed(RANDOM_SEED) # set the random seed so that the random permutations can be r
 np.random.seed(RANDOM_SEED)
 
 
-# experiments_folder_path = '/Users/a6karimi/dev/recourse/_experiments/'
-experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments/'
-# experiments_folder_path = '/Volumes/amir/dev/recourse/_experiments_bu_2020.06.09.23.00_post_9999533_final/'
+# experiments_folder_path = '/Users/ANONYMOUS/dev/recourse/_experiments/'
+experiments_folder_path = '/Volumes/ANONYMOUS/dev/recourse/_experiments/'
+# experiments_folder_path = '/Volumes/ANONYMOUS/dev/recourse/_experiments_bu_2020.06.09.23.00_post_9999533_final/'
 all_counter = len(SCM_CLASS_VALUES) * len(LAMBDA_LCB_VALUES) * len(OPTIMIZATION_APPROACHES) * len(CLASSIFIER_VALUES)
 counter = 0
 
