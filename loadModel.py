@@ -44,23 +44,32 @@ SIMPLIFY_TREES = False
 def trainFairClassifier(model_class, fair_kernel_type):
   if model_class != 'iw_fair_svm':
 
-    if fair_kernel_type == 'linear':
-      param_grid = [{'C': np.logspace(0, 2, 3), 'kernel': ['linear']}]
-    elif fair_kernel_type == 'poly':
-      param_grid = [{'C': np.logspace(0, 2, 3), 'kernel': ['poly'], 'degree':[2, 3, 5]}]
-    elif fair_kernel_type == 'rbf':
-      param_grid = [{'C': np.logspace(0, 2, 3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']}]
-    elif fair_kernel_type == 'all':
-      param_grid = [
-        {'C': np.logspace(0, 2, 3), 'kernel': ['linear']},
-        {'C': np.logspace(0, 2, 3), 'kernel': ['poly'], 'degree':[2, 3, 5]},
-        {'C': np.logspace(0, 2, 3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
-      ]
+    if 'svm' in model_class:
+
+      if fair_kernel_type == 'linear':
+        param_grid = [{'C': np.logspace(0, 2, 3), 'kernel': ['linear']}]
+      elif fair_kernel_type == 'poly':
+        param_grid = [{'C': np.logspace(0, 2, 3), 'kernel': ['poly'], 'degree':[2, 3, 5]}]
+      elif fair_kernel_type == 'rbf':
+        param_grid = [{'C': np.logspace(0, 2, 3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']}]
+      elif fair_kernel_type == 'all':
+        param_grid = [
+          {'C': np.logspace(0, 2, 3), 'kernel': ['linear']},
+          {'C': np.logspace(0, 2, 3), 'kernel': ['poly'], 'degree':[2, 3, 5]},
+          {'C': np.logspace(0, 2, 3), 'gamma': np.logspace(-3,0,4), 'kernel': ['rbf']},
+        ]
+      else:
+        raise Exception(f'unrecognized fair_kernel_type: {fair_kernel_type}')
+
+      return GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
+
+    elif 'lr' in model_class:
+
+      return LogisticRegression()
+
     else:
-      raise Exception(f'unrecognized fair_kernel_type: {fair_kernel_type}')
 
-
-    return GridSearchCV(estimator=SVC(probability=True), param_grid=param_grid, n_jobs=-1)
+        raise Exception(f'unrecognized model_class: {model_class}')
 
   else:
 
@@ -140,14 +149,16 @@ def loadModelForDataset(model_class, dataset_string, scm_class = None, num_train
 
   train_accuracy_string = f'\t[INFO] Training accuracy: %{accuracy_score(y_train, model_trained.predict(X_train)) * 100:.2f}.'
   test_accuracy_string = f'\t[INFO] Testing accuracy: %{accuracy_score(y_test, model_trained.predict(X_test)) * 100:.2f}.'
-  hyperparams_string = f'\t[INFO] Hyper-parameters of best classifier selected by CV:\n\t{model_trained.best_estimator_}'
 
   print(train_accuracy_string, file=log_file)
   print(test_accuracy_string, file=log_file)
-  print(hyperparams_string, file=log_file)
   print(train_accuracy_string)
   print(test_accuracy_string)
-  print(hyperparams_string)
+
+  if hasattr(model_trained, 'best_estimator_'):
+    hyperparams_string = f'\t[INFO] Hyper-parameters of best classifier selected by CV:\n\t{model_trained.best_estimator_}'
+    print(hyperparams_string, file=log_file)
+    print(hyperparams_string)
 
   # shouldn't deal with bad model; arbitrarily select offset to be 70% accuracy
   tmp = accuracy_score(y_train, model_trained.predict(X_train))

@@ -1112,7 +1112,7 @@ def measureDistanceToDecisionBoundary(args, objs, factual_instance):
   # TODO (fair): DO NOT USE factual_instance, INSTEAD USE objs.factual_instance_obj
   if args.classifier_class not in fairRecourse.FAIR_MODELS:
     # raise NotImplementedError
-    print('[WARNING] computing dist to decision boundary in closed-form with non-SVM model is not supported.')
+    print('[WARNING] computing dist to decision boundary in closed-form with non-SVM/LR model is not supported.')
     return -1
 
   # keep track of the factual_instance_obj and it's exogenous variables.
@@ -1125,23 +1125,33 @@ def measureDistanceToDecisionBoundary(args, objs, factual_instance):
     [factual_instance_dict[key] for key in fair_nodes]
   ))
   factual_instance = np.array(list(factual_instance.values())).reshape(1,-1)
-  # For non-linear kernels, the weight vector of the SVM hyperplane is not available,
-  # in fact for the 'rbf' kernel it is infinite dimensional.
-  # However, its norm in the RKHS can be computed in closed form in terms of the kernel matrix evaluated
-  # at the support vectors and the dual coefficients. For more info, see, e.g.,
-  # https://stats.stackexchange.com/questions/14876/interpreting-distance-from-hyperplane-in-svm
-  try:
-    # This should work for all normal instances of SVC except for RecourseSVM (third_party code)
-    dual_coefficients = objs.classifier_obj.dual_coef_
-    support_vectors = objs.classifier_obj.support_vectors_
-    kernel_matrix_for_support_vectors = evaluateKernelForFairSVM(objs.classifier_obj, support_vectors)
-    squared_norm_of_weight_vector = np.einsum('ij, jk, lk', dual_coefficients, kernel_matrix_for_support_vectors, dual_coefficients)
-    norm_of_weight_vector = np.sqrt(squared_norm_of_weight_vector.flatten())
-    distance_to_decision_boundary = objs.classifier_obj.decision_function(factual_instance)/norm_of_weight_vector
-  except:
-    # For RecourseSVM (third_party code) normalisation by the norm of the weight vector is hardcoded into
-    # .decision_function so that the output is already an absolute distance.
-    distance_to_decision_boundary = objs.classifier_obj.decision_function(factual_instance)
+
+  if 'lr' in args.classifier_class:
+    # source: https://stackoverflow.com/a/32077408/2759976
+    y = objs.classifier_obj.decision_function(factual_instance)
+    w_norm = np.linalg.norm(objs.classifier_obj.coef_)
+    distance_to_decision_boundary = y / w_norm
+  elif 'svm' in args.classifier_class:
+    # For non-linear kernels, the weight vector of the SVM hyperplane is not available,
+    # in fact for the 'rbf' kernel it is infinite dimensional.
+    # However, its norm in the RKHS can be computed in closed form in terms of the kernel matrix evaluated
+    # at the support vectors and the dual coefficients. For more info, see, e.g.,
+    # https://stats.stackexchange.com/questions/14876/interpreting-distance-from-hyperplane-in-svm
+    try:
+      # This should work for all normal instances of SVC except for RecourseSVM (third_party code)
+      dual_coefficients = objs.classifier_obj.dual_coef_
+      support_vectors = objs.classifier_obj.support_vectors_
+      kernel_matrix_for_support_vectors = evaluateKernelForFairSVM(objs.classifier_obj, support_vectors)
+      squared_norm_of_weight_vector = np.einsum('ij, jk, lk', dual_coefficients, kernel_matrix_for_support_vectors, dual_coefficients)
+      norm_of_weight_vector = np.sqrt(squared_norm_of_weight_vector.flatten())
+      distance_to_decision_boundary = objs.classifier_obj.decision_function(factual_instance)/norm_of_weight_vector
+    except:
+      # For RecourseSVM (third_party code) normalisation by the norm of the weight vector is hardcoded into
+      # .decision_function so that the output is already an absolute distance.
+      distance_to_decision_boundary = objs.classifier_obj.decision_function(factual_instance)
+  else:
+    raise NotImplementedError
+
   return distance_to_decision_boundary
 
 
@@ -1991,19 +2001,19 @@ def getTrainableNodesForFairModel(args, objs):
     aware_nodes_noise = []
 
 
-  if args.classifier_class == 'vanilla_svm':
+  if args.classifier_class == 'vanilla_svm' or args.classifier_class == 'vanilla_lr':
     fair_endogenous_nodes = objs.dataset_obj.getInputAttributeNames('kurz')
     fair_exogenous_nodes = []
 
-  elif args.classifier_class == 'nonsens_svm':
+  elif args.classifier_class == 'nonsens_svm' or args.classifier_class == 'nonsens_lr':
     fair_endogenous_nodes = non_sensitive_attribute_nodes
     fair_exogenous_nodes = []
 
-  elif args.classifier_class == 'unaware_svm':
+  elif args.classifier_class == 'unaware_svm' or args.classifier_class == 'unaware_lr':
     fair_endogenous_nodes = unaware_nodes
     fair_exogenous_nodes = []
 
-  elif args.classifier_class == 'cw_fair_svm':
+  elif args.classifier_class == 'cw_fair_svm' or args.classifier_class == 'cw_fair_lr':
     fair_endogenous_nodes = unaware_nodes
     fair_exogenous_nodes = aware_nodes_noise
 
@@ -2066,7 +2076,7 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
   factual_instances_dict_1_twin = copy.deepcopy(factual_instances_dict_1_orig)
   factual_instances_dict_2_twin = copy.deepcopy(factual_instances_dict_2_orig)
   for factual_instance_idx, factual_instance in factual_instances_dict_1_orig.items():
-    twinning_action_set = {'x1': -factual_instance['x1']}
+    twinning_action_set = {'x1': -factual_instance['x1']} # TODO (fair): what if sensitive attribute is no longer 'x1'...
     # the factual and twin instances share the same exogenous vairables; copy them
     # over to the twin; TODO (fair): later when pass around factual_instance_obj
     # everywhere, the computeCounterfactualInstance function will return not only
@@ -2078,7 +2088,7 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
     }
 
   for factual_instance_idx, factual_instance in factual_instances_dict_2_orig.items():
-    twinning_action_set = {'x1': -factual_instance['x1']}
+    twinning_action_set = {'x1': -factual_instance['x1']} # TODO (fair): what if sensitive attribute is no longer 'x1'...
     # the factual and twin instances share the same exogenous vairables; copy them
     # over to the twin; TODO (fair): later when pass around factual_instance_obj
     # everywhere, the computeCounterfactualInstance function will return not only
