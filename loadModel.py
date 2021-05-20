@@ -67,6 +67,10 @@ def trainFairClassifier(model_class, fair_kernel_type):
 
       return LogisticRegression()
 
+    elif 'mlp' in model_class:
+
+      return MLPClassifier(hidden_layer_sizes = (10, 10))
+
     else:
 
         raise Exception(f'unrecognized model_class: {model_class}')

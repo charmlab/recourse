@@ -1112,7 +1112,7 @@ def measureDistanceToDecisionBoundary(args, objs, factual_instance):
   # TODO (fair): DO NOT USE factual_instance, INSTEAD USE objs.factual_instance_obj
   if args.classifier_class not in fairRecourse.FAIR_MODELS:
     # raise NotImplementedError
-    print('[WARNING] computing dist to decision boundary in closed-form with non-SVM/LR model is not supported.')
+    print(f'[WARNING] computing dist to decision boundary in closed-form for `{args.classifier_class}` model is not supported.')
     return -1
 
   # keep track of the factual_instance_obj and it's exogenous variables.
@@ -1127,10 +1127,64 @@ def measureDistanceToDecisionBoundary(args, objs, factual_instance):
   factual_instance = np.array(list(factual_instance.values())).reshape(1,-1)
 
   if 'lr' in args.classifier_class:
-    # source: https://stackoverflow.com/a/32077408/2759976
-    y = objs.classifier_obj.decision_function(factual_instance)
-    w_norm = np.linalg.norm(objs.classifier_obj.coef_)
-    distance_to_decision_boundary = y / w_norm
+    # Implementation #1 (source: https://stackoverflow.com/a/32077408/2759976)
+    # source: https://scipython.com/blog/plotting-the-decision-boundary-of-a-logistic-regression-model/
+    # y = objs.classifier_obj.decision_function(factual_instance)
+    # w_norm = np.linalg.norm(objs.classifier_obj.coef_)
+    # distance_to_decision_boundary = y / w_norm
+
+    # Implementation #2 (source: https://math.stackexchange.com/a/1210685/641466)
+    distance_to_decision_boundary = (
+      np.dot(
+        objs.classifier_obj.coef_,
+        factual_instance.T
+      ) + objs.classifier_obj.intercept_
+    ) / np.linalg.norm(objs.classifier_obj.coef_)
+    distance_to_decision_boundary = distance_to_decision_boundary[0]
+
+  elif 'mlp' in args.classifier_class:
+    # feed instance forward until penultimate layer, then get inner product of
+    # the instance embedding with the (linear) features of the last layer, just
+    # as was done in 'lr' above.
+
+    # source: https://github.com/amirhk/mace/blob/master/modelConversion.py#L289
+    def getPenultimateEmbedding(model, x):
+      layer_output = x
+      for layer_idx in range(len(model.coefs_) - 1):
+        #
+        layer_input_size = len(model.coefs_[layer_idx])
+        if layer_idx != len(model.coefs_) - 1:
+          layer_output_size = len(model.coefs_[layer_idx + 1])
+        else:
+          layer_output_size = model.n_outputs_
+        #
+        layer_input = layer_output
+        layer_output = [0 for j in range(layer_output_size)]
+        # i: indices of nodes in layer L
+        # j: indices of nodes in layer L + 1
+        for j in range(layer_output_size):
+          score = model.intercepts_[layer_idx][j]
+          for i in range(layer_input_size):
+            score += layer_input[i] * model.coefs_[layer_idx][i][j]
+          if score > 0: # relu operator
+            layer_output[j] = score
+          else:
+            layer_output[j] = 0
+      # no need for final layer output
+      # if layer_output[0] > 0:
+      #   return 1
+      # return 0
+      return layer_output
+
+    penultimate_embedding = getPenultimateEmbedding(objs.classifier_obj, factual_instance[0])
+
+    distance_to_decision_boundary = (
+      np.dot(
+        objs.classifier_obj.coefs_[-1].T,
+        np.array(penultimate_embedding)
+      ) + objs.classifier_obj.intercepts_[-1]
+    ) / np.linalg.norm(objs.classifier_obj.coefs_[-1])
+
   elif 'svm' in args.classifier_class:
     # For non-linear kernels, the weight vector of the SVM hyperplane is not available,
     # in fact for the 'rbf' kernel it is infinite dimensional.
@@ -2001,19 +2055,19 @@ def getTrainableNodesForFairModel(args, objs):
     aware_nodes_noise = []
 
 
-  if args.classifier_class == 'vanilla_svm' or args.classifier_class == 'vanilla_lr':
+  if args.classifier_class == 'vanilla_svm' or args.classifier_class == 'vanilla_lr' or args.classifier_class == 'vanilla_mlp':
     fair_endogenous_nodes = objs.dataset_obj.getInputAttributeNames('kurz')
     fair_exogenous_nodes = []
 
-  elif args.classifier_class == 'nonsens_svm' or args.classifier_class == 'nonsens_lr':
+  elif args.classifier_class == 'nonsens_svm' or args.classifier_class == 'nonsens_lr' or args.classifier_class == 'nonsens_mlp':
     fair_endogenous_nodes = non_sensitive_attribute_nodes
     fair_exogenous_nodes = []
 
-  elif args.classifier_class == 'unaware_svm' or args.classifier_class == 'unaware_lr':
+  elif args.classifier_class == 'unaware_svm' or args.classifier_class == 'unaware_lr' or args.classifier_class == 'unaware_mlp':
     fair_endogenous_nodes = unaware_nodes
     fair_exogenous_nodes = []
 
-  elif args.classifier_class == 'cw_fair_svm' or args.classifier_class == 'cw_fair_lr':
+  elif args.classifier_class == 'cw_fair_svm' or args.classifier_class == 'cw_fair_lr' or args.classifier_class == 'cw_fair_mlp':
     fair_endogenous_nodes = unaware_nodes
     fair_exogenous_nodes = aware_nodes_noise
 
