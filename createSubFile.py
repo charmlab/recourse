@@ -29,21 +29,32 @@ SCM_CLASS_VALUES = ['fair-IMF-LIN', 'fair-CAU-LIN', 'fair-CAU-ANM',
 LAMBDA_LCB_VALUES = [1]
 OPTIMIZATION_APPROACHES = ['brute_force']
 CLASSIFIER_VALUES = ['vanilla_svm',
+                     'vanilla_lr',
+                     'vanilla_mlp',
                      'nonsens_svm',
+                     'nonsens_lr',
+                     'nonsens_mlp',
                      'unaware_svm',
+                     'unaware_lr',
+                     'unaware_mlp',
                      'cw_fair_svm',
+                     'cw_fair_lr',
+                     'cw_fair_mlp',
                      'iw_fair_svm']
 
 # if set to 'all', will select best kernel type based on CV;
 # else uses linear kernel for 'linear' datasets and 'poly' for nonlinear ones
-FAIR_KERNEL_TYPE = 'all'
+FAIR_KERNEL_TYPE = 'NOT all'
 
 NUM_BATCHES = 1
 NUM_NEG_SAMPLES_PER_BATCH = 200
 request_memory = 8192*8
 
 
-sub_file = open('fair_recourse_all_kernels.sub','w')
+if FAIR_KERNEL_TYPE == 'all':
+  sub_file = open('fair_recourse_all_kernels.sub','w')
+else:
+  sub_file = open('fair_recourse.sub','w')
 # print('executable = /home/julisuvk/recourse/_venv/bin/python', file=sub_file)
 print('executable = /home/amir/dev/recourse/_venv/bin/python', file=sub_file)
 print('error = _cluster_logs/test.$(Process).err', file=sub_file)
@@ -86,13 +97,14 @@ for scm_class in SCM_CLASS_VALUES:
             command += f' --sensitive_attribute_nodes x1'
             command += f' --num_train_samples 500'
             command += f' --num_fair_samples 50'
-            if FAIR_KERNEL_TYPE == 'all':
-              command += f' --fair_kernel_type all'
-            else:
-              if 'radial' in scm_class:
-                command += f' --fair_kernel_type poly'
+            if 'svm' in CLASSIFIER_VALUES:
+              if FAIR_KERNEL_TYPE == 'all':
+                command += f' --fair_kernel_type all'
               else:
-                command += f' --fair_kernel_type linear'
+                if 'radial' in scm_class:
+                  command += f' --fair_kernel_type poly'
+                else:
+                  command += f' --fair_kernel_type linear'
 
           # finally add batch, samples, and process id params
           command += f' --batch_number {batch_number}'
