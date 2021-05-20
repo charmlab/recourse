@@ -44,7 +44,8 @@ CLASSIFIER_VALUES = ['vanilla_svm',
 
 # if set to 'all', will select best kernel type based on CV;
 # else uses linear kernel for 'linear' datasets and 'poly' for nonlinear ones
-FAIR_KERNEL_TYPE = 'NOT all'
+# FAIR_KERNEL_TYPE = 'NOT all'
+FAIR_KERNEL_TYPE = 'all'
 
 NUM_BATCHES = 1
 NUM_NEG_SAMPLES_PER_BATCH = 200
