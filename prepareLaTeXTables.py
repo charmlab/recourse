@@ -20,10 +20,10 @@ for approx_scm in ['m0_true', 'm1_alin', 'm1_akrr']:
         'iw_fair_svm',
         'unaware_svm',
         'cw_fair_svm',
-        'vanilla_*', # lr/mlp, depending on scm_setup
-        'nonsens_*', # lr/mlp, depending on scm_setup
-        'unaware_*', # lr/mlp, depending on scm_setup
-        'cw_fair_*', # lr/mlp, depending on scm_setup
+        # 'vanilla_*', # lr/mlp, depending on scm_setup
+        # 'nonsens_*', # lr/mlp, depending on scm_setup
+        # 'unaware_*', # lr/mlp, depending on scm_setup
+        # 'cw_fair_*', # lr/mlp, depending on scm_setup
         ]:
         if fair_model == 'vanilla_svm':
             print('\t' + r'& SVM$(\Xb, A)$')
@@ -58,8 +58,8 @@ for approx_scm in ['m0_true', 'm1_alin', 'm1_akrr']:
                     fair_model = fair_model[:-1] + 'mlp'
 
             # find folder
-            folders = glob.glob(f'./_experiments/_fair_neurips/_table1,2/*{scm_setup}*{fair_model}*')
-            # folders = glob.glob(f'./_experiments/_fair_neurips/_bu_table1,2/*{scm_setup}*{fair_model}*')
+            folders = glob.glob(f'./_experiments/_fair_neurips/_bu_table1,2/*{scm_setup}*{fair_model}*')
+            # folders = glob.glob(f'./_experiments/_fair_neurips/_table1,2/*{scm_setup}*{fair_model}*')
             assert len(folders) == 1
             folder_path = folders[0]
 
