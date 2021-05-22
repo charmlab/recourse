@@ -100,28 +100,38 @@ def trainFairClassifier(model_class, fair_kernel_type):
 
 
 @utils.Memoize
-def loadModelForDataset(model_class, dataset_string, scm_class = None, num_train_samples = 1e5, fair_nodes = None, fair_kernel_type = None, experiment_folder_name = None):
+def loadModelForDataset(model_class, dataset_class, scm_class = None, num_train_samples = 1e5, fair_nodes = None, fair_kernel_type = None, experiment_folder_name = None):
 
   log_file = sys.stdout if experiment_folder_name == None else open(f'{experiment_folder_name}/log_training.txt','w')
 
   if not (model_class in {'lr', 'mlp', 'tree', 'forest'}) and not (model_class in fairRecourse.FAIR_MODELS):
       raise Exception(f'{model_class} not supported.')
 
-  if not (dataset_string in {'synthetic', 'mortgage', 'twomoon', 'german', 'credit', 'compass', 'adult', 'test'}):
-    raise Exception(f'{dataset_string} not supported.')
+  if not (dataset_class in {'synthetic', 'mortgage', 'twomoon', 'german', 'credit', 'compass', 'adult', 'test'}):
+    raise Exception(f'{dataset_class} not supported.')
 
-  dataset_obj = loadData.loadDataset(dataset_string, return_one_hot = True, load_from_cache = False, meta_param = scm_class)
+  if dataset_class == 'adult':
+    dataset_obj = loadData.loadDataset(dataset_class, return_one_hot = False, load_from_cache = False, index_offset = 1)
+  else:
+    dataset_obj = loadData.loadDataset(dataset_class, return_one_hot = True, load_from_cache = False, meta_param = scm_class)
 
   if model_class not in fairRecourse.FAIR_MODELS:
     X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit()
     y_all = pd.concat([y_train, y_test], axis = 0)
     assert sum(y_all) / len(y_all) == 0.5, 'Expected class balance should be 50/50%.'
   else:
-    X_train, X_test, U_train, U_test, y_train, y_test = dataset_obj.getTrainTestSplit(with_meta = True, balanced = False)
-    X_train = pd.concat([X_train, U_train], axis = 1)[fair_nodes]
-    X_test = pd.concat([X_test, U_test], axis = 1)[fair_nodes]
-    y_train = y_train * 2 - 1
-    y_test = y_test * 2 - 1
+    if dataset_class == 'adult':
+      X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit(with_meta = False, balanced = False)
+      X_train = pd.concat([X_train], axis = 1)[fair_nodes]
+      X_test = pd.concat([X_test], axis = 1)[fair_nodes]
+      y_train = y_train * 2 - 1
+      y_test = y_test * 2 - 1
+    else:
+      X_train, X_test, U_train, U_test, y_train, y_test = dataset_obj.getTrainTestSplit(with_meta = True, balanced = False)
+      X_train = pd.concat([X_train, U_train], axis = 1)[fair_nodes]
+      X_test = pd.concat([X_test, U_test], axis = 1)[fair_nodes]
+      y_train = y_train * 2 - 1
+      y_test = y_test * 2 - 1
 
   if model_class == 'tree':
     model_pretrain = DecisionTreeClassifier()

@@ -97,7 +97,10 @@ def loadCausalModel(args, experiment_folder_name):
 @utils.Memoize
 def loadDataset(args, experiment_folder_name):
   # unused: experiment_folder_name
-  return loadData.loadDataset(args.dataset_class, return_one_hot = True, load_from_cache = False, meta_param = args.scm_class)
+  if args.dataset_class == 'adult':
+    return loadData.loadDataset(args.dataset_class, return_one_hot = False, load_from_cache = False, index_offset = 1)
+  else:
+    return loadData.loadDataset(args.dataset_class, return_one_hot = True, load_from_cache = False, meta_param = args.scm_class)
 
 
 @utils.Memoize
@@ -1218,7 +1221,12 @@ def getValidDiscretizedActionSets(args, objs):
   # https://stackoverflow.com/questions/46261671/use-numpy-setdiff1d-keeping-the-order
   intervenable_nodes = np.setdiff1d(
     objs.dataset_obj.getInputAttributeNames('kurz'),
-    args.non_intervenable_nodes,
+    list(
+      np.unique(
+        list(args.non_intervenable_nodes) +
+        list(args.sensitive_attribute_nodes)
+      )
+    )
   )
 
   for attr_name_kurz in intervenable_nodes:
@@ -1293,9 +1301,15 @@ def getValidInterventionSets(args, objs):
   # IMPORTANT: you lose ordering of columns when using setdiff! This should not
   # matter in this part of the code, but may elsewhere. For alternative, see:
   # https://stackoverflow.com/questions/46261671/use-numpy-setdiff1d-keeping-the-order
+  ipsh()
   intervenable_nodes = np.setdiff1d(
     objs.dataset_obj.getInputAttributeNames('kurz'),
-    args.non_intervenable_nodes,
+    list(
+      np.unique(
+        list(args.non_intervenable_nodes) +
+        list(args.sensitive_attribute_nodes)
+      )
+    )
   )
 
   all_intervention_tuples = powerset(intervenable_nodes)
@@ -1611,7 +1625,10 @@ def getNegativelyPredictedInstances(args, objs):
 
     # if fair_model_type is specified, then call .predict() on the trained model
     # using nodes obtained from getTrainableNodesForFairModel().
-    XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True, balanced = True)
+    if args.dataset_class == 'adult':
+      XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = False, balanced = True)
+    else:
+      XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True, balanced = True)
 
     fair_nodes = getTrainableNodesForFairModel(args, objs)
 
@@ -2092,7 +2109,6 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
   assert \
     set(np.unique(np.array(dataset_obj.data_frame_kurz[args.sensitive_attribute_nodes]))) == set(np.array((-1,1))), \
     f'Sensitive attribute must be +1/-1 for SVMRecourse (third-part code) to work.'
-  args.non_intervenable_nodes = args.sensitive_attribute_nodes # TODO (fair): needed?
   sensitive_attribute_node = args.sensitive_attribute_nodes[0]
 
   print(f'[INFO] Evaluating fair recourse metrics for `{args.classifier_class}`...')
@@ -2152,7 +2168,6 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
       **factual_instance, # copy endogenous and exogenous variables
       **twin_endogenous_variables # overwrite endogenous variables
     }
-
 
   # Compute metrics (incl'd cost of recourse and distance to decision boundary)
   per_instance_results_group_1_orig = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_1_orig, recourse_types)
@@ -2274,7 +2289,7 @@ if __name__ == "__main__":
 
   args = parser.parse_args()
 
-  if not (args.dataset_class in {'synthetic'}):
+  if not (args.dataset_class in {'synthetic', 'adult'}):
     raise Exception(f'{args.dataset_class} not supported.')
 
   # create experiment folder
@@ -2307,10 +2322,11 @@ if __name__ == "__main__":
   # 6-variable model.. this is OK b/c the dataset is generated as per this order
   # and consequently the model is trained as such as well (where the 1st feature
   # is x3 in the example above)
-  assert \
-    list(scm_obj.getTopologicalOrdering()) == \
-    list(dataset_obj.getInputAttributeNames()) == \
-    [elem for elem in dataset_obj.data_frame_kurz.columns if 'x' in elem] # endogenous variables must start with `x`
+  if args.dataset_class != 'adult':
+    assert \
+      list(scm_obj.getTopologicalOrdering()) == \
+      list(dataset_obj.getInputAttributeNames()) == \
+      [elem for elem in dataset_obj.data_frame_kurz.columns if 'x' in elem] # endogenous variables must start with `x`
 
   # TODO (lowpri): add more assertions for columns of dataset matching the classifer?
   objs = AttrDict({

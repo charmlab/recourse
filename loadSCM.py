@@ -334,6 +334,30 @@ def loadSCM(scm_class, experiment_folder_name = None):
       'u7': Normal(0, 5**2),
     }
 
+  elif scm_class == 'adult':
+    # TODO: change this placeholder
+    structural_equations_np = {
+      'x1': lambda n_samples,:                                    n_samples,  # A_sex
+      'x2': lambda n_samples,:                                    n_samples,  # C_age
+      'x3': lambda n_samples,:                                    n_samples,  # C_nationality
+      'x4': lambda n_samples, x1, x2, x3:                         n_samples,  # M_marital_status
+      'x5': lambda n_samples, x1, x2, x3:                         n_samples,  # L_education_level
+      'x6': lambda n_samples, x1, x2, x3, x4, x5:                 n_samples,  # R_working_class
+      'x7': lambda n_samples, x1, x2, x3, x4, x5:                 n_samples,  # R_occupation
+      'x8': lambda n_samples, x1, x2, x3, x4, x5:                 n_samples,  # R_hours_per_week
+    }
+    structural_equations_ts = structural_equations_np
+    noises_distributions = {
+      'u1': Normal(0, 1),
+      'u2': Normal(0, 1),
+      'u3': Normal(0, 1),
+      'u4': Normal(0, 1),
+      'u5': Normal(0, 1),
+      'u6': Normal(0, 1),
+      'u7': Normal(0, 1),
+      'u8': Normal(0, 1),
+    }
+
   elif scm_class == 'fair-IMF-LIN' or scm_class == 'fair-IMF-LIN-radial':
 
     structural_equations_np = {
@@ -398,7 +422,10 @@ def loadSCM(scm_class, experiment_folder_name = None):
 
   scm = CausalModel(scm_class, structural_equations_np, structural_equations_ts, noises_distributions)
   # TODO uncomment and repro on other machines
-  # if experiment_folder_name is not None:
-  #   scm.visualizeGraph(experiment_folder_name)
+  if experiment_folder_name is not None:
+    try:
+      scm.visualizeGraph(experiment_folder_name)
+    except Exception as e:
+      print(e)
   return scm
 

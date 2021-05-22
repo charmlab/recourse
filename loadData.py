@@ -514,7 +514,10 @@ class Dataset(object):
 
   def getOriginalDataFrame(self, num_samples, with_meta = False, with_label = False, balanced = True, data_split = 'train_and_test'):
 
-    X_train, X_test, U_train, U_test, y_train, y_test = self.getTrainTestSplit(with_meta = True, balanced = balanced)
+    if with_meta:
+      X_train, X_test, U_train, U_test, y_train, y_test = self.getTrainTestSplit(with_meta = True, balanced = balanced)
+    else:
+      X_train, X_test, y_train, y_test = self.getTrainTestSplit(with_meta = False, balanced = balanced)
 
     # order of if/elif is important
     if with_meta and with_label:
@@ -622,7 +625,7 @@ class DatasetAttribute(object):
     self.upper_bound = upper_bound
 
 
-def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_flag = True, meta_param = None):
+def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_flag = True, index_offset = 0, meta_param = None):
 
   def getInputOutputColumns(data_frame):
     all_data_frame_cols = data_frame.columns.values
@@ -683,37 +686,37 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
         actionability = 'any' # 'none'
         mutability = True
       elif col_name == 'WorkClass':
-        attr_type = 'categorical'
+        attr_type = 'numeric-int' # 'categorical'
         actionability = 'any'
         mutability = True
-      elif col_name == 'EducationNumber':
+      # elif col_name == 'EducationNumber':
+      #   attr_type = 'numeric-int'
+      #   actionability = 'any'
+      #   mutability = True
+      elif col_name == 'EducationLevel':
         attr_type = 'numeric-int'
         actionability = 'any'
         mutability = True
-      elif col_name == 'EducationLevel':
-        attr_type = 'ordinal'
-        actionability = 'any'
-        mutability = True
       elif col_name == 'MaritalStatus':
-        attr_type = 'categorical'
+        attr_type = 'numeric-int' # 'categorical'
         actionability = 'any'
         mutability = True
       elif col_name == 'Occupation':
-        attr_type = 'categorical'
+        attr_type = 'numeric-int' # 'categorical'
         actionability = 'any'
         mutability = True
-      elif col_name == 'Relationship':
-        attr_type = 'categorical'
-        actionability = 'any'
-        mutability = True
-      elif col_name == 'CapitalGain':
-        attr_type = 'numeric-real'
-        actionability = 'any'
-        mutability = True
-      elif col_name == 'CapitalLoss':
-        attr_type = 'numeric-real'
-        actionability = 'any'
-        mutability = True
+      # elif col_name == 'Relationship':
+      #   attr_type = 'categorical'
+      #   actionability = 'any'
+      #   mutability = True
+      # elif col_name == 'CapitalGain':
+      #   attr_type = 'numeric-real'
+      #   actionability = 'any'
+      #   mutability = True
+      # elif col_name == 'CapitalLoss':
+      #   attr_type = 'numeric-real'
+      #   actionability = 'any'
+      #   mutability = True
       elif col_name == 'HoursPerWeek':
         attr_type = 'numeric-int'
         actionability = 'any'
@@ -721,7 +724,7 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
 
       attributes_non_hot[col_name] = DatasetAttribute(
         attr_name_long = col_name,
-        attr_name_kurz = f'x{col_idx}',
+        attr_name_kurz = f'x{col_idx + index_offset}',
         attr_type = attr_type,
         node_type = 'input',
         actionability = actionability,
@@ -785,7 +788,7 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
 
       attributes_non_hot[col_name] = DatasetAttribute(
         attr_name_long = col_name,
-        attr_name_kurz = f'x{col_idx}',
+        attr_name_kurz = f'x{col_idx + index_offset}',
         attr_type = attr_type,
         node_type = 'input',
         actionability = actionability,
@@ -877,7 +880,7 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
 
       attributes_non_hot[col_name] = DatasetAttribute(
         attr_name_long = col_name,
-        attr_name_kurz = f'x{col_idx}',
+        attr_name_kurz = f'x{col_idx + index_offset}',
         attr_type = attr_type,
         node_type = 'input',
         actionability = actionability,
@@ -933,7 +936,7 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
 
       attributes_non_hot[col_name] = DatasetAttribute(
         attr_name_long = col_name,
-        attr_name_kurz = f'x{col_idx}',
+        attr_name_kurz = f'x{col_idx + index_offset}',
         attr_type = attr_type,
         node_type = 'input',
         actionability = actionability,
@@ -1044,7 +1047,7 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
 
       attributes_non_hot[col_name] = DatasetAttribute(
         attr_name_long = col_name,
-        attr_name_kurz = f'x{col_idx}',
+        attr_name_kurz = f'x{col_idx + index_offset}',
         attr_type = attr_type,
         node_type = 'input',
         actionability = actionability,
@@ -1091,7 +1094,7 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
 
       attributes_non_hot[col_name] = DatasetAttribute(
         attr_name_long = col_name,
-        attr_name_kurz = f'x{col_idx}',
+        attr_name_kurz = f'x{col_idx + index_offset}',
         attr_type = attr_type,
         node_type = 'input',
         actionability = actionability,
@@ -1131,7 +1134,7 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
 
       attributes_non_hot[col_name] = DatasetAttribute(
         attr_name_long = col_name,
-        attr_name_kurz = f'x{col_idx}',
+        attr_name_kurz = f'x{col_idx + index_offset}',
         attr_type = attr_type,
         node_type = 'input',
         actionability = actionability,
