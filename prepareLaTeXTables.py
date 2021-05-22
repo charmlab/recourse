@@ -15,15 +15,15 @@ for approx_scm in ['m0_true', 'm1_alin', 'm1_akrr']:
     elif approx_scm == 'm1_akrr':
         print(r'\multirow{5}{*}{$\Hat{\Mcal}_{\text{KR}}$}')
     for fair_model in [
-        # 'vanilla_svm',
-        # 'nonsens_svm',
-        # 'iw_fair_svm',
-        # 'unaware_svm',
-        # 'cw_fair_svm',
-        'vanilla_*', # lr/mlp, depending on scm_setup
-        'nonsens_*', # lr/mlp, depending on scm_setup
-        'unaware_*', # lr/mlp, depending on scm_setup
-        'cw_fair_*', # lr/mlp, depending on scm_setup
+        'vanilla_svm',
+        'nonsens_svm',
+        'iw_fair_svm',
+        'unaware_svm',
+        'cw_fair_svm',
+        # 'vanilla_*', # lr/mlp, depending on scm_setup
+        # 'nonsens_*', # lr/mlp, depending on scm_setup
+        # 'unaware_*', # lr/mlp, depending on scm_setup
+        # 'cw_fair_*', # lr/mlp, depending on scm_setup
         ]:
         if fair_model == 'vanilla_svm':
             print('\t' + r'& SVM$(\Xb, A)$')
@@ -59,7 +59,8 @@ for approx_scm in ['m0_true', 'm1_alin', 'm1_akrr']:
 
             # find folder
             # folders = glob.glob(f'./_experiments/_fair_neurips_old/_bu_table1,2/*{scm_setup}*{fair_model}*')
-            folders = glob.glob(f'./_experiments/_fair_neurips_old/_table1,2/*{scm_setup}*{fair_model}*')
+            # folders = glob.glob(f'./_experiments/_fair_neurips/_table1,2/*{scm_setup}*{fair_model}*')
+            folders = glob.glob(f'./_experiments/_fair_neurips/_table3/*{scm_setup}*{fair_model}*')
             assert len(folders) == 1
             folder_path = folders[0]
 
@@ -74,7 +75,14 @@ for approx_scm in ['m0_true', 'm1_alin', 'm1_akrr']:
                 # load data frame with remainder of results
                 comparison_df = pickle.load(open(os.path.join(folder_path, f'_comparison_{fair_model}'), 'rb'))
             except Exception as e:
-                print(e)
+                print( '\t\t' + \
+                    f'& {np.around(test_acc, 2)} ' + \
+                    f'& -.-- ' + \
+                    f'& -.-- ' + \
+                    f'& -.-- ' + \
+                    f'\% {str(e)[:150]}'
+                )
+                # print(e)
                 continue
 
             # print f'{approx_scm} {fair_model} {scm_setup}'
