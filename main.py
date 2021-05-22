@@ -58,12 +58,12 @@ PROCESSING_CVAE = 'raw'
 
 class Instance(object):
 
-  def __init__(self, factual_instance_dict):
+  def __init__(self, instance_dict, instance_idx=None):
 
-    # self.factual_instance_idx = ...
+    self.instance_idx = instance_idx
     self.endogenous_nodes_dict = dict()
     self.exogenous_nodes_dict = dict()
-    for key, value in factual_instance_dict.items():
+    for key, value in instance_dict.items():
       if 'x' in key:
         self.endogenous_nodes_dict[key] = value
       elif 'u' in key:
@@ -81,12 +81,22 @@ class Instance(object):
     else:
       raise Exception(f'Node type not recognized.')
 
-  def array(self, nested = False, node_types = 'endogenous'):
+  def array(self, node_types = 'endogenous'): #, nested = False
+    ipsh()
     return np.array(
       list( # TODO (BUG???) what happens to this order? are values always ordered correctly?
         self.dict(node_types).values()
       )
     ).reshape(1,-1)
+
+  def keys(self, node_types = 'endogenous'):
+    return self.dict(node_types).keys()
+
+  def values(self, node_types = 'endogenous'):
+    return self.dict(node_types).values()
+
+  def items(self, node_types = 'endogenous'):
+    return self.dict(node_types).items()
 
 
 @utils.Memoize
@@ -177,11 +187,18 @@ def getTorchClassifier(args, objs):
   return fixed_model
 
 
-def measureActionSetCost(args, objs, factual_instance, action_set, processing_type = 'raw', range_normalized = True):
+def measureActionSetCost(args, objs, factual_instance_obj_or_ts, action_set, processing_type = 'raw', range_normalized = True):
   # TODO (cat): add support for categorical data
   # TODO (cat): measured in normalized space over all features
 
-  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), processing_type)
+  # TODO (medpri): this function is called using both brute-force and grad-descent
+  # approach (where the former/latter uses Instance/dict)
+  if isinstance(factual_instance_obj_or_ts, Instance):
+    factual_instance = factual_instance_obj_or_ts.dict()
+  else:
+    factual_instance = factual_instance_obj_or_ts
+
+  X_all = processDataFrameOrInstance(args, objs, getOriginalDataFrame(objs, args.num_train_samples), processing_type)
   ranges = dict(zip(
     X_all.columns,
     [np.max(X_all[col]) - np.min(X_all[col]) for col in X_all.columns],
@@ -222,15 +239,15 @@ def getColumnIndicesFromNames(args, objs, column_names):
   return column_indices
 
 
-def getIndexOfFactualInstanceInDataFrame(factual_instance, data_frame):
-  # data_frame may include X and U, whereas factual_instance only includes X
-  assert set(factual_instance.keys()).issubset(set(data_frame.columns))
+def getIndexOfFactualInstanceInDataFrame(factual_instance_obj, data_frame):
+  # data_frame may include X and U, whereas factual_instance_obj.dict() only includes X
+  assert set(factual_instance_obj.dict().keys()).issubset(set(data_frame.columns))
 
   matching_indicies = []
   for enumeration_idx, (factual_instance_idx, row) in enumerate(data_frame.iterrows()):
     if np.all([
-      factual_instance[key] == row[key]
-      for key in factual_instance.keys()
+      factual_instance_obj.dict()[key] == row[key]
+      for key in factual_instance_obj.dict().keys()
     ]):
       matching_indicies.append(enumeration_idx)
 
@@ -327,13 +344,13 @@ def deprocessTensorOrDictOfTensors(args, objs, obj, processing_type, column_name
   return obj
 
 
-def processDataFrameOrDict(args, objs, obj, processing_type):
+def processDataFrameOrInstance(args, objs, obj, processing_type):
   # TODO (cat): add support for categorical data
 
   if processing_type == 'raw':
     return obj
 
-  if isinstance(obj, dict):
+  if isinstance(obj, Instance):
     iterate_over = obj.keys()
   elif isinstance(obj, pd.DataFrame):
     iterate_over = obj.columns
@@ -361,13 +378,13 @@ def processDataFrameOrDict(args, objs, obj, processing_type):
   return obj
 
 
-def deprocessDataFrameOrDict(args, objs, obj, processing_type):
+def deprocessDataFrameOrInstance(args, objs, obj, processing_type):
   # TODO (cat): add support for categorical data
 
   if processing_type == 'raw':
     return obj
 
-  if isinstance(obj, dict):
+  if isinstance(obj, Instance):
     iterate_over = obj.keys()
   elif isinstance(obj, pd.DataFrame):
     iterate_over = obj.columns
@@ -407,7 +424,7 @@ def getOriginalDataFrame(objs, num_samples, with_meta = False, with_label = Fals
   )
 
 
-def getMinimumObservableInstance(args, objs, factual_instance):
+def getNearestObservableInstance(args, objs, factual_instance_obj):
   # TODO (lowpri): if we end up using this, it is important to keep in mind the processing
   # that is use when calling a specific recourse type because we would have to then
   # perhaps find the MO instance in the original data, but then initialize the action
@@ -415,7 +432,7 @@ def getMinimumObservableInstance(args, objs, factual_instance):
 
   X_all = getOriginalDataFrame(objs, args.num_train_samples)
   # compute distances between factual instance and all instances in X_all
-  tmp = np.array(list(factual_instance.values())).reshape(1,-1)[:,None] - X_all.to_numpy()
+  tmp = np.array(list(factual_instance_obj.dict().values())).reshape(1,-1)[:,None] - X_all.to_numpy()
   tmp = tmp.squeeze()
   min_cost = np.infty
   min_observable_dict = None
@@ -423,10 +440,10 @@ def getMinimumObservableInstance(args, objs, factual_instance):
   for observable_idx in range(tmp.shape[0]):
     # CLOSEST INSTANCE ON THE OTHER SIDE!!
     observable_distance_np = tmp[observable_idx,:]
-    observable_instance = X_all.iloc[observable_idx].T.to_dict()
+    observable_instance_obj = Instance(X_all.iloc[observable_idx].T.to_dict())
     if \
-      getPrediction(args, objs, factual_instance) != \
-      getPrediction(args, objs, observable_instance):
+      getPrediction(args, objs, factual_instance_obj) != \
+      getPrediction(args, objs, observable_instance_obj):
       observable_distance = np.linalg.norm(observable_distance_np)
       if observable_distance < min_cost:
         min_cost = observable_distance
@@ -452,17 +469,17 @@ def prettyPrintDict(my_dict):
   return my_dict
 
 
-def getPrediction(args, objs, instance):
+def getPrediction(args, objs, instance_obj):
   sklearn_model = objs.classifier_obj
-  prediction = sklearn_model.predict(np.array(list(instance.values())).reshape(1,-1))[0]
+  prediction = sklearn_model.predict(np.array(list(instance_obj.dict().values())).reshape(1,-1))[0]
   assert prediction in {0, 1}, f'Expected prediction in {0,1}; got {prediction}'
   return prediction
 
 
-def didFlip(args, objs, factual_instance, counterfactual_instance):
+def didFlip(args, objs, factual_instance_obj, counter_instance_obj):
   return \
-    getPrediction(args, objs, factual_instance) != \
-    getPrediction(args, objs, counterfactual_instance)
+    getPrediction(args, objs, factual_instance_obj) != \
+    getPrediction(args, objs, counter_instance_obj)
 
 
 def getConditionalString(node, parents):
@@ -473,7 +490,7 @@ def getConditionalString(node, parents):
 def trainRidge(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using Ridge on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
-  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_SKLEARN)
+  X_all = processDataFrameOrInstance(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_SKLEARN)
   param_grid = {'alpha': np.logspace(-2, 1, 10)}
   model = GridSearchCV(Ridge(), param_grid=param_grid)
   model.fit(X_all[parents], X_all[[node]])
@@ -484,7 +501,7 @@ def trainRidge(args, objs, node, parents):
 def trainKernelRidge(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using KernelRidge on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
-  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_SKLEARN)
+  X_all = processDataFrameOrInstance(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_SKLEARN)
   param_grid = {
     'alpha': np.logspace(-2, 1, 5),
     'kernel': [
@@ -505,7 +522,7 @@ def trainKernelRidge(args, objs, node, parents):
 def trainCVAE(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using CVAE on {args.num_train_samples * 4} samples; this may be very expensive, memoizing afterwards.')
-  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples * 4 + args.num_validation_samples), PROCESSING_CVAE)
+  X_all = processDataFrameOrInstance(args, objs, getOriginalDataFrame(objs, args.num_train_samples * 4 + args.num_validation_samples), PROCESSING_CVAE)
 
   if args.scm_class == 'sanity-3-lin':
     if node == 'x2':
@@ -644,7 +661,7 @@ def trainCVAE(args, objs, node, parents):
 def trainGP(args, objs, node, parents):
   assert len(parents) > 0, 'parents set cannot be empty.'
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using GP on {args.num_train_samples} samples; this may be very expensive, memoizing afterwards.')
-  X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS)
+  X_all = processDataFrameOrInstance(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS)
 
   kernel = GPy.kern.RBF(input_dim=len(parents), ARD=True)
   # IMPORTANT: do NOT use DataFrames, use Numpy arrays; GPy doesn't like DF.
@@ -659,7 +676,15 @@ def trainGP(args, objs, node, parents):
   return kernel, X_all, model
 
 
-def _getAbductionNoise(args, objs, node, parents, factual_instance, structural_equation):
+def _getAbductionNoise(args, objs, node, parents, factual_instance_obj_or_ts, structural_equation):
+
+  # TODO (medpri): this function is called using both brute-force and grad-descent
+  # approach (where the former/latter uses Instance/dict)
+  if isinstance(factual_instance_obj_or_ts, Instance):
+    factual_instance = factual_instance_obj_or_ts.dict()
+  else:
+    factual_instance = factual_instance_obj_or_ts
+
   # only applies for ANM models
   return factual_instance[node] - structural_equation(
     0,
@@ -667,28 +692,23 @@ def _getAbductionNoise(args, objs, node, parents, factual_instance, structural_e
   )
 
 
-def sampleTrue(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type):
-  # Step 1. [abduction]: compute noise or load from dataset using factual_instance
+def sampleTrue(args, objs, factual_instance_obj, factual_df, samples_df, node, parents, recourse_type):
+  # Step 1. [abduction]: compute noise or load from dataset using factual_instance_obj
   # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
   # Step 3. [prediction]: run through structural equation using noise and parents from samples_df
   structural_equation = objs.scm_obj.structural_equations_np[node]
 
   if recourse_type == 'm0_true':
 
-    noise_pred = _getAbductionNoise(args, objs, node, parents, factual_instance, structural_equation)
-    # TODO (fair): bring back the code below; can't do so with twin_factual_instances.
-    # XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True)
-    # tmp_idx = getIndexOfFactualInstanceInDataFrame(factual_instance, XU_all)
-    # noise_true = XU_all.iloc[tmp_idx][getNoiseStringForNode(node)]
-    # # # print(f'noise_pred: {noise_pred:.8f} \t noise_true: {noise_true:.8f} \t difference: {np.abs(noise_pred - noise_true):.8f}')
+    noise_pred = _getAbductionNoise(args, objs, node, parents, factual_instance_obj, structural_equation)
 
-    # # # noise_pred assume additive noise, and therefore only works with
-    # # # models such as 'm1_alin' and 'm1_akrr' in general cases
-    # # noise = noise_pred
-    # # noise = noise_true
-    # if args.scm_class != 'sanity-3-gen':
-    #   assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
-    # noise = noise_true
+    try: # may fail if noise variables are not present in the data (e.g., for real-world adult, we have no noise variables)
+      noise_true = factual_instance_obj.dict('endogenous_and_exogenous')[f'u{node[1:]}']
+
+      if args.scm_class != 'sanity-3-gen':
+        assert np.abs(noise_pred - noise_true) < 1e-5, 'Noise {pred, true} expected to be similar, but not.'
+    except:
+      pass
     noise = noise_pred
 
     samples_df[node] = structural_equation(
@@ -706,11 +726,11 @@ def sampleTrue(args, objs, factual_instance, factual_df, samples_df, node, paren
   return samples_df
 
 
-def sampleRidgeKernelRidge(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type):
-  samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_SKLEARN)
-  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_SKLEARN)
+def sampleRidgeKernelRidge(args, objs, factual_instance_obj, factual_df, samples_df, node, parents, recourse_type):
+  samples_df = processDataFrameOrInstance(args, objs, samples_df.copy(), PROCESSING_SKLEARN)
+  factual_instance_obj = processDataFrameOrInstance(args, objs, factual_instance_obj, PROCESSING_SKLEARN)
 
-  # Step 1. [abduction]: compute noise or load from dataset using factual_instance
+  # Step 1. [abduction]: compute noise or load from dataset using factual_instance_obj
   # Step 2. [action]: (skip) this step is implicitly performed in the populated samples_df columns
   # Step 3. [prediction]: run through structural equation using noise and parents from samples_df
   if recourse_type == 'm1_alin':
@@ -721,18 +741,18 @@ def sampleRidgeKernelRidge(args, objs, factual_instance, factual_df, samples_df,
     raise Exception(f'{recourse_type} not recognized.')
   structural_equation = lambda noise, *parents_values: trained_model.predict([[*parents_values]])[0][0] + noise
   for row_idx, row in samples_df.iterrows():
-    noise = _getAbductionNoise(args, objs, node, parents, factual_instance, structural_equation)
+    noise = _getAbductionNoise(args, objs, node, parents, factual_instance_obj, structural_equation)
     samples_df.loc[row_idx, node] = structural_equation(
       noise,
       *samples_df.loc[row_idx, parents].to_numpy(),
     )
-  samples_df = deprocessDataFrameOrDict(args, objs, samples_df, PROCESSING_SKLEARN)
+  samples_df = deprocessDataFrameOrInstance(args, objs, samples_df, PROCESSING_SKLEARN)
   return samples_df
 
 
-def sampleCVAE(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type, trained_cvae = None):
-  samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_CVAE)
-  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_CVAE)
+def sampleCVAE(args, objs, factual_instance_obj, factual_df, samples_df, node, parents, recourse_type, trained_cvae = None):
+  samples_df = processDataFrameOrInstance(args, objs, samples_df.copy(), PROCESSING_CVAE)
+  factual_instance_obj = processDataFrameOrInstance(args, objs, factual_instance_obj, PROCESSING_CVAE)
 
   if trained_cvae is None: # pseudonym: UGLY CODE
     trained_cvae = trainCVAE(args, objs, node, parents)
@@ -753,13 +773,13 @@ def sampleCVAE(args, objs, factual_instance, factual_df, samples_df, node, paren
   new_samples = new_samples.rename(columns={0: node}) # bad code pseudonym, this violates abstraction!
   samples_df = samples_df.reset_index(drop=True)
   samples_df[node] = new_samples.astype('float64')
-  samples_df = deprocessDataFrameOrDict(args, objs, samples_df, PROCESSING_CVAE)
+  samples_df = deprocessDataFrameOrInstance(args, objs, samples_df, PROCESSING_CVAE)
   return samples_df
 
 
-def sampleGP(args, objs, factual_instance, factual_df, samples_df, node, parents, recourse_type):
-  samples_df = processDataFrameOrDict(args, objs, samples_df.copy(), PROCESSING_GAUS)
-  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), PROCESSING_GAUS)
+def sampleGP(args, objs, factual_instance_obj, factual_df, samples_df, node, parents, recourse_type):
+  samples_df = processDataFrameOrInstance(args, objs, samples_df.copy(), PROCESSING_GAUS)
+  factual_instance_obj = processDataFrameOrInstance(args, objs, factual_instance_obj, PROCESSING_GAUS)
 
   kernel, X_all, model = trainGP(args, objs, node, parents)
   X_parents = torch.tensor(samples_df[parents].to_numpy())
@@ -768,19 +788,27 @@ def sampleGP(args, objs, factual_instance, factual_df, samples_df, node, parents
     # IMPORTANT: Find index of factual instance in dataframe used for training GP
     #            (earlier, the factual instance was appended as the last instance)
     tmp_idx = getIndexOfFactualInstanceInDataFrame(
-      factual_instance,
-      processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
+      factual_instance_obj,
+      processDataFrameOrInstance(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
     ) # TODO (lowpri): can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
     new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'cf', tmp_idx)
   elif recourse_type == 'm2_gaus': # interventional distribution for node
     new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'iv')
 
   samples_df[node] = new_samples.numpy()
-  samples_df = deprocessDataFrameOrDict(args, objs, samples_df, PROCESSING_GAUS)
+  samples_df = deprocessDataFrameOrInstance(args, objs, samples_df, PROCESSING_GAUS)
   return samples_df
 
 
-def _getCounterfactualTemplate(args, objs, factual_instance, action_set, recourse_type):
+def _getCounterfactualTemplate(args, objs, factual_instance_obj_or_ts, action_set, recourse_type):
+
+  # TODO (medpri): this function is called using both brute-force and grad-descent
+  # approach (where the former/latter uses Instance/dict)
+  if isinstance(factual_instance_obj_or_ts, Instance):
+    factual_instance = factual_instance_obj_or_ts.dict()
+  else:
+    factual_instance = factual_instance_obj_or_ts
+
   counterfactual_template = dict.fromkeys(
     objs.dataset_obj.getInputAttributeNames(),
     np.NaN,
@@ -808,13 +836,13 @@ def _getCounterfactualTemplate(args, objs, factual_instance, action_set, recours
   return counterfactual_template
 
 
-def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, num_samples):
+def _samplingInnerLoop(args, objs, factual_instance_obj, action_set, recourse_type, num_samples):
 
-  counterfactual_template = _getCounterfactualTemplate(args, objs, factual_instance, action_set, recourse_type)
+  counterfactual_template = _getCounterfactualTemplate(args, objs, factual_instance_obj, action_set, recourse_type)
 
   factual_df = pd.DataFrame(dict(zip(
     objs.dataset_obj.getInputAttributeNames(),
-    [num_samples * [factual_instance[node]] for node in objs.dataset_obj.getInputAttributeNames()],
+    [num_samples * [factual_instance_obj.dict()[node]] for node in objs.dataset_obj.getInputAttributeNames()],
   )))
   # this dataframe has populated columns set to intervention or conditioning values
   # and has NaN columns that will be set accordingly.
@@ -848,7 +876,7 @@ def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 
       samples_df = sampling_handle(
         args,
         objs,
-        factual_instance,
+        factual_instance_obj,
         factual_df,
         samples_df,
         node,
@@ -862,7 +890,7 @@ def _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 
   return samples_df
 
 
-def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, action_set_ts, recourse_type):
+def _samplingInnerLoopTensor(args, objs, factual_instance_obj, factual_instance_ts, action_set_ts, recourse_type):
 
   counterfactual_template_ts = _getCounterfactualTemplate(args, objs, factual_instance_ts, action_set_ts, recourse_type)
 
@@ -950,10 +978,10 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
           # IMPORTANT: Find index of factual instance in dataframe used for training GP
           #            (earlier, the factual instance was appended as the last instance)
           # DO NOT DO THIS: conversion from float64 to torch and back will make it impossible to find the instance idx
-          # factual_instance = {k:v.item() for k,v in factual_instance_ts.items()}
+          # factual_instance_obj = {k:v.item() for k,v in factual_instance_ts.items()}
           tmp_idx = getIndexOfFactualInstanceInDataFrame( # TODO (lowpri): write this as ts function as well?
-            factual_instance,
-            processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
+            factual_instance_obj,
+            processDataFrameOrInstance(args, objs, getOriginalDataFrame(objs, args.num_train_samples), PROCESSING_GAUS),
           ) # TODO (lowpri): can probably rewrite to just evaluate the posterior again given the same result.. (without needing to look through the dataset)
           new_samples = gpHelper.sample_from_GP_model(model, X_parents, 'cf', tmp_idx)
         elif recourse_type == 'm2_gaus': # interventional distribution for node
@@ -982,94 +1010,86 @@ def _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, 
   return samples_ts
 
 
-def computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type):
+def computeCounterfactualInstance(args, objs, factual_instance_obj, action_set, recourse_type):
 
   assert recourse_type in ACCEPTABLE_POINT_RECOURSE
 
   if not bool(action_set): # if action_set is empty, CFE = F
-    return factual_instance
+    return factual_instance_obj
 
-  samples_df = _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 1)
+  samples_df = _samplingInnerLoop(args, objs, factual_instance_obj, action_set, recourse_type, 1)
 
-  return samples_df.loc[0].to_dict() # return the first instance
+  counter_instance_dict = samples_df.loc[0].to_dict() # only endogenous variables
+  return Instance({
+    **factual_instance_obj.dict('endogenous_and_exogenous'), # copy endogenous and exogenous variables
+    **counter_instance_dict # overwrite endogenous variables
+  })
 
 
-def getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, num_samples):
+def getRecourseDistributionSample(args, objs, factual_instance_obj, action_set, recourse_type, num_samples):
 
   assert recourse_type in ACCEPTABLE_DISTR_RECOURSE
 
   if not bool(action_set): # if action_set is empty, CFE = F
     return pd.DataFrame(dict(zip(
       objs.dataset_obj.getInputAttributeNames(),
-      [num_samples * [factual_instance[node]] for node in objs.dataset_obj.getInputAttributeNames()],
+      [num_samples * [factual_instance_obj.dict()[node]] for node in objs.dataset_obj.getInputAttributeNames()],
     )))
 
-  samples_df = _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, num_samples)
+  samples_df = _samplingInnerLoop(args, objs, factual_instance_obj, action_set, recourse_type, num_samples)
 
   return samples_df # return the entire data frame
 
 
-def isPredictionOfInstanceInClass(args, objs, instance, prediction_class):
+def isPredictionOfInstanceInClass(args, objs, instance_obj, prediction_class):
 
   # get instance for trained model
   if args.classifier_class in fairRecourse.FAIR_MODELS:
 
-    # instance here should have all endogenous nodes as keys
-    assert np.all(objs.dataset_obj.getInputAttributeNames() == list(instance.keys()))
-
-    # keep track of the factual_instance_obj and it's exogenous variables.
-    factual_instance_dict = objs.factual_instance_obj.dict('endogenous_and_exogenous')
-
-    # then overwrite the above with endogenous values (possible intervened-upon
-    # or down-stream values) from the counterfactual instance
-
-    instance = {**factual_instance_dict, **instance}
-
-    # then select only those keys that are used as input to the fair model
     fair_nodes = getTrainableNodesForFairModel(args, objs)
-    instance = dict(zip(
+    instance_dict = dict(zip(
       fair_nodes,
-      [instance[key] for key in fair_nodes]
+      [instance_obj.dict('endogenous_and_exogenous')[key] for key in fair_nodes]
     ))
 
   else:
     # just keep instance as is w/ all attributes (i.e., no need to do anything)
-    pass
+    instance_dict = instance_obj.dict('endogenous')
 
   # convert instance (dictionary) to instance (array) to input into sklearn model
-  instance = np.expand_dims(np.array(list(instance.values())), axis=0)
+  instance_array = np.expand_dims(np.array(list(instance_dict.values())), axis=0)
 
   if prediction_class == 'positive':
     if args.classifier_class in fairRecourse.FAIR_MODELS:
-      return objs.classifier_obj.predict(instance)[0] == 1
+      return objs.classifier_obj.predict(instance_array)[0] == 1
     else:
-      return objs.classifier_obj.predict_proba(instance)[0][1] > 0.5
+      return objs.classifier_obj.predict_proba(instance_array)[0][1] > 0.5
   elif prediction_class == 'negative':
     if args.classifier_class in fairRecourse.FAIR_MODELS:
-      return objs.classifier_obj.predict(instance)[0] == -1
+      return objs.classifier_obj.predict(instance_array)[0] == -1
     else:
-      return objs.classifier_obj.predict_proba(instance)[0][1] <= .50 - args.epsilon_boundary
+      return objs.classifier_obj.predict_proba(instance_array)[0][1] <= .50 - args.epsilon_boundary
   else:
     raise NotImplementedError
 
 
-def isPointConstraintSatisfied(args, objs, factual_instance, action_set, recourse_type):
-  counter_instance = computeCounterfactualInstance(
+def isPointConstraintSatisfied(args, objs, factual_instance_obj, action_set, recourse_type):
+  counter_instance_obj = computeCounterfactualInstance(
     args,
     objs,
-    factual_instance,
+    factual_instance_obj,
     action_set,
     recourse_type,
   )
   # assert counter instance has prediction = `positive`
-  return isPredictionOfInstanceInClass(args, objs, counter_instance, 'positive')
+  return isPredictionOfInstanceInClass(args, objs, counter_instance_obj, 'positive')
 
 
-def isDistrConstraintSatisfied(args, objs, factual_instance, action_set, recourse_type):
-  return computeLowerConfidenceBound(args, objs, factual_instance, action_set, recourse_type) > 0.5
+def isDistrConstraintSatisfied(args, objs, factual_instance_obj, action_set, recourse_type):
+  return computeLowerConfidenceBound(args, objs, factual_instance_obj, action_set, recourse_type) > 0.5
 
 
-def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recourse_type):
+def computeLowerConfidenceBound(args, objs, factual_instance_obj, action_set, recourse_type):
   if args.classifier_class in fairRecourse.FAIR_MODELS:
     # raise NotImplementedError
     print('[WARNING] computing lower confidence bound with SVM model using predict_proba() may not work as intended.')
@@ -1077,7 +1097,7 @@ def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recour
   monte_carlo_samples_df = getRecourseDistributionSample(
     args,
     objs,
-    factual_instance,
+    factual_instance_obj,
     action_set,
     recourse_type,
     args.num_mc_samples,
@@ -1094,7 +1114,7 @@ def computeLowerConfidenceBound(args, objs, factual_instance, action_set, recour
   # EITHER CLASS. THEREFORE, THE CONSTRAINT IS SATISFIED WHEN SIGNIFICANTLY
   # > 0.5 OR < 0.5 FOR A FACTUAL SAMPLE WITH Y = 0 OR Y = 1, RESPECTIVELY.
 
-  if getPrediction(args, objs, factual_instance) == 0:
+  if getPrediction(args, objs, factual_instance_obj) == 0:
     return expectation - args.lambda_lcb * std # NOTE DIFFERNCE IN SIGN OF STD
   else: # factual_prediction == 1
     raise Exception(f'Should only be considering negatively predicted individuals...')
@@ -1111,23 +1131,22 @@ def evaluateKernelForFairSVM(classifier, *params):
     return partial(polynomial_kernel, degree=classifier.degree)(*params)
 
 
-def measureDistanceToDecisionBoundary(args, objs, factual_instance):
-  # TODO (fair): DO NOT USE factual_instance, INSTEAD USE objs.factual_instance_obj
+def measureDistanceToDecisionBoundary(args, objs, factual_instance_obj):
   if args.classifier_class not in fairRecourse.FAIR_MODELS:
     # raise NotImplementedError
     print(f'[WARNING] computing dist to decision boundary in closed-form for `{args.classifier_class}` model is not supported.')
     return -1
 
   # keep track of the factual_instance_obj and it's exogenous variables.
-  factual_instance_dict = objs.factual_instance_obj.dict('endogenous_and_exogenous')
+  factual_instance_dict = factual_instance_obj.dict('endogenous_and_exogenous')
 
   # then select only those keys that are used as input to the fair model
   fair_nodes = getTrainableNodesForFairModel(args, objs)
-  factual_instance = dict(zip(
+  factual_instance_dict = dict(zip(
     fair_nodes,
-    [factual_instance_dict[key] for key in fair_nodes]
+    [factual_instance_obj.dict('endogenous_and_exogenous')[key] for key in fair_nodes]
   ))
-  factual_instance = np.array(list(factual_instance.values())).reshape(1,-1)
+  factual_instance_array = np.expand_dims(np.array(list(factual_instance_dict.values())), axis=0)
 
   if 'lr' in args.classifier_class:
     # Implementation #1 (source: https://stackoverflow.com/a/32077408/2759976)
@@ -1140,7 +1159,7 @@ def measureDistanceToDecisionBoundary(args, objs, factual_instance):
     distance_to_decision_boundary = (
       np.dot(
         objs.classifier_obj.coef_,
-        factual_instance.T
+        factual_instance_array.T
       ) + objs.classifier_obj.intercept_
     ) / np.linalg.norm(objs.classifier_obj.coef_)
     distance_to_decision_boundary = distance_to_decision_boundary[0]
@@ -1179,7 +1198,7 @@ def measureDistanceToDecisionBoundary(args, objs, factual_instance):
       # return 0
       return layer_output
 
-    penultimate_embedding = getPenultimateEmbedding(objs.classifier_obj, factual_instance[0])
+    penultimate_embedding = getPenultimateEmbedding(objs.classifier_obj, factual_instance_array[0])
 
     distance_to_decision_boundary = (
       np.dot(
@@ -1201,11 +1220,11 @@ def measureDistanceToDecisionBoundary(args, objs, factual_instance):
       kernel_matrix_for_support_vectors = evaluateKernelForFairSVM(objs.classifier_obj, support_vectors)
       squared_norm_of_weight_vector = np.einsum('ij, jk, lk', dual_coefficients, kernel_matrix_for_support_vectors, dual_coefficients)
       norm_of_weight_vector = np.sqrt(squared_norm_of_weight_vector.flatten())
-      distance_to_decision_boundary = objs.classifier_obj.decision_function(factual_instance)/norm_of_weight_vector
+      distance_to_decision_boundary = objs.classifier_obj.decision_function(factual_instance_array)/norm_of_weight_vector
     except:
       # For RecourseSVM (third_party code) normalisation by the norm of the weight vector is hardcoded into
       # .decision_function so that the output is already an absolute distance.
-      distance_to_decision_boundary = objs.classifier_obj.decision_function(factual_instance)
+      distance_to_decision_boundary = objs.classifier_obj.decision_function(factual_instance_array)
   else:
     raise NotImplementedError
 
@@ -1301,7 +1320,6 @@ def getValidInterventionSets(args, objs):
   # IMPORTANT: you lose ordering of columns when using setdiff! This should not
   # matter in this part of the code, but may elsewhere. For alternative, see:
   # https://stackoverflow.com/questions/46261671/use-numpy-setdiff1d-keeping-the-order
-  ipsh()
   intervenable_nodes = np.setdiff1d(
     objs.dataset_obj.getInputAttributeNames('kurz'),
     list(
@@ -1322,7 +1340,7 @@ def getValidInterventionSets(args, objs):
   return all_intervention_tuples
 
 
-def performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type):
+def performGradDescentOptimization(args, objs, factual_instance_obj, save_path, intervention_set, recourse_type):
 
   def saveLossCurve(save_path, intervention_set, best_action_set_epoch, all_logs):
     fig, axes = plt.subplots(2 + len(intervention_set), 1, sharex=True)
@@ -1360,7 +1378,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     plt.savefig(f'{save_path}/{str(intervention_set)}.pdf')
     plt.close()
 
-  # IMPORTANT: if you process factual_instance here, then action_set_ts and
+  # IMPORTANT: if you process factual_instance_obj here, then action_set_ts and
   #            factual_instance_ts will also be normalized down-stream. Then
   #            at the end of this method, simply deprocess action_set_ts. One
   #            thing to note is the computation of distance may not be [0,1]
@@ -1373,18 +1391,18 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     tmp_processing_type = PROCESSING_GAUS
   elif recourse_type in {'m1_cvae', 'm2_cvae', 'm2_cvae_ps'}:
     tmp_processing_type = PROCESSING_CVAE
-  factual_instance = processDataFrameOrDict(args, objs, factual_instance.copy(), tmp_processing_type)
+  factual_instance_obj = processDataFrameOrInstance(args, objs, factual_instance_obj, tmp_processing_type)
 
   # IMPORTANT: action_set_ts includes trainable params, but factual_instance_ts does not.
-  factual_instance_ts = {k: torch.tensor(v, dtype=torch.float32) for k, v in factual_instance.items()}
+  factual_instance_ts = {k: torch.tensor(v, dtype=torch.float32) for k, v in factual_instance_obj.items()}
 
 
-  def initializeNonSaturatedActionSet(args, objs, factual_instance, intervention_set, recourse_type):
+  def initializeNonSaturatedActionSet(args, objs, factual_instance_obj, intervention_set, recourse_type):
     # default action_set
     action_set = dict(zip(
       intervention_set,
       [
-        factual_instance[node]
+        factual_instance_obj.dict()[node]
         for node in intervention_set
       ]
     ))
@@ -1394,9 +1412,9 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
       action_set = {k : v + noise_multiplier * np.random.randn() for k,v in action_set.items()}
       # sample values
       if recourse_type in ACCEPTABLE_POINT_RECOURSE:
-        samples_df = _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, 1)
+        samples_df = _samplingInnerLoop(args, objs, factual_instance_obj, action_set, recourse_type, 1)
       elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
-        samples_df = _samplingInnerLoop(args, objs, factual_instance, action_set, recourse_type, args.num_mc_samples)
+        samples_df = _samplingInnerLoop(args, objs, factual_instance_obj, action_set, recourse_type, args.num_mc_samples)
       # return action set if average predictive probability of samples >= eps (non-saturated region of classifier)
       predict_proba_list = objs.classifier_obj.predict_proba(samples_df)[:,1]
       if np.mean(predict_proba_list) >= 5e-2 and np.mean(predict_proba_list) - 0.5: # don't want to start on the other side
@@ -1405,7 +1423,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     return action_set
 
 
-  action_set = initializeNonSaturatedActionSet(args, objs, factual_instance, intervention_set, recourse_type)
+  action_set = initializeNonSaturatedActionSet(args, objs, factual_instance_obj, intervention_set, recourse_type)
   action_set_ts = {k : torch.tensor(v, requires_grad = True, dtype=torch.float32) for k,v in action_set.items()}
 
   # TODO (lowpri): make input args
@@ -1446,7 +1464,7 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
     # CONSTRUCT COMPUTATION GRAPH
     # ========================================================================
 
-    samples_ts = _samplingInnerLoopTensor(args, objs, factual_instance, factual_instance_ts, action_set_ts, recourse_type)
+    samples_ts = _samplingInnerLoopTensor(args, objs, factual_instance_obj, factual_instance_ts, action_set_ts, recourse_type)
 
     # ========================================================================
     # COMPUTE LOSS
@@ -1550,16 +1568,16 @@ def performGradDescentOptimization(args, objs, factual_instance, save_path, inte
   # or it will be the best_action_set seen so far (smallest cost and valid const)
   # whether or not it triggered K times to initiate early stopping.
   action_set = {k : v for k,v in best_action_set.items()}
-  action_set = deprocessDataFrameOrDict(args, objs, action_set, tmp_processing_type)
+  action_set = deprocessDataFrameOrInstance(args, objs, action_set, tmp_processing_type)
   return action_set, recourse_satisfied, min_valid_cost
 
 
-def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_type):
+def computeOptimalActionSet(args, objs, factual_instance_obj, save_path, recourse_type):
 
   # assert factual instance has prediction = `negative`
-  # assert isPredictionOfInstanceInClass(args, objs, factual_instance, 'negative')
+  # assert isPredictionOfInstanceInClass(args, objs, factual_instance_obj, 'negative')
   # TODO (fair): bring back the code above; can't do so with twin_factual_instances.
-  if not isPredictionOfInstanceInClass(args, objs, factual_instance, 'negative'):
+  if not isPredictionOfInstanceInClass(args, objs, factual_instance_obj, 'negative'):
     return {} # return empty action set for those twin_factual_instances that are not negatively predicted
 
   if recourse_type in ACCEPTABLE_POINT_RECOURSE:
@@ -1577,8 +1595,8 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
     min_cost = np.infty
     min_cost_action_set = {}
     for action_set in tqdm(valid_action_sets):
-      if constraint_handle(args, objs, factual_instance, action_set, recourse_type):
-        cost_of_action_set = measureActionSetCost(args, objs, factual_instance, action_set)
+      if constraint_handle(args, objs, factual_instance_obj, action_set, recourse_type):
+        cost_of_action_set = measureActionSetCost(args, objs, factual_instance_obj, action_set)
         if cost_of_action_set < min_cost:
           min_cost = cost_of_action_set
           min_cost_action_set = action_set
@@ -1594,9 +1612,9 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
     min_cost_action_set = {}
     for idx, intervention_set in enumerate(valid_intervention_sets):
       # print(f'\n\t[INFO] intervention set #{idx+1}/{len(valid_intervention_sets)}: {str(intervention_set)}')
-      # plotOptimizationLandscape(args, objs, factual_instance, save_path, intervention_set, recourse_type)
-      action_set, recourse_satisfied, cost_of_action_set = performGradDescentOptimization(args, objs, factual_instance, save_path, intervention_set, recourse_type)
-      if constraint_handle(args, objs, factual_instance, action_set, recourse_type):
+      # plotOptimizationLandscape(args, objs, factual_instance_obj, save_path, intervention_set, recourse_type)
+      action_set, recourse_satisfied, cost_of_action_set = performGradDescentOptimization(args, objs, factual_instance_obj, save_path, intervention_set, recourse_type)
+      if constraint_handle(args, objs, factual_instance_obj, action_set, recourse_type):
         assert recourse_satisfied # a bit redundant, but just in case, we check
                                   # that the MC samples from constraint_handle()
                                   # on the line above and the MC samples from
@@ -1604,7 +1622,7 @@ def computeOptimalActionSet(args, objs, factual_instance, save_path, recourse_ty
                                   # that recourse has been satisfied
         assert np.isclose( # won't be exact becuase the former is float32 tensor
           cost_of_action_set,
-          measureActionSetCost(args, objs, factual_instance, action_set),
+          measureActionSetCost(args, objs, factual_instance_obj, action_set),
           atol = 1e-2,
         )
         if cost_of_action_set < min_cost:
@@ -1653,7 +1671,7 @@ def getNegativelyPredictedInstances(args, objs):
     # (i.e., we can cache).
 
     # Only focus on instances with h(x^f) = 0 and therfore h(x^cf) = 1; do not use
-    # processDataFrameOrDict because classifier is trained on original data
+    # processDataFrameOrInstance because classifier is trained on original data
     X_all = getOriginalDataFrame(objs, args.num_train_samples)
 
     # X_all = getOriginalDataFrame(objs, args.num_train_samples + args.num_validation_samples)
@@ -1811,11 +1829,11 @@ def runSubPlotSanity(args, objs, experiment_folder_name, experimental_setups, fa
       recourse_type, marker = experimental_setup[0], experimental_setup[1]
 
       if recourse_type in ACCEPTABLE_POINT_RECOURSE:
-        sample = computeCounterfactualInstance(args, objs, factual_instance, action_set, recourse_type)
+        sample = computeCounterfactualInstance(args, objs, Instance(factual_instance), action_set, recourse_type)
         print(f'{recourse_type}:\t{prettyPrintDict(sample)}')
         axes.flatten()[idx].plot(sample['x2'], sample['x3'], marker, alpha=1.0, markersize = 7, label=recourse_type)
       elif recourse_type in ACCEPTABLE_DISTR_RECOURSE:
-        samples = getRecourseDistributionSample(args, objs, factual_instance, action_set, recourse_type, args.num_display_samples)
+        samples = getRecourseDistributionSample(args, objs, Instance(factual_instance), action_set, recourse_type, args.num_display_samples)
         print(f'{recourse_type}:\n{samples.head()}')
         axes.flatten()[idx].plot(samples['x2'], samples['x3'], marker, alpha=0.3, markersize = 4, label=recourse_type)
       else:
@@ -1922,7 +1940,7 @@ def runBoxPlotSanity(args, objs, experiment_folder_name, experimental_setups, fa
 
       total_df = pd.DataFrame(columns=['recourse_type'] + list(objs.scm_obj.getTopologicalOrdering()))
 
-      X_all = processDataFrameOrDict(args, objs, getOriginalDataFrame(objs, args.num_train_samples + args.num_validation_samples), PROCESSING_CVAE)
+      X_all = processDataFrameOrInstance(args, objs, getOriginalDataFrame(objs, args.num_train_samples + args.num_validation_samples), PROCESSING_CVAE)
       X_val = X_all[args.num_train_samples:].copy()
 
       X_true = X_val[parents + [node]]
@@ -1974,23 +1992,22 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
 
     ######### hack; better to pass around factual_instance_obj always ##########
     factual_instance = factual_instance.copy()
-    objs.factual_instance_obj = Instance(factual_instance) # TODO (fair): use the factual_instance_obj everywhere? and do not add to obj so it doesn't hurt training memoization
-    factual_instance = dict(filter(lambda elem: 'u' not in elem[0], factual_instance.items()))
+    factual_instance_obj = Instance(factual_instance, factual_instance_idx)
     ############################################################################
 
-    folder_path = f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_idx}'
+    folder_path = f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_obj.instance_idx}'
     if not os.path.exists(folder_path):
       os.mkdir(folder_path)
 
-    print(f'\n\n\n[INFO] Processing factual instance `{factual_instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
+    print(f'\n\n\n[INFO] Processing factual instance `{factual_instance_obj.instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
 
-    per_instance_results[factual_instance_idx] = {}
-    per_instance_results[factual_instance_idx]['factual_instance'] = factual_instance
+    per_instance_results[factual_instance_obj.instance_idx] = {}
+    per_instance_results[factual_instance_obj.instance_idx]['factual_instance'] = factual_instance_obj.dict('endogenous_and_exogenous')
 
     for recourse_type in recourse_types:
 
       tmp = {}
-      save_path = f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_idx}/{recourse_type}'
+      save_path = f'{experiment_folder_name}/_optimization_curves/factual_instance_{factual_instance_obj.instance_idx}/{recourse_type}'
       if not os.path.exists(save_path):
         os.mkdir(save_path)
 
@@ -1998,7 +2015,7 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
       tmp['optimal_action_set'] = computeOptimalActionSet(
         args,
         objs,
-        factual_instance,
+        factual_instance_obj,
         save_path,
         recourse_type,
       )
@@ -2009,33 +2026,33 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
       # to the corresponding dimension of the nearest observable instance)
       tmp['default_to_MO'] = False
       # if tmp['optimal_action_set'] == dict():
-      #   tmp['optimal_action_set'] = getMinimumObservableInstance(args, objs, factual_instance)
+      #   tmp['optimal_action_set'] = getNearestObservableInstance(args, objs, factual_instance)
       #   tmp['default_to_MO'] = True
 
       tmp['runtime'] = np.around(end_time - start_time, 3)
 
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
-      tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance, tmp['optimal_action_set'], 'm0_true')
-      tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], 'm2_true'), 3)
+      tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance_obj, tmp['optimal_action_set'], 'm0_true')
+      tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance_obj, tmp['optimal_action_set'], 'm2_true'), 3)
 
       if recourse_type in ACCEPTABLE_DISTR_RECOURSE and recourse_type != 'm2_true':
-        tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance, tmp['optimal_action_set'], recourse_type), 3)
+        tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance_obj, tmp['optimal_action_set'], recourse_type), 3)
       else:
         tmp['ic_rec_type'] = np.NaN
 
       if args.classifier_class in fairRecourse.FAIR_MODELS:
-        tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'], range_normalized=False)
+        tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance_obj, tmp['optimal_action_set'], range_normalized=False)
       else:
-        tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance, tmp['optimal_action_set'])
+        tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance_obj, tmp['optimal_action_set'])
 
       tmp['cost_valid'] = tmp['cost_all'] if tmp['scf_validity'] else np.NaN
-      tmp['dist_to_db'] = measureDistanceToDecisionBoundary(args, objs, factual_instance)
+      tmp['dist_to_db'] = measureDistanceToDecisionBoundary(args, objs, factual_instance_obj)
 
 
       # print(f'\t done.')
 
-      per_instance_results[factual_instance_idx][recourse_type] = tmp
+      per_instance_results[factual_instance_obj.instance_idx][recourse_type] = tmp
 
     print(f'[INFO] Saving (overwriting) results...\t', end='')
     pickle.dump(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results', 'wb'))
@@ -2151,10 +2168,10 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
     # over to the twin; TODO (fair): later when pass around factual_instance_obj
     # everywhere, the computeCounterfactualInstance function will return not only
     # endogenous, but also the exogenous variables
-    twin_endogenous_variables = computeCounterfactualInstance(args, objs, factual_instance, twinning_action_set, 'm0_true')
+    twin_instance = computeCounterfactualInstance(args, objs, Instance(factual_instance, factual_instance_idx), twinning_action_set, 'm0_true')
     factual_instances_dict_1_twin[factual_instance_idx] = {
       **factual_instance, # copy endogenous and exogenous variables
-      **twin_endogenous_variables # overwrite endogenous variables
+      **twin_instance.dict('endogenous') # overwrite endogenous variables
     }
 
   for factual_instance_idx, factual_instance in factual_instances_dict_2_orig.items():
@@ -2163,10 +2180,10 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
     # over to the twin; TODO (fair): later when pass around factual_instance_obj
     # everywhere, the computeCounterfactualInstance function will return not only
     # endogenous, but also the exogenous variables
-    twin_endogenous_variables = computeCounterfactualInstance(args, objs, factual_instance, twinning_action_set, 'm0_true')
+    twin_instance = computeCounterfactualInstance(args, objs, Instance(factual_instance, factual_instance_idx), twinning_action_set, 'm0_true')
     factual_instances_dict_2_twin[factual_instance_idx] = {
       **factual_instance, # copy endogenous and exogenous variables
-      **twin_endogenous_variables # overwrite endogenous variables
+      **twin_instance.dict('endogenous') # overwrite endogenous variables
     }
 
   # Compute metrics (incl'd cost of recourse and distance to decision boundary)
@@ -2253,9 +2270,6 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
   file_name_string = f'_comparison_{args.classifier_class}'
   tmp_df.to_csv(f'{experiment_folder_name}/{file_name_string}.txt', sep='\t')
   tmp_df.to_pickle(f'{experiment_folder_name}/{file_name_string}')
-
-  # Plot and save
-  # TODO (fair)
 
 
 if __name__ == "__main__":
