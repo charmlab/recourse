@@ -253,7 +253,9 @@ def load_adult_data_new():
     processed_df.loc[df['sex'] == 'Male', 'Sex'] = 1 # 1
     processed_df.loc[df['sex'] == 'Female', 'Sex'] = -1 # 2
 
-    processed_df['Age'] = df['age']
+    # processed_df['Age'] = df['age']
+    processed_df.loc[df['age'].astype(float) >= 38, 'Age'] = 1 # .value_counts():  1.0    22195
+    processed_df.loc[df['age'].astype(float) < 38, 'Age'] = -1 # .value_counts(): -1.0    23027
 
     processed_df.loc[df['native_country'] == 'United-States', 'NativeCountry'] = 1 # 1
     processed_df.loc[df['native_country'] == 'Non-United-Stated', 'NativeCountry'] = -1 # 2

@@ -81,13 +81,13 @@ class Instance(object):
     else:
       raise Exception(f'Node type not recognized.')
 
-  def array(self, node_types = 'endogenous'): #, nested = False
-    ipsh()
-    return np.array(
-      list( # TODO (BUG???) what happens to this order? are values always ordered correctly?
-        self.dict(node_types).values()
-      )
-    ).reshape(1,-1)
+  # def array(self, node_types = 'endogenous'): #, nested = False
+  #   ipsh()
+  #   return np.array(
+  #     list( # TODO (BUG???) what happens to this order? are values always ordered correctly?
+  #       self.dict(node_types).values()
+  #     )
+  #   ).reshape(1,-1)
 
   def keys(self, node_types = 'endogenous'):
     return self.dict(node_types).keys()
@@ -1309,14 +1309,14 @@ def getValidDiscretizedActionSets(args, objs):
   return valid_action_sets
 
 
+# https://stackoverflow.com/a/1482316/2759976
+def powerset(iterable):
+  "powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
+  s = list(iterable)
+  return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(len(s)+1))
+
+
 def getValidInterventionSets(args, objs):
-
-  # https://stackoverflow.com/a/1482316/2759976
-  def powerset(iterable):
-    "powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
-    s = list(iterable)
-    return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(len(s)+1))
-
   # IMPORTANT: you lose ordering of columns when using setdiff! This should not
   # matter in this part of the code, but may elsewhere. For alternative, see:
   # https://stackoverflow.com/questions/46261671/use-numpy-setdiff1d-keeping-the-order
@@ -1338,6 +1338,23 @@ def getValidInterventionSets(args, objs):
   ]
 
   return all_intervention_tuples
+
+
+def getAllTwinningActionSets(args, objs, factual_instance_obj):
+  # Get all twinning action sets (when multiple sensitive attributes exist):
+  all_intervention_tuples = powerset(args.sensitive_attribute_nodes)
+  all_intervention_tuples = [
+    elem for elem in all_intervention_tuples
+    if len(elem) <= args.max_intervention_cardinality
+    and elem is not tuple() # no interventions (i.e., empty tuple) could never result in recourse --> ignore
+  ]
+  all_twinning_action_sets = [
+    {
+      node: -factual_instance_obj.dict()[node]
+      for node in intervention_tuple
+    } for intervention_tuple in all_intervention_tuples
+  ]
+  return all_twinning_action_sets
 
 
 def performGradDescentOptimization(args, objs, factual_instance_obj, save_path, intervention_set, recourse_type):
@@ -1999,7 +2016,7 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
     if not os.path.exists(folder_path):
       os.mkdir(folder_path)
 
-    print(f'\n\n\n[INFO] Processing factual instance `{factual_instance_obj.instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
+    print(f'\n\n\n[INFO] Processing instance `{factual_instance_obj.instance_idx}` (#{enumeration_idx + 1} / {len(factual_instances_dict.keys())})...')
 
     per_instance_results[factual_instance_obj.instance_idx] = {}
     per_instance_results[factual_instance_obj.instance_idx]['factual_instance'] = factual_instance_obj.dict('endogenous_and_exogenous')
@@ -2120,157 +2137,163 @@ def getTrainableNodesForFairModel(args, objs):
 
 def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
 
-  assert \
-    len(args.sensitive_attribute_nodes) == 1, \
-    f'expecting 1 sensitive attribute, got {len(args.sensitive_attribute_nodes)}'
-  assert \
-    set(np.unique(np.array(dataset_obj.data_frame_kurz[args.sensitive_attribute_nodes]))) == set(np.array((-1,1))), \
-    f'Sensitive attribute must be +1/-1 for SVMRecourse (third-part code) to work.'
-  sensitive_attribute_node = args.sensitive_attribute_nodes[0]
+  if args.classifier_class == 'iw_fair_svm':
+    assert \
+      len(args.sensitive_attribute_nodes) == 1, \
+      f'expecting 1 sensitive attribute, got {len(args.sensitive_attribute_nodes)} (for SVMRecourse (third-part code) to work)'
+  for node in args.sensitive_attribute_nodes:
+    assert \
+      set(np.unique(np.array(dataset_obj.data_frame_kurz[node]))) == set(np.array((-1,1))), \
+      f'Sensitive attribute must be +1/-1 .'
 
   print(f'[INFO] Evaluating fair recourse metrics for `{args.classifier_class}`...')
 
-  # IMPORTANT: compute factual_instances_dict (negatively predicted samples)
-  # again, using the trained fair model, because the pre-computed dict is done
-  # on another objs.classifier_obj.
-  factual_instances_dict = getNegativelyPredictedInstances(args, objs)
 
-  # Create two factual_instances_dicts, one per sensitive attribute group
-  factual_instances_dict_1_orig = {}
-  factual_instances_dict_2_orig = {}
-  for factual_instance_idx, factual_instance in factual_instances_dict.items():
-    X_all = getOriginalDataFrame(objs, args.num_train_samples)
+  ##############################################################################
+  ##                           Prepare groups of negatively predicted instances
+  ##############################################################################
 
-    # Split factual_instances_dict based on sensitive attribute (use X_all to
-    # see sensitive attribute because most fair models are trained agnostically
-    # to this attribute.)
-    if X_all.loc[factual_instance_idx, sensitive_attribute_node] == -1:
-      factual_instances_dict_1_orig[factual_instance_idx] = factual_instance
-    elif X_all.loc[factual_instance_idx, sensitive_attribute_node] == 1:
-      factual_instances_dict_2_orig[factual_instance_idx] = factual_instance
-    else:
-      raise Exception(f'unrecognized sensitive attribute value {value[sensitive_attribute_node]}')
+  # Only generate recourse (and evaluate fairness thereof) for negatively predicted individuals
+  factual_instances_dict_all_negatively_predicted = getNegativelyPredictedInstances(args, objs)
 
-  # Choose a balanced random subset from the factual_instances_dicts
-  assert min(
-    len(factual_instances_dict_1_orig.keys()),
-    len(factual_instances_dict_2_orig.keys())
-  ) >= args.num_fair_samples, 'Not enough negatively predicted samples from each group.'
-  factual_instances_dict_1_orig = dict(random.sample(list(factual_instances_dict_1_orig.items()), args.num_fair_samples))
-  factual_instances_dict_2_orig = dict(random.sample(list(factual_instances_dict_2_orig.items()), args.num_fair_samples))
+  factual_instances_list_all_negatively_predicted = [
+    Instance(factual_instance, factual_instance_idx)
+    for factual_instance_idx, factual_instance in factual_instances_dict_all_negatively_predicted.items()
+  ]
+  factual_instances_list_subsampled_negatively_predicted = []
 
-  # Find the counterfactual twins of these above...
-  factual_instances_dict_1_twin = copy.deepcopy(factual_instances_dict_1_orig)
-  factual_instances_dict_2_twin = copy.deepcopy(factual_instances_dict_2_orig)
-  for factual_instance_idx, factual_instance in factual_instances_dict_1_orig.items():
-    twinning_action_set = {'x1': -factual_instance['x1']} # TODO (fair): what if sensitive attribute is no longer 'x1'...
-    # the factual and twin instances share the same exogenous vairables; copy them
-    # over to the twin; TODO (fair): later when pass around factual_instance_obj
-    # everywhere, the computeCounterfactualInstance function will return not only
-    # endogenous, but also the exogenous variables
-    twin_instance = computeCounterfactualInstance(args, objs, Instance(factual_instance, factual_instance_idx), twinning_action_set, 'm0_true')
-    factual_instances_dict_1_twin[factual_instance_idx] = {
-      **factual_instance, # copy endogenous and exogenous variables
-      **twin_instance.dict('endogenous') # overwrite endogenous variables
-    }
+  factual_instances_list_per_sensitive_attribute_group = {}
+  all_sensitive_attribute_permutations = list(itertools.product(*
+    [[-1, +1] for node in args.sensitive_attribute_nodes]
+  ))
+  for permutation in all_sensitive_attribute_permutations:
+    sensitive_attribute_group = '_'.join([
+      node + ':' + str(permutation[idx])
+      for idx, node in enumerate(args.sensitive_attribute_nodes)
+    ])
+    factual_instances_list_per_sensitive_attribute_group[sensitive_attribute_group] = []
 
-  for factual_instance_idx, factual_instance in factual_instances_dict_2_orig.items():
-    twinning_action_set = {'x1': -factual_instance['x1']} # TODO (fair): what if sensitive attribute is no longer 'x1'...
-    # the factual and twin instances share the same exogenous vairables; copy them
-    # over to the twin; TODO (fair): later when pass around factual_instance_obj
-    # everywhere, the computeCounterfactualInstance function will return not only
-    # endogenous, but also the exogenous variables
-    twin_instance = computeCounterfactualInstance(args, objs, Instance(factual_instance, factual_instance_idx), twinning_action_set, 'm0_true')
-    factual_instances_dict_2_twin[factual_instance_idx] = {
-      **factual_instance, # copy endogenous and exogenous variables
-      **twin_instance.dict('endogenous') # overwrite endogenous variables
-    }
+  # split factual instances into sensitive_attribute_groups
+  for factual_instance_obj in factual_instances_list_all_negatively_predicted:
+    sensitive_attribute_group = '_'.join([
+      node + ':' + str(int(factual_instance_obj.dict()[node]))
+      for idx, node in enumerate(args.sensitive_attribute_nodes)
+    ])
+    factual_instances_list_per_sensitive_attribute_group[sensitive_attribute_group].append(factual_instance_obj)
 
-  # Compute metrics (incl'd cost of recourse and distance to decision boundary)
-  per_instance_results_group_1_orig = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_1_orig, recourse_types)
-  per_instance_results_group_2_orig = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_2_orig, recourse_types)
-  per_instance_results_group_1_twin = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_1_twin, recourse_types)
-  per_instance_results_group_2_twin = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict_2_twin, recourse_types)
+  # sample args.num_fair_samples per sensitive_attribute_group
+  for sensitive_attribute_group, factual_instances_list in factual_instances_list_per_sensitive_attribute_group.items():
+    assert \
+      len(factual_instances_list) >= args.num_fair_samples, \
+      'Not enough negatively predicted samples from each group.'
+    factual_instances_list_per_sensitive_attribute_group[sensitive_attribute_group] = \
+      random.sample(
+        factual_instances_list_per_sensitive_attribute_group[sensitive_attribute_group],
+        args.num_fair_samples
+      )
+    factual_instances_list_subsampled_negatively_predicted.extend(
+      factual_instances_list_per_sensitive_attribute_group[sensitive_attribute_group]
+    )
+
+  ##############################################################################
+  ##                                                         Group-wise metrics
+  ##############################################################################
+  # evaluate AVERAGE performance (`dist_to_db/cost_valid`) per sensitive attribute group
+  results = {}
+  for sensitive_attribute_group, factual_instances_list in factual_instances_list_per_sensitive_attribute_group.items():
+    # get average `dist_to_db/cost_valid` for this group
+    factual_instances_dict = {elem.instance_idx : elem.dict('endogenous_and_exogenous') for elem in factual_instances_list} # TODO: deprecate this and just pass factual_instances_list into runRecourseExperiment() here and elsewhere
+    results[sensitive_attribute_group] = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
+
   print(f'\n\nModel: `{args.classifier_class}`')
-  print(f'group 1 orig: \n')
-  createAndSaveMetricsTable(per_instance_results_group_1_orig, recourse_types, experiment_folder_name, f'_{args.classifier_class}_group_1_orig')
-  print(f'group 2 orig: \n')
-  createAndSaveMetricsTable(per_instance_results_group_2_orig, recourse_types, experiment_folder_name, f'_{args.classifier_class}_group_2_orig')
-  print(f'group 1 twin: \n')
-  createAndSaveMetricsTable(per_instance_results_group_1_twin, recourse_types, experiment_folder_name, f'_{args.classifier_class}_group_1_twin')
-  print(f'group 2 twin: \n')
-  createAndSaveMetricsTable(per_instance_results_group_2_twin, recourse_types, experiment_folder_name, f'_{args.classifier_class}_group_2_twin')
+  for sensitive_attribute_group, factual_instances_list in factual_instances_list_per_sensitive_attribute_group.items():
+    print(f'Group {sensitive_attribute_group}: \n')
+    createAndSaveMetricsTable(results[sensitive_attribute_group], recourse_types, experiment_folder_name, f'_{args.classifier_class}_{sensitive_attribute_group}')
 
-  # Compute and save diff_metrics from the group-based metrics above.
   metrics_summary = {}
   metrics = ['dist_to_db', 'cost_valid']
   for metric in metrics:
-    metrics_summary[f'delta_{metric}'] = []
+    metrics_summary[f'max_group_delta_{metric}'] = []
   # metrics_summary = dict.fromkeys(metrics, []) # BROKEN: all lists will be shared; causing massive headache!!!
 
+  # finally compute max difference in `dist_to_db/cost_valid` across all groups
   for recourse_type in recourse_types:
     for metric in metrics:
-      metrics_summary[f'delta_{metric}'].append(
-        # difference in average distance/cost per group
+      metric_for_all_groups = []
+      for sensitive_attribute_group, results_for_sensitive_attribute_group in results.items():
+        # get average metric for each group separately
+        metrics_for_this_group = [
+          float(v[recourse_type][metric])
+          for v in results[sensitive_attribute_group].values()
+        ]
+        metric_for_all_groups.append(np.nanmean(metrics_for_this_group))
+      # computing max pair-wise distance between elements of a list where the
+      # elements are scalers IS EQUAL TO computing max_elem - min_elem
+      metrics_summary[f'max_group_delta_{metric}'].append(
         np.around(
-          np.abs(
-            np.nanmean([v[recourse_type][metric] for k,v in per_instance_results_group_1_orig.items()]) -
-            np.nanmean([v[recourse_type][metric] for k,v in per_instance_results_group_2_orig.items()])
-          ),
-        3)
+          max(metric_for_all_groups) -
+          min(metric_for_all_groups),
+          3,
+        )
       )
 
-  metrics_summary['max_delta_indiv_cost'] = []
-  metrics_summary['max_delta_indiv_cost_group_1'] = []
-  metrics_summary['max_delta_indiv_cost_group_2'] = []
+  ##############################################################################
+  ##                                                     Individualized metrics
+  ##############################################################################
+  max_indiv_delta_cost_valids = {}
   for recourse_type in recourse_types:
+    max_indiv_delta_cost_valids[recourse_type] = []
 
-    max_delta_indiv_cost_group_1 = -1
-    max_delta_indiv_cost_group_2 = -1
+  for factual_instance_obj in factual_instances_list_subsampled_negatively_predicted:
+    # compute max_delta_indiv_cost for this individual, when comparing the factual against its twins
 
-    assert \
-      set(per_instance_results_group_1_orig.keys()) == \
-      set(per_instance_results_group_1_twin.keys())
-    for factual_instance_idx in per_instance_results_group_1_orig.keys():
-      tmp_orig = per_instance_results_group_1_orig[factual_instance_idx][recourse_type]
-      tmp_twin = per_instance_results_group_1_twin[factual_instance_idx][recourse_type]
-      if tmp_orig['optimal_action_set'] != {} and tmp_twin['optimal_action_set'] != {}:
-        delta_indiv_cost = np.abs(
-          tmp_orig['cost_valid'] -
-          tmp_twin['cost_valid']
-        ) # cost_valid or cost_all; same thing for each individual
-        if delta_indiv_cost > max_delta_indiv_cost_group_1:
-          max_delta_indiv_cost_group_1 = delta_indiv_cost
+    # first compute cost_valid_factual
+    factual_instance_list = [factual_instance_obj]
+    factual_instance_dict = {elem.instance_idx : elem.dict('endogenous_and_exogenous') for elem in factual_instance_list} # TODO: deprecate this and just pass factual_instances_list into runRecourseExperiment() here and elsewhere
+    result_factual = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instance_dict, recourse_types)
 
-    assert \
-      set(per_instance_results_group_2_orig.keys()) == \
-      set(per_instance_results_group_2_twin.keys())
-    for factual_instance_idx in per_instance_results_group_2_orig.keys():
-      tmp_orig = per_instance_results_group_2_orig[factual_instance_idx][recourse_type]
-      tmp_twin = per_instance_results_group_2_twin[factual_instance_idx][recourse_type]
-      if tmp_orig['optimal_action_set'] != {} and tmp_twin['optimal_action_set'] != {}:
-        delta_indiv_cost = np.abs(
-          tmp_orig['cost_valid'] -
-          tmp_twin['cost_valid']
-        ) # cost_valid or cost_all; same thing for each individual
-        if delta_indiv_cost > max_delta_indiv_cost_group_2:
-          max_delta_indiv_cost_group_2 = delta_indiv_cost
+    # then compute cost_valid_twin for all twins
+    twin_instances_dict = {}
+    for twinning_action_set in getAllTwinningActionSets(args, objs, factual_instance_obj):
+      twin_instance_obj = computeCounterfactualInstance(args, objs, factual_instance_obj, twinning_action_set, 'm0_true')
+      twin_instance_idx = \
+        str(factual_instance_obj.instance_idx) + '_twin_' + \
+         '_'.join([str(k) + ':' + \
+          str(int(v)) for k,v in twinning_action_set.items()])
+      # twin_instances_dict[twin_instance_idx] =  twin_instance_obj.dict()
+      twin_instances_dict[twin_instance_idx] =  twin_instance_obj.dict('endogenous_and_exogenous')
+    result_twins = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, twin_instances_dict, recourse_types)
 
-    metrics_summary['max_delta_indiv_cost'].append(
+    # finally compute max difference from the factual instance to any other instance, for each recourse_type
+    for recourse_type in recourse_types:
+      max_delta_indiv_cost = -1
+      cost_valid_factual = result_factual[f'sample_{factual_instance_obj.instance_idx}'][recourse_type]['cost_valid']
+      cost_valid_twins = [v[recourse_type]['cost_valid'] for k,v in result_twins.items() if v[recourse_type]['optimal_action_set'] != {}]
+
+      if len(cost_valid_twins) > 0:
+        max_indiv_delta_cost_valids[recourse_type].append(
+          np.max(np.abs(np.array(cost_valid_twins) - cost_valid_factual))
+        )
+      else:
+        max_indiv_delta_cost_valids[recourse_type].append(-1) # if none of the twins have a valid cost
+
+  metrics_summary['max_indiv_delta_cost_valid'] = []
+
+  for recourse_type in recourse_types:
+    metrics_summary['max_indiv_delta_cost_valid'].append(
       max(
-        max_delta_indiv_cost_group_1,
-        max_delta_indiv_cost_group_2
+        max_indiv_delta_cost_valids[recourse_type]
       )
     )
-    metrics_summary['max_delta_indiv_cost_group_1'].append(max_delta_indiv_cost_group_1)
-    metrics_summary['max_delta_indiv_cost_group_2'].append(max_delta_indiv_cost_group_2)
 
+  ##############################################################################
+  ##                                                  Create dataframe and save
+  ##############################################################################
   tmp_df = pd.DataFrame(metrics_summary, recourse_types)
   print(tmp_df)
   file_name_string = f'_comparison_{args.classifier_class}'
   tmp_df.to_csv(f'{experiment_folder_name}/{file_name_string}.txt', sep='\t')
   tmp_df.to_pickle(f'{experiment_folder_name}/{file_name_string}')
-
 
 if __name__ == "__main__":
 

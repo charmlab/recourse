@@ -340,11 +340,11 @@ def loadSCM(scm_class, experiment_folder_name = None):
       'x1': lambda n_samples,:                                    n_samples,  # A_sex
       'x2': lambda n_samples,:                                    n_samples,  # C_age
       'x3': lambda n_samples,:                                    n_samples,  # C_nationality
-      'x4': lambda n_samples,:                 n_samples,  # M_marital_status
-      'x5': lambda n_samples,:                 n_samples,  # L_education_level
-      'x6': lambda n_samples,:                 n_samples,  # R_working_class
-      'x7': lambda n_samples,:                 n_samples,  # R_occupation
-      'x8': lambda n_samples,:                 n_samples,  # R_hours_per_week
+      'x4': lambda n_samples, x1, x2, x3,:                        n_samples,  # M_marital_status
+      'x5': lambda n_samples, x1, x2, x3,:                        n_samples,  # L_education_level / real-valued
+      'x6': lambda n_samples, x1, x2, x3, x4, x5:                 n_samples,  # R_working_class
+      'x7': lambda n_samples, x1, x2, x3, x4, x5:                 n_samples,  # R_occupation
+      'x8': lambda n_samples, x1, x2, x3, x4, x5:                 n_samples,  # R_hours_per_week
     }
     structural_equations_ts = structural_equations_np
     noises_distributions = {

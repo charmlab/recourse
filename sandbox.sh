@@ -67,17 +67,18 @@ python main.py \
 python main.py \
 	--scm_class adult \
 	--dataset_class adult \
-	--classifier_class vanilla_mlp \
+	--classifier_class nonsens_mlp \
 	--lambda_lcb 1 \
 	--optimization_approach brute_force \
 	--grid_search_bins 3 -e 9 \
-	--sensitive_attribute_nodes x1 \
-	--non_intervenable_nodes x2 x3 \
+	--sensitive_attribute_nodes x1 x2 x3 \
 	--num_train_samples 500 \
 	--num_fair_samples 2 \
 	--batch_number 0 \
-	--sample_count 100
+	--sample_count 400
 
+
+--non_intervenable_nodes  \
 
 
 
