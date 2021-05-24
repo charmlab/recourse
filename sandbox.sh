@@ -63,7 +63,6 @@ python main.py \
 	--sample_count 3
 
 
-
 python main.py \
 	--scm_class adult \
 	--dataset_class adult \

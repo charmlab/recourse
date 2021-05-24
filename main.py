@@ -98,6 +98,15 @@ class Instance(object):
   def items(self, node_types = 'endogenous'):
     return self.dict(node_types).items()
 
+  def keys(self, node_types = 'endogenous'):
+    return self.dict(node_types).keys()
+
+  def values(self, node_types = 'endogenous'):
+    return self.dict(node_types).values()
+
+  def items(self, node_types = 'endogenous'):
+    return self.dict(node_types).items()
+
 
 @utils.Memoize
 def loadCausalModel(args, experiment_folder_name):
@@ -2204,6 +2213,7 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
     # get average `dist_to_db/cost_valid` for this group
     factual_instances_dict = {elem.instance_idx : elem.dict('endogenous_and_exogenous') for elem in factual_instances_list} # TODO: deprecate this and just pass factual_instances_list into runRecourseExperiment() here and elsewhere
     results[sensitive_attribute_group] = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
+
 
   print(f'\n\nModel: `{args.classifier_class}`')
   for sensitive_attribute_group, factual_instances_list in factual_instances_list_per_sensitive_attribute_group.items():
