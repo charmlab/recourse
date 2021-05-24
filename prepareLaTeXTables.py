@@ -9,21 +9,21 @@ from debug import ipsh
 for approx_scm in ['m0_true', 'm1_alin', 'm1_akrr']:
     print(r'\midrule')
     if approx_scm == 'm0_true':
-        print(r'\multirow{5}{*}{$\Mcal^\star$}')
+        print(r'\multirow{9}{*}{$\Mcal^\star$}')
     elif approx_scm == 'm1_alin':
-        print(r'\multirow{5}{*}{$\Hat{\Mcal}_{\text{LIN}}$}')
+        print(r'\multirow{9}{*}{$\Hat{\Mcal}_{\text{LIN}}$}')
     elif approx_scm == 'm1_akrr':
-        print(r'\multirow{5}{*}{$\Hat{\Mcal}_{\text{KR}}$}')
+        print(r'\multirow{9}{*}{$\Hat{\Mcal}_{\text{KR}}$}')
     for fair_model in [
         'vanilla_svm',
         'nonsens_svm',
         'iw_fair_svm',
         'unaware_svm',
         'cw_fair_svm',
-        # 'vanilla_*', # lr/mlp, depending on scm_setup
-        # 'nonsens_*', # lr/mlp, depending on scm_setup
-        # 'unaware_*', # lr/mlp, depending on scm_setup
-        # 'cw_fair_*', # lr/mlp, depending on scm_setup
+        'vanilla_*', # lr/mlp, depending on scm_setup
+        'nonsens_*', # lr/mlp, depending on scm_setup
+        'unaware_*', # lr/mlp, depending on scm_setup
+        'cw_fair_*', # lr/mlp, depending on scm_setup
         ]:
         if fair_model == 'vanilla_svm':
             print('\t' + r'& SVM$(\Xb, A)$')

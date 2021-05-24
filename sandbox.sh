@@ -70,7 +70,7 @@ python main.py \
 	--classifier_class nonsens_mlp \
 	--lambda_lcb 1 \
 	--optimization_approach brute_force \
-	--grid_search_bins 3 -e 9 \
+	--grid_search_bins 2 -e 9 \
 	--sensitive_attribute_nodes x1 x2 x3 \
 	--num_train_samples 500 \
 	--num_fair_samples 2 \

@@ -2185,7 +2185,7 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
   for sensitive_attribute_group, factual_instances_list in factual_instances_list_per_sensitive_attribute_group.items():
     assert \
       len(factual_instances_list) >= args.num_fair_samples, \
-      'Not enough negatively predicted samples from each group.'
+      f'Not enough negatively predicted samples from each group ({len(factual_instances_list)} vs {args.num_fair_samples}).'
     factual_instances_list_per_sensitive_attribute_group[sensitive_attribute_group] = \
       random.sample(
         factual_instances_list_per_sensitive_attribute_group[sensitive_attribute_group],
