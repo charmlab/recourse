@@ -4,7 +4,8 @@ cd ~/dev/recourse/_experiments/
 zip -r _fair_neurips 2021.05.20_11.13*
 
 # on local machine
-scp -r amir@login.cluster.is.localnet:~/dev/recourse/_experiments/_fair_neurips.zip _fair_neurips
+scp -r amir@login.cluster.is.localnet:~/dev/recourse/_experiments/_fair_neurips.zip _fair_neurips.
+scp -r amir@login.cluster.is.localnet:~/dev/recourse/_experiments/2021.* .
 
 
 python main.py \

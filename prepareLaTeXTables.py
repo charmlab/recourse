@@ -59,8 +59,8 @@ for approx_scm in ['m0_true', 'm1_alin', 'm1_akrr']:
 
             # find folder
             # folders = glob.glob(f'./_experiments/_fair_neurips_old/_bu_table1,2/*{scm_setup}*{fair_model}*')
-            # folders = glob.glob(f'./_experiments/_fair_neurips/_table1,2/*{scm_setup}*{fair_model}*')
-            folders = glob.glob(f'./_experiments/_fair_neurips/_table3/*{scm_setup}*{fair_model}*')
+            folders = glob.glob(f'./_experiments/_fair_neurips/_table1,2/*{scm_setup}*{fair_model}*')
+            # folders = glob.glob(f'./_experiments/_fair_neurips/_table3/*{scm_setup}*{fair_model}*')
             assert len(folders) == 1
             folder_path = folders[0]
 
@@ -85,11 +85,18 @@ for approx_scm in ['m0_true', 'm1_alin', 'm1_akrr']:
                 # print(e)
                 continue
 
-            # print f'{approx_scm} {fair_model} {scm_setup}'
-            print( '\t\t' + \
-                f'& {np.around(test_acc, 2)} ' + \
-                f'& {np.around(comparison_df.loc[approx_scm, "delta_dist_to_db"], 2):.2f} ' + \
-                f'& {np.around(comparison_df.loc[approx_scm, "delta_cost_valid"], 2):.2f} ' + \
-                f'& {np.around(comparison_df.loc[approx_scm, "max_delta_indiv_cost"], 2):.2f}' \
-            )
+            try: # old version
+                print( '\t\t' + \
+                    f'& {np.around(test_acc, 2)} ' + \
+                    f'& {np.around(comparison_df.loc[approx_scm, "delta_dist_to_db"], 2):.2f} ' + \
+                    f'& {np.around(comparison_df.loc[approx_scm, "delta_cost_valid"], 2):.2f} ' + \
+                    f'& {np.around(comparison_df.loc[approx_scm, "max_delta_indiv_cost"], 2):.2f}' \
+                )
+            except: # new version
+                print( '\t\t' + \
+                    f'& {np.around(test_acc, 2)} ' + \
+                    f'& {np.around(comparison_df.loc[approx_scm, "max_group_delta_dist_to_db"], 2):.2f} ' + \
+                    f'& {np.around(comparison_df.loc[approx_scm, "max_group_delta_cost_valid"], 2):.2f} ' + \
+                    f'& {np.around(comparison_df.loc[approx_scm, "max_indiv_delta_cost_valid"], 2):.2f}' \
+                )
         print('\t\t\\\\')
