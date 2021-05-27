@@ -10,7 +10,7 @@ from debug import ipsh
 class VAE(nn.Module):
 
     def __init__(self, encoder_layer_sizes, latent_size, decoder_layer_sizes,
-                 conditional=False, num_labels=0):
+                conditional=False, attr_type=False, num_labels=0):
 
         super().__init__()
 
@@ -22,11 +22,8 @@ class VAE(nn.Module):
         assert type(decoder_layer_sizes) == list
 
         self.latent_size = latent_size
-
-        self.encoder = Encoder(
-            encoder_layer_sizes, latent_size, conditional, num_labels)
-        self.decoder = Decoder(
-            decoder_layer_sizes, latent_size, conditional, num_labels)
+        self.encoder = Encoder(encoder_layer_sizes, latent_size, conditional, attr_type, num_labels)
+        self.decoder = Decoder(decoder_layer_sizes, latent_size, conditional, attr_type, num_labels)
 
     def forward(self, x, pa):
 
@@ -119,11 +116,12 @@ def init_weights(m):
 
 class Encoder(nn.Module):
 
-    def __init__(self, layer_sizes, latent_size, conditional, num_labels):
+    def __init__(self, layer_sizes, latent_size, conditional, attr_type, num_labels):
 
         super().__init__()
 
         self.conditional = conditional
+        self.attr_type = attr_type
         if self.conditional:
             layer_sizes[0] += num_labels
 
@@ -160,13 +158,14 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
 
-    def __init__(self, layer_sizes, latent_size, conditional, num_labels):
+    def __init__(self, layer_sizes, latent_size, conditional, attr_type, num_labels):
 
         super().__init__()
 
         self.MLP = nn.Sequential()
 
         self.conditional = conditional
+        self.attr_type = attr_type
         if self.conditional:
             input_size = latent_size + num_labels
         else:
@@ -181,8 +180,11 @@ class Decoder(nn.Module):
             #     )
             if i+1 < len(layer_sizes):
                 self.MLP.add_module(name="A{:d}".format(i), module=nn.ReLU())
-            # TODO: add back for binary / categorical variables
-            # else:
+
+        if self.attr_type:
+            self.MLP.add_module(name="softmax", module=nn.Softmax(dim=1)) # to ensure sum = 1 over all categories
+        # else:
+            # TODO: add back for binary and other attr_types
             #     self.MLP.add_module(name="sigmoid", module=nn.Sigmoid())
 
         self.MLP.apply(init_weights)

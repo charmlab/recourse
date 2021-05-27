@@ -40,3 +40,15 @@ class Memoize:
     if hashable_args not in self.memo:
       self.memo[hashable_args] = self.fn(*args)
     return self.memo[hashable_args]
+
+def convertToOneHotWithPrespecifiedCategories(df, node, lower_bound, upper_bound):
+  return pd.get_dummies(
+    pd.Categorical(
+      df[node],
+      categories=list(range(
+        int(lower_bound),
+        int(upper_bound) + 1
+      ))
+    ),
+    prefix=node
+  )

@@ -446,17 +446,23 @@ class Dataset(object):
     def getBalancedDataFrame(data_frame, output_col):
       # assert only two classes in label (maybe relax later??)
       unique_labels = np.unique(data_frame[output_col])
-      assert np.array_equal(
-        unique_labels,
-        np.array([0, 1]) # only allowing {0, 1} labels,
-      ), f'expected unique labels to be [0, 1], but got {unique_labels}'
+      assert \
+        np.array_equal(
+          unique_labels,
+          np.array([0, 1]) # only allowing {0, 1} labels,
+        ) or \
+        np.array_equal(
+          unique_labels,
+          np.array([-1, 1]) # only allowing {-1, 1} labels,
+        ), \
+        f'expected unique labels to be [0, 1], but got {unique_labels}'
 
       # get balanced dataframe (take minimum of the count, then round down to nearest 250)
       unique_values_and_count = data_frame[output_col].value_counts()
       number_of_subsamples_in_each_class = unique_values_and_count.min() // 250 * 250
       data_frame = pd.concat([
-          data_frame[data_frame.loc[:,output_col] == 0].sample(number_of_subsamples_in_each_class, random_state = RANDOM_SEED),
-          data_frame[data_frame.loc[:,output_col] == 1].sample(number_of_subsamples_in_each_class, random_state = RANDOM_SEED),
+          data_frame[data_frame.loc[:,output_col] == unique_labels[0]].sample(number_of_subsamples_in_each_class, random_state = RANDOM_SEED),
+          data_frame[data_frame.loc[:,output_col] == unique_labels[1]].sample(number_of_subsamples_in_each_class, random_state = RANDOM_SEED),
       ]).sample(frac = 1, random_state = RANDOM_SEED)
       # data_frame = pd.concat([
       #     data_frame[data_frame.loc[:,output_col] == 0],
@@ -678,7 +684,7 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
         actionability = 'any' # 'none'
         mutability = True
       elif col_name == 'Age':
-        attr_type = 'numeric-int'
+        attr_type = 'binary' # 'numeric-int'
         actionability = 'any' # 'none'
         mutability = True
       elif col_name == 'NativeCountry': #~ RACE
@@ -686,7 +692,7 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
         actionability = 'any' # 'none'
         mutability = True
       elif col_name == 'WorkClass':
-        attr_type = 'numeric-int' # 'categorical'
+        attr_type = 'categorical'
         actionability = 'any'
         mutability = True
       # elif col_name == 'EducationNumber':
@@ -698,11 +704,11 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
         actionability = 'any'
         mutability = True
       elif col_name == 'MaritalStatus':
-        attr_type = 'numeric-int' # 'categorical'
+        attr_type = 'categorical'
         actionability = 'any'
         mutability = True
       elif col_name == 'Occupation':
-        attr_type = 'numeric-int' # 'categorical'
+        attr_type = 'categorical'
         actionability = 'any'
         mutability = True
       # elif col_name == 'Relationship':
@@ -962,6 +968,10 @@ def loadDataset(dataset_name, return_one_hot, load_from_cache = False, debug_fla
     meta_cols = [col_name for col_name in input_cols if 'u' in col_name]
     input_cols = [col_name for col_name in input_cols if 'x' in col_name] # endogenous variables must start with `x`
 
+    if 'fair' in scm_class:
+      # fair experiments (other than adult) rely on labels being in {-1/+1}
+      # TODO (lowpri): can we change this?? can sklearn svm and lr predict 0,1 instead of -1/+1??
+      data_frame_non_hot[output_col] = data_frame_non_hot[output_col] * 2 - 1
     col_name = output_col
     attributes_non_hot[col_name] = DatasetAttribute(
       attr_name_long = col_name,

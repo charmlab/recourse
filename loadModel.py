@@ -124,14 +124,10 @@ def loadModelForDataset(model_class, dataset_class, scm_class = None, num_train_
       X_train, X_test, y_train, y_test = dataset_obj.getTrainTestSplit(with_meta = False, balanced = False)
       X_train = pd.concat([X_train], axis = 1)[fair_nodes]
       X_test = pd.concat([X_test], axis = 1)[fair_nodes]
-      y_train = y_train * 2 - 1
-      y_test = y_test * 2 - 1
     else:
       X_train, X_test, U_train, U_test, y_train, y_test = dataset_obj.getTrainTestSplit(with_meta = True, balanced = False)
       X_train = pd.concat([X_train, U_train], axis = 1)[fair_nodes]
       X_test = pd.concat([X_test, U_test], axis = 1)[fair_nodes]
-      y_train = y_train * 2 - 1
-      y_test = y_test * 2 - 1
 
   if model_class == 'tree':
     model_pretrain = DecisionTreeClassifier()

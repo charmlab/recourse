@@ -53,20 +53,37 @@ def train_cvae(args):
     data_loader = DataLoader(
         dataset=dataset, batch_size=args.batch_size, shuffle=True)
 
-    def loss_fn(recon_x, x, mean, log_var):
-        # TODO: add back for binary / categorical variables
-        # BCE = torch.nn.functional.binary_cross_entropy(recon_x, x, reduction='sum')
-        MSE = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
+    def loss_fn(recon_x, x, mean, log_var, attr_type):
         KLD = -0.5 * torch.mean(torch.sum(1 + log_var - mean.pow(2) - log_var.exp(), axis=1))
-        return MSE / args.lambda_kld + KLD
+        if attr_type == 'binary':
+            raise NotImplementedError
+            # BCE = torch.nn.functional.binary_cross_entropy(recon_x, x, reduction='sum')
+            # return BCE / args.lambda_kld + KLD
+        elif attr_type == 'categorical':
+            # DO NOT use code below (as max/argmax don't have a grad-fn)
+            # input = x
+            # target = torch.max(recon_x.long(), 1).indices
+            # CE = torch.nn.functional.cross_entropy(input, target)
+            # INSTEAD, use the code below on sigmoid'ed values
+            # (source: https://discuss.pytorch.org/t/bceloss-for-multiclass-problem/36675/2)
+            CE = torch.nn.functional.binary_cross_entropy(recon_x, x, reduction='sum')
+            return CE / args.lambda_kld + KLD
+        elif attr_type == 'ordinal':
+            raise NotImplementedError
+        elif attr_type in {'numeric-real', 'numeric-int'}:
+            MSE = torch.nn.functional.mse_loss(recon_x, x, reduction='mean')
+            return MSE / args.lambda_kld + KLD
+        else:
+            raise Exception(f'Attribution type {attr_type} not supported.')
 
     vae = VAE(
         encoder_layer_sizes=list(args.encoder_layer_sizes), # bug in AttrDict package: https://github.com/bcj/AttrDict/issues/34#issuecomment-202920540
         latent_size=args.latent_size,
         decoder_layer_sizes=list(args.decoder_layer_sizes), # bug in AttrDict package: https://github.com/bcj/AttrDict/issues/34#issuecomment-202920540
         conditional=args.conditional,
-        num_labels=args.parents_train.shape[1] if args.conditional else 0).to(device)
-
+        num_labels=args.parents_train.shape[1] if args.conditional else 0,
+        attr_type=args.attr_type in {'categorical', 'ordinal'},
+    ).to(device)
 
     optimizer = torch.optim.Adam(vae.parameters(), lr=args.learning_rate)
 
@@ -92,7 +109,7 @@ def train_cvae(args):
             else:
                 recon_x, mean, log_var, z = vae(x)
 
-            loss = loss_fn(recon_x, x, mean, log_var)
+            loss = loss_fn(recon_x, x, mean, log_var, args.attr_type)
 
             optimizer.zero_grad()
             loss.backward()

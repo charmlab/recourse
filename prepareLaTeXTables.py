@@ -15,14 +15,14 @@ for approx_scm in ['m0_true', 'm1_alin', 'm1_akrr']:
     elif approx_scm == 'm1_akrr':
         print(r'\multirow{9}{*}{$\Hat{\Mcal}_{\text{KR}}$}')
     for fair_model in [
-        'vanilla_svm',
-        'nonsens_svm',
         'iw_fair_svm',
-        'unaware_svm',
-        'cw_fair_svm',
+        'vanilla_svm',
         'vanilla_*', # lr/mlp, depending on scm_setup
+        'nonsens_svm',
         'nonsens_*', # lr/mlp, depending on scm_setup
+        'unaware_svm',
         'unaware_*', # lr/mlp, depending on scm_setup
+        'cw_fair_svm',
         'cw_fair_*', # lr/mlp, depending on scm_setup
         ]:
         if fair_model == 'vanilla_svm':

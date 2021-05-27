@@ -82,21 +82,11 @@ class Instance(object):
       raise Exception(f'Node type not recognized.')
 
   # def array(self, node_types = 'endogenous'): #, nested = False
-  #   ipsh()
   #   return np.array(
   #     list( # TODO (BUG???) what happens to this order? are values always ordered correctly?
   #       self.dict(node_types).values()
   #     )
   #   ).reshape(1,-1)
-
-  def keys(self, node_types = 'endogenous'):
-    return self.dict(node_types).keys()
-
-  def values(self, node_types = 'endogenous'):
-    return self.dict(node_types).values()
-
-  def items(self, node_types = 'endogenous'):
-    return self.dict(node_types).items()
 
   def keys(self, node_types = 'endogenous'):
     return self.dict(node_types).keys()
@@ -197,9 +187,6 @@ def getTorchClassifier(args, objs):
 
 
 def measureActionSetCost(args, objs, factual_instance_obj_or_ts, action_set, processing_type = 'raw', range_normalized = True):
-  # TODO (cat): add support for categorical data
-  # TODO (cat): measured in normalized space over all features
-
   # TODO (medpri): this function is called using both brute-force and grad-descent
   # approach (where the former/latter uses Instance/dict)
   if isinstance(factual_instance_obj_or_ts, Instance):
@@ -212,11 +199,16 @@ def measureActionSetCost(args, objs, factual_instance_obj_or_ts, action_set, pro
     X_all.columns,
     [np.max(X_all[col]) - np.min(X_all[col]) for col in X_all.columns],
   ))
+  # TODO (medpri): WHICH TO USE??? FOR REPRODUCABILITY USE ABOVE!
+  # (above uses ranges in train set, below over all the dataset)
+  # ranges = objs.dataset_obj.getVariableRanges()
+
   if not range_normalized:
     ranges = {key: 1 for key in ranges.keys()}
+
   if \
-    np.all([isinstance(elem, float) for elem in factual_instance.values()]) and \
-    np.all([isinstance(elem, float) for elem in action_set.values()]):
+    np.all([isinstance(elem, (int, float)) for elem in factual_instance.values()]) and \
+    np.all([isinstance(elem, (int, float)) for elem in action_set.values()]):
     deltas = [
       (action_set[key] - factual_instance[key]) / ranges[key]
       for key in action_set.keys()
@@ -360,7 +352,8 @@ def processDataFrameOrInstance(args, objs, obj, processing_type):
     return obj
 
   if isinstance(obj, Instance):
-    iterate_over = obj.keys()
+    raise NotImplementedError
+    # iterate_over = obj.keys()
   elif isinstance(obj, pd.DataFrame):
     iterate_over = obj.columns
   else:
@@ -394,7 +387,8 @@ def deprocessDataFrameOrInstance(args, objs, obj, processing_type):
     return obj
 
   if isinstance(obj, Instance):
-    iterate_over = obj.keys()
+    raise NotImplementedError
+    # iterate_over = obj.keys()
   elif isinstance(obj, pd.DataFrame):
     iterate_over = obj.columns
   else:
@@ -478,13 +472,6 @@ def prettyPrintDict(my_dict):
   return my_dict
 
 
-def getPrediction(args, objs, instance_obj):
-  sklearn_model = objs.classifier_obj
-  prediction = sklearn_model.predict(np.array(list(instance_obj.dict().values())).reshape(1,-1))[0]
-  assert prediction in {0, 1}, f'Expected prediction in {0,1}; got {prediction}'
-  return prediction
-
-
 def didFlip(args, objs, factual_instance_obj, counter_instance_obj):
   return \
     getPrediction(args, objs, factual_instance_obj) != \
@@ -533,6 +520,13 @@ def trainCVAE(args, objs, node, parents):
   print(f'\t[INFO] Fitting {getConditionalString(node, parents)} using CVAE on {args.num_train_samples * 4} samples; this may be very expensive, memoizing afterwards.')
   X_all = processDataFrameOrInstance(args, objs, getOriginalDataFrame(objs, args.num_train_samples * 4 + args.num_validation_samples), PROCESSING_CVAE)
 
+  attr_obj = objs.dataset_obj.attributes_kurz[node]
+  node_train = X_all[[node]].iloc[:args.num_train_samples * 4]
+  parents_train = X_all[parents].iloc[:args.num_train_samples * 4]
+  node_validation = X_all[[node]].iloc[args.num_train_samples * 4:]
+  parents_validation = X_all[parents].iloc[args.num_train_samples * 4:]
+
+
   if args.scm_class == 'sanity-3-lin':
     if node == 'x2':
       sweep_lambda_kld = [0.01]
@@ -571,23 +565,35 @@ def trainCVAE(args, objs, node, parents):
 
   else:
 
+    io_size = 1 # b/c X_all[[node]] is always 1 dimensional for non-cat/ord variables
+
+    if attr_obj.attr_type in {'categorical', 'ordinal'}:
+
+      # one-hot --> non-hot (categorical CVAE can guarantee conditional p(node|parents) returns categorical value)
+      # IMPORTANT: we DO NOT convert cat/ord parents to one-hot.
+      # IMPORTANT: because all categories may not be present in the dataframe,
+      #            we call pd.get_dummies on an already converted dataframe with
+      #            with prespecfied categories
+      node_train = utils.convertToOneHotWithPrespecifiedCategories(node_train, node, attr_obj.lower_bound, attr_obj.upper_bound)
+      node_validation = utils.convertToOneHotWithPrespecifiedCategories(node_validation, node, attr_obj.lower_bound, attr_obj.upper_bound)
+      io_size = len(node_train.columns)
+      assert \
+        len(node_train.columns) == len(node_validation.columns), \
+        'Training data is not representative enough; missing some categories'
+
     sweep_lambda_kld = [5, 1, 0.5, 0.1, 0.05, 0.01, 0.005]
     sweep_encoder_layer_sizes = [
-      [1, 2, 2],
-      [1, 3, 3], # 1 b/c the X_all[[node]] is always 1 dimensional # TODO (cat): add support for categorical variables
-      [1, 5, 5],
-      # [1, 3, 3, 3],
-      # [1, 32, 32],
-      [1, 32, 32, 32],
+      [io_size, 2, 2],
+      [io_size, 3, 3],
+      [io_size, 5, 5],
+      [io_size, 32, 32, 32],
     ]
     sweep_decoder_layer_sizes = [
-      [2, 1],
-      [2, 2, 1],
-      [3, 3, 1],
-      [5, 5, 1],
-      # [3, 3, 3, 1],
-      # [32, 32, 1],
-      [32, 32, 32, 1],
+      [2, io_size],
+      [2, 2, io_size],
+      [3, 3, io_size],
+      [5, 5, io_size],
+      [32, 32, 32, io_size],
     ]
     sweep_latent_size = [1,3,5]
 
@@ -600,28 +606,42 @@ def trainCVAE(args, objs, node, parents):
     sweep_latent_size,
   ))
 
+  if args.scm_class not in {'sanity-3-lin', 'sanity-3-anm', 'sanity-3-gen'}:
+    # # TODO (remove): For testing purposes only
+    all_hyperparam_setups = random.sample(all_hyperparam_setups, 10)
 
   for idx, hyperparams in enumerate(all_hyperparam_setups):
 
     print(f'\n\t[INFO] Training hyperparams setup #{idx+1} / {len(all_hyperparam_setups)}: {str(hyperparams)}')
 
-    trained_cvae, recon_node_train, recon_node_validation = train_cvae(AttrDict({
-      'name': f'{getConditionalString(node, parents)}',
-      'node_train': X_all[[node]].iloc[:args.num_train_samples * 4],
-      'parents_train': X_all[parents].iloc[:args.num_train_samples * 4],
-      'node_validation': X_all[[node]].iloc[args.num_train_samples * 4:],
-      'parents_validation': X_all[parents].iloc[args.num_train_samples * 4:],
-      'seed': 0,
-      'epochs': 100,
-      'batch_size': 128,
-      'learning_rate': 0.05,
-      'lambda_kld': hyperparams[0],
-      'encoder_layer_sizes': hyperparams[1],
-      'decoder_layer_sizes': hyperparams[2],
-      'latent_size': hyperparams[3],
-      'conditional': True,
-      'debug_folder': experiment_folder_name + f'/cvae_hyperparams_setup_{idx}_of_{len(all_hyperparam_setups)}',
-    }))
+    try:
+      trained_cvae, recon_node_train, recon_node_validation = train_cvae(AttrDict({
+        'name': f'{getConditionalString(node, parents)}',
+        'attr_type': attr_obj.attr_type,
+        'node_train': node_train,
+        'parents_train': parents_train,
+        'node_validation': node_validation,
+        'parents_validation': parents_validation,
+        'seed': 0,
+        'epochs': 100,
+        'batch_size': 128,
+        'learning_rate': 0.05,
+        'lambda_kld': hyperparams[0],
+        'encoder_layer_sizes': hyperparams[1],
+        'decoder_layer_sizes': hyperparams[2],
+        'latent_size': hyperparams[3],
+        'conditional': True,
+        'debug_folder': experiment_folder_name + f'/cvae_hyperparams_setup_{idx}_of_{len(all_hyperparam_setups)}',
+      }))
+    except Exception as e:
+      print(e)
+      continue
+
+
+    if attr_obj.attr_type in {'categorical', 'ordinal'}:
+      # non-hot --> one-hot
+      recon_node_train = torch.argmax(recon_node_train, axis=1, keepdims=True) + 1 # categoricals start at index 1
+      recon_node_validation = torch.argmax(recon_node_validation, axis=1, keepdims=True) + 1 # categoricals start at index 1
 
     # # TODO (lowpri): remove after models.py is corrected
     # return trained_cvae
@@ -651,10 +671,10 @@ def trainCVAE(args, objs, node, parents):
     my_statistic, statistics, sigma_median = mmd.mmd_with_median_heuristic(X_true.to_numpy(), X_pred.to_numpy())
     print(f'\t\t[INFO] test-statistic = {my_statistic} using median of {sigma_median} as bandwith')
 
-    trained_models[f'setup_{idx}'] = {}
-    trained_models[f'setup_{idx}']['hyperparams'] = hyperparams
-    trained_models[f'setup_{idx}']['trained_cvae'] = trained_cvae
-    trained_models[f'setup_{idx}']['test-statistic'] = my_statistic
+    trained_models[f'setup_{idx:03d}'] = {}
+    trained_models[f'setup_{idx:03d}']['hyperparams'] = hyperparams
+    trained_models[f'setup_{idx:03d}']['trained_cvae'] = trained_cvae
+    trained_models[f'setup_{idx:03d}']['test-statistic'] = my_statistic
 
   index_with_lowest_test_statistics = min(trained_models.keys(), key=lambda k: abs(trained_models[k]['test-statistic'] - 0))
   # index_with_lowest_test_statistics = min(trained_models.keys(), key=lambda k: trained_models[k]['test-statistic'])
@@ -773,12 +793,26 @@ def sampleCVAE(args, objs, factual_instance_obj, factual_df, samples_df, node, p
   elif recourse_type == 'm2_cvae_ps':
     sample_from = 'reweighted_prior'
 
+  x_factual = factual_df[[node]]
+  pa_factual = factual_df[parents]
+  pa_counter = samples_df[parents]
+
+  attr_obj = objs.dataset_obj.attributes_kurz[node]
+  if attr_obj.attr_type in {'categorical', 'ordinal'}:
+    # non-hot --> one-hot
+    x_factual = utils.convertToOneHotWithPrespecifiedCategories(x_factual, node, attr_obj.lower_bound, attr_obj.upper_bound)
+
   new_samples = trained_cvae.reconstruct(
-    x_factual=factual_df[[node]],
-    pa_factual=factual_df[parents],
-    pa_counter=samples_df[parents],
+    x_factual=x_factual,
+    pa_factual=pa_factual,
+    pa_counter=pa_counter,
     sample_from=sample_from,
   )
+
+  if attr_obj.attr_type in {'categorical', 'ordinal'}:
+    # one-hot --> non-hot
+    new_samples = pd.DataFrame(new_samples.idxmax(axis=1) + 1)
+
   new_samples = new_samples.rename(columns={0: node}) # bad code pseudonym, this violates abstraction!
   samples_df = samples_df.reset_index(drop=True)
   samples_df[node] = new_samples.astype('float64')
@@ -1021,7 +1055,7 @@ def _samplingInnerLoopTensor(args, objs, factual_instance_obj, factual_instance_
 
 def computeCounterfactualInstance(args, objs, factual_instance_obj, action_set, recourse_type):
 
-  assert recourse_type in ACCEPTABLE_POINT_RECOURSE
+  # assert recourse_type in ACCEPTABLE_POINT_RECOURSE # TODO (highpri): uncomment after having ran adult experiments
 
   if not bool(action_set): # if action_set is empty, CFE = F
     return factual_instance_obj
@@ -1050,8 +1084,29 @@ def getRecourseDistributionSample(args, objs, factual_instance_obj, action_set, 
   return samples_df # return the entire data frame
 
 
-def isPredictionOfInstanceInClass(args, objs, instance_obj, prediction_class):
+def getPrediction(args, objs, instance_obj):
 
+  # get instance for trained model
+  if args.classifier_class in fairRecourse.FAIR_MODELS:
+
+    fair_nodes = getTrainableNodesForFairModel(args, objs)
+    instance_dict = dict(zip(
+      fair_nodes,
+      [instance_obj.dict('endogenous_and_exogenous')[key] for key in fair_nodes]
+    ))
+
+  else:
+    # just keep instance as is w/ all attributes (i.e., no need to do anything)
+    instance_dict = instance_obj.dict('endogenous')
+
+  # convert instance (dictionary) to instance (array) to input into sklearn model
+  instance_array = np.expand_dims(np.array(list(instance_dict.values())), axis=0)
+  prediction = objs.classifier_obj.predict(instance_array)[0]
+  assert prediction in {0, 1}, f'Expected prediction in {0,1}; got {prediction}'
+  return prediction
+
+
+def isPredictionOfInstanceInClass(args, objs, instance_obj, prediction_class):
   # get instance for trained model
   if args.classifier_class in fairRecourse.FAIR_MODELS:
 
@@ -1069,12 +1124,12 @@ def isPredictionOfInstanceInClass(args, objs, instance_obj, prediction_class):
   instance_array = np.expand_dims(np.array(list(instance_dict.values())), axis=0)
 
   if prediction_class == 'positive':
-    if args.classifier_class in fairRecourse.FAIR_MODELS:
+    if args.classifier_class in fairRecourse.FAIR_MODELS and args.dataset_class != 'adult':
       return objs.classifier_obj.predict(instance_array)[0] == 1
     else:
       return objs.classifier_obj.predict_proba(instance_array)[0][1] > 0.5
   elif prediction_class == 'negative':
-    if args.classifier_class in fairRecourse.FAIR_MODELS:
+    if args.classifier_class in fairRecourse.FAIR_MODELS and args.dataset_class != 'adult':
       return objs.classifier_obj.predict(instance_array)[0] == -1
     else:
       return objs.classifier_obj.predict_proba(instance_array)[0][1] <= .50 - args.epsilon_boundary
@@ -1099,8 +1154,8 @@ def isDistrConstraintSatisfied(args, objs, factual_instance_obj, action_set, rec
 
 
 def computeLowerConfidenceBound(args, objs, factual_instance_obj, action_set, recourse_type):
-  if args.classifier_class in fairRecourse.FAIR_MODELS:
-    # raise NotImplementedError
+  if args.classifier_class in fairRecourse.FAIR_MODELS and args.dataset_class != 'adult':
+    # raise NotImplementedError # cannot raise error, because runRecourseExperiment() call this to evaluate as a metric
     print('[WARNING] computing lower confidence bound with SVM model using predict_proba() may not work as intended.')
     return -1
   monte_carlo_samples_df = getRecourseDistributionSample(
@@ -1111,6 +1166,12 @@ def computeLowerConfidenceBound(args, objs, factual_instance_obj, action_set, re
     recourse_type,
     args.num_mc_samples,
   )
+  if args.classifier_class in fairRecourse.FAIR_MODELS:
+    fair_nodes = getTrainableNodesForFairModel(args, objs)
+    # TODO (medpri): will not work for cw-fair-svm, because we
+    # do not have the noise variables in this dataframe; add noise variables
+    # (abducted and/or true) to this dataframe
+    monte_carlo_samples_df = monte_carlo_samples_df[fair_nodes]
   monte_carlo_predictions = objs.classifier_obj.predict_proba(monte_carlo_samples_df)[:,1] # class 1 probabilities.
 
   expectation = np.mean(monte_carlo_predictions)
@@ -1291,7 +1352,20 @@ def getValidDiscretizedActionSets(args, objs):
 
     else:
 
-      raise NotImplementedError # TODO (cat): add support for categorical variables
+      # select N unique values from the range of fixed categories/ordinals
+      tmp = list(
+        np.unique(
+          np.round(
+            np.linspace(
+              attr_obj.lower_bound,
+              attr_obj.upper_bound,
+              args.grid_search_bins
+            )
+          )
+        )
+      )
+      tmp.append('n/a')
+      possible_actions_per_node.append(tmp)
 
   all_action_tuples = list(itertools.product(
     *possible_actions_per_node
@@ -1675,10 +1749,18 @@ def getNegativelyPredictedInstances(args, objs):
       XU_all = getOriginalDataFrame(objs, args.num_train_samples, with_meta = True, balanced = True)
 
     fair_nodes = getTrainableNodesForFairModel(args, objs)
-
     fair_data_frame = XU_all[fair_nodes]
-    tmp = 1 - objs.classifier_obj.predict(np.array(fair_data_frame))
-    tmp = tmp.astype('bool')
+
+    if args.dataset_class == 'adult':
+      fair_nodes = getTrainableNodesForFairModel(args, objs)
+      fair_data_frame = XU_all[fair_nodes]
+      tmp = objs.classifier_obj.predict_proba(np.array(fair_data_frame))[:,1]
+      tmp = tmp <= 0.5 - args.epsilon_boundary
+    else:
+      tmp = objs.classifier_obj.predict(np.array(fair_data_frame))
+      tmp = tmp == 1 # any prediction = 1 will be set to True, otherwise (0 or -1) will be set to False
+      tmp = tmp == False # flip True/False because we want the negatively predicted instances
+
     negatively_predicted_instances = fair_data_frame[tmp]
 
     # then, using the indicies found for negatively predicted samples above,
@@ -2004,7 +2086,7 @@ def runBoxPlotSanity(args, objs, experiment_folder_name, experimental_setups, fa
       scatterFit(args, objs, experiment_folder_name, experimental_setups, node, parents, total_df)
 
 
-def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types):
+def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types, file_suffix=''):
   ''' optimal action set: figure + table '''
 
   dir_path = f'{experiment_folder_name}/_optimization_curves'
@@ -2060,14 +2142,23 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
       # print(f'\t[INFO] Computing SCF validity and Interventional Confidence measures for optimal action `{str(tmp["optimal_action_set"])}`...')
 
       tmp['scf_validity']  = isPointConstraintSatisfied(args, objs, factual_instance_obj, tmp['optimal_action_set'], 'm0_true')
-      tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance_obj, tmp['optimal_action_set'], 'm2_true'), 3)
+      try:
+        # TODO (highpri): twins of adult may mess up: the twin has a pred of 0.45 (negative, but negative enough) etc.
+        tmp['ic_m2_true'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance_obj, tmp['optimal_action_set'], 'm2_true'), 3)
+      except:
+        tmp['ic_m2_true'] = np.NaN
 
-      if recourse_type in ACCEPTABLE_DISTR_RECOURSE and recourse_type != 'm2_true':
-        tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance_obj, tmp['optimal_action_set'], recourse_type), 3)
-      else:
+      try:
+        # TODO (highpri): twins of adult may mess up: the twin has a pred of 0.45 (negative, but negative enough) etc.
+        if recourse_type in ACCEPTABLE_DISTR_RECOURSE and recourse_type != 'm2_true':
+          tmp['ic_rec_type'] = np.around(computeLowerConfidenceBound(args, objs, factual_instance_obj, tmp['optimal_action_set'], recourse_type), 3)
+        else:
+          tmp['ic_rec_type'] = np.NaN
+      except:
         tmp['ic_rec_type'] = np.NaN
 
       if args.classifier_class in fairRecourse.FAIR_MODELS:
+        # to somewhat allow for comparison of cost_valid and dist_to_db in fair experiments, do not normalize the former
         tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance_obj, tmp['optimal_action_set'], range_normalized=False)
       else:
         tmp['cost_all'] = measureActionSetCost(args, objs, factual_instance_obj, tmp['optimal_action_set'])
@@ -2081,11 +2172,11 @@ def runRecourseExperiment(args, objs, experiment_folder_name, experimental_setup
       per_instance_results[factual_instance_obj.instance_idx][recourse_type] = tmp
 
     print(f'[INFO] Saving (overwriting) results...\t', end='')
-    pickle.dump(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results', 'wb'))
-    pprint(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results.txt', 'w'))
+    pickle.dump(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results{file_suffix}', 'wb'))
+    pprint(per_instance_results, open(f'{experiment_folder_name}/_per_instance_results{file_suffix}.txt', 'w'))
     print(f'done.')
 
-    createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_folder_name)
+    createAndSaveMetricsTable(per_instance_results, recourse_types, experiment_folder_name, file_suffix)
 
   return per_instance_results
 
@@ -2204,23 +2295,28 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
       factual_instances_list_per_sensitive_attribute_group[sensitive_attribute_group]
     )
 
+  metrics_summary = {}
+
   ##############################################################################
   ##                                                         Group-wise metrics
   ##############################################################################
   # evaluate AVERAGE performance (`dist_to_db/cost_valid`) per sensitive attribute group
   results = {}
-  for sensitive_attribute_group, factual_instances_list in factual_instances_list_per_sensitive_attribute_group.items():
+  for idx, (sensitive_attribute_group, factual_instances_list) in enumerate(factual_instances_list_per_sensitive_attribute_group.items()):
+    print('\n\n')
+    print(f'='*120)
+    print(f'[INFO] Evaluating group-wise fair recourse metrics on group {sensitive_attribute_group} (# {idx+1:03d}/{len(factual_instances_list_per_sensitive_attribute_group.keys()):03d})')
+    print(f'='*120)
     # get average `dist_to_db/cost_valid` for this group
     factual_instances_dict = {elem.instance_idx : elem.dict('endogenous_and_exogenous') for elem in factual_instances_list} # TODO: deprecate this and just pass factual_instances_list into runRecourseExperiment() here and elsewhere
-    results[sensitive_attribute_group] = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types)
-
+    results[sensitive_attribute_group] = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instances_dict, recourse_types, f'_{args.classifier_class}_{sensitive_attribute_group}')
 
   print(f'\n\nModel: `{args.classifier_class}`')
   for sensitive_attribute_group, factual_instances_list in factual_instances_list_per_sensitive_attribute_group.items():
     print(f'Group {sensitive_attribute_group}: \n')
     createAndSaveMetricsTable(results[sensitive_attribute_group], recourse_types, experiment_folder_name, f'_{args.classifier_class}_{sensitive_attribute_group}')
 
-  metrics_summary = {}
+
   metrics = ['dist_to_db', 'cost_valid']
   for metric in metrics:
     metrics_summary[f'max_group_delta_{metric}'] = []
@@ -2241,8 +2337,8 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
       # elements are scalers IS EQUAL TO computing max_elem - min_elem
       metrics_summary[f'max_group_delta_{metric}'].append(
         np.around(
-          max(metric_for_all_groups) -
-          min(metric_for_all_groups),
+          np.nanmax(metric_for_all_groups) -
+          np.nanmin(metric_for_all_groups),
           3,
         )
       )
@@ -2254,25 +2350,32 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
   for recourse_type in recourse_types:
     max_indiv_delta_cost_valids[recourse_type] = []
 
-  for factual_instance_obj in factual_instances_list_subsampled_negatively_predicted:
+  for idx, factual_instance_obj in enumerate(factual_instances_list_subsampled_negatively_predicted):
+    print(f'='*120)
+    print(f'[INFO] Evaluating individualized fair recourse metrics on individual {factual_instance_obj.instance_idx} (# {idx+1:03d}/{len(factual_instances_list_subsampled_negatively_predicted):03d})')
+    print(f'='*120)
     # compute max_delta_indiv_cost for this individual, when comparing the factual against its twins
 
     # first compute cost_valid_factual
     factual_instance_list = [factual_instance_obj]
     factual_instance_dict = {elem.instance_idx : elem.dict('endogenous_and_exogenous') for elem in factual_instance_list} # TODO: deprecate this and just pass factual_instances_list into runRecourseExperiment() here and elsewhere
-    result_factual = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instance_dict, recourse_types)
+    result_factual = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, factual_instance_dict, recourse_types, f'_instance_{factual_instance_obj.instance_idx}_factuals')
 
     # then compute cost_valid_twin for all twins
     twin_instances_dict = {}
     for twinning_action_set in getAllTwinningActionSets(args, objs, factual_instance_obj):
-      twin_instance_obj = computeCounterfactualInstance(args, objs, factual_instance_obj, twinning_action_set, 'm0_true')
+      if args.scm_class == 'adult':
+        # we do not have the true SCM for adult, so compute the twins using the `m1_cvae`
+        twin_instance_obj = computeCounterfactualInstance(args, objs, factual_instance_obj, twinning_action_set, 'm1_cvae')
+      else:
+        twin_instance_obj = computeCounterfactualInstance(args, objs, factual_instance_obj, twinning_action_set, 'm0_true')
       twin_instance_idx = \
         str(factual_instance_obj.instance_idx) + '_twin_' + \
          '_'.join([str(k) + ':' + \
           str(int(v)) for k,v in twinning_action_set.items()])
       # twin_instances_dict[twin_instance_idx] =  twin_instance_obj.dict()
       twin_instances_dict[twin_instance_idx] =  twin_instance_obj.dict('endogenous_and_exogenous')
-    result_twins = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, twin_instances_dict, recourse_types)
+    result_twins = runRecourseExperiment(args, objs, experiment_folder_name, experimental_setups, twin_instances_dict, recourse_types, f'_instance_{factual_instance_obj.instance_idx}_twins')
 
     # finally compute max difference from the factual instance to any other instance, for each recourse_type
     for recourse_type in recourse_types:
@@ -2288,10 +2391,24 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
         max_indiv_delta_cost_valids[recourse_type].append(-1) # if none of the twins have a valid cost
 
   metrics_summary['max_indiv_delta_cost_valid'] = []
+  metrics_summary['idx_max_indiv_delta_cost_valid'] = []
+  metrics_summary['avg_indiv_delta_cost_valid'] = []
 
   for recourse_type in recourse_types:
     metrics_summary['max_indiv_delta_cost_valid'].append(
-      max(
+      np.nanmax(
+        max_indiv_delta_cost_valids[recourse_type]
+      )
+    )
+    metrics_summary['idx_max_indiv_delta_cost_valid'].append(
+      factual_instances_list_subsampled_negatively_predicted[
+        np.nanargmax(
+          max_indiv_delta_cost_valids[recourse_type]
+        )
+      ].instance_idx
+    )
+    metrics_summary['avg_indiv_delta_cost_valid'].append(
+      np.nanmean(
         max_indiv_delta_cost_valids[recourse_type]
       )
     )
@@ -2304,6 +2421,7 @@ def runFairRecourseExperiment(args, objs, experiment_folder_name, experimental_s
   file_name_string = f'_comparison_{args.classifier_class}'
   tmp_df.to_csv(f'{experiment_folder_name}/{file_name_string}.txt', sep='\t')
   tmp_df.to_pickle(f'{experiment_folder_name}/{file_name_string}')
+
 
 if __name__ == "__main__":
 
@@ -2320,19 +2438,19 @@ if __name__ == "__main__":
   parser.add_argument('--num_train_samples', type=int, default=250)
   parser.add_argument('--num_validation_samples', type=int, default=250)
   parser.add_argument('--num_display_samples', type=int, default=25)
-  parser.add_argument('--num_fair_samples', type=int, default=10)
+  parser.add_argument('--num_fair_samples', type=int, default=10, help='number of negatively predicted samples selected from each of sensitive attribute groups (e.g., for `adult`: `num_train_samples` = 1500, `batch_number` = 0, `sample_count` = 1200, and `num_fair_samples` = 10).')
   parser.add_argument('--num_mc_samples', type=int, default=100)
   parser.add_argument('--debug_flag', type=bool, default=False)
   parser.add_argument('--non_intervenable_nodes', nargs = '+', type=str, default='')
   parser.add_argument('--sensitive_attribute_nodes', nargs = '+', type=str, default='')
   parser.add_argument('--fair_kernel_type', type=str, default='rbf')
   parser.add_argument('--max_intervention_cardinality', type=int, default=100)
-  parser.add_argument('-o', '--optimization_approach', type=str, default='brute_force')
+  parser.add_argument('--optimization_approach', type=str, default='brute_force')
   parser.add_argument('--grid_search_bins', type=int, default=10)
   parser.add_argument('--grad_descent_epochs', type=int, default=1000)
-  parser.add_argument('--epsilon_boundary', type=int, default=0.10, help='we only consider instances that are negatively predicted and at least epsilon_boundary prob away from decision boundary (too restrictive = smaller batch_number possible w/ fixed num_train_samples).')
+  parser.add_argument('--epsilon_boundary', type=int, default=0.10, help='we only consider instances that are negatively predicted and at least epsilon_boundary prob away from decision boundary (too restrictive = smaller `batch_number` possible w/ fixed `num_train_samples`).')
   parser.add_argument('--batch_number', type=int, default=0)
-  parser.add_argument('--sample_count', type=int, default=10)
+  parser.add_argument('--sample_count', type=int, default=10, help='number of negatively predicted samples chosen in this batch (must be less, and often ~50% of `num_train_samples`')
 
   args = parser.parse_args()
 
@@ -2398,15 +2516,59 @@ if __name__ == "__main__":
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
   experimental_setups = [
-    ('m0_true', '*'), \
-    ('m1_alin', 'v'), \
-    ('m1_akrr', '^'), \
+    # ('m0_true', '*'), \
+    # ('m1_alin', 'v'), \
+    # ('m1_akrr', '^'), \
     # ('m1_gaus', 'D'), \
-    # ('m1_cvae', 'x'), \
+    ('m1_cvae', 'x'), \
     # ('m2_true', 'o'), \
     # ('m2_gaus', 's'), \
     # ('m2_cvae', '+'), \
   ]
+
+  ##############################################################################
+  ##                              Perform some checks on the experimental setup
+  ##############################################################################
+  unique_labels_set = set(pd.unique(
+    objs.dataset_obj.data_frame_kurz[
+      objs.dataset_obj.getOutputAttributeNames()[0]
+    ]
+  ))
+  run_any_prob_recourse = any([x[0] in ACCEPTABLE_DISTR_RECOURSE for  x in experimental_setups])
+
+  if run_any_prob_recourse:
+
+    assert \
+      'svm' not in args.classifier_class, \
+      'SVM model cannot work with probabilistic recourse approach due to lack of predict_proba() method.'
+
+    assert \
+      unique_labels_set == {0,1}, \
+      'prob recourse only with 0,1 labels (0.5 boundary)' # TODO (lowpri): convert to 0.0 for -1/+1 labels(and test)
+
+  if args.classifier_class in fairRecourse.FAIR_MODELS and args.dataset_class != 'adult':
+    assert \
+      unique_labels_set == {-1,1}, \
+      'fair classifiers only works with {-1/+1} labels' # TODO (lowpri): ok for SVMs other then iw_fair_svm?
+      # TODO (lowpri): can we change this?? can sklearn svm and lr predict 0,1 instead of -1/+1??
+
+  if args.scm_class == 'adult':
+
+    assert \
+      args.classifier_class not in {'unaware_svm', 'cw_fair_svm'}, \
+      f'The `adult` dataset cannot work with `{args.classifier_class}` as it does not have intervenable nodes that are non-descendants of sensitive attributes.'
+
+    if args.classifier_class in fairRecourse.FAIR_MODELS:
+      for setup in experimental_setups:
+        assert \
+          setup[0] == 'm1_cvae', \
+          'Only run the adult fair dataset using `m1_cvae` for categorical support'
+
+  if args.classifier_class == 'iw_fair_svm':
+
+    assert \
+      len(args.sensitive_attribute_nodes) <= 1, \
+      'iw_fair_svm only accepts 1 sensitive attribute' # TODO (lowpri): confirm
 
   if args.experiment == 5:
 
