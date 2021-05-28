@@ -6,17 +6,5 @@ request_memory = 65536
 request_cpus = 4
 
 
-arguments = main.py --scm_class fair-IMF-LIN --classifier_class cw_fair_svm --lambda_lcb 1 --optimization_approach brute_force --grid_search_bins 15 -e 9 --sensitive_attribute_nodes x1 --num_train_samples 1000 --num_fair_samples 50 --fair_kernel_type all --batch_number 0 --sample_count 200 -p $(Process)
+arguments = main.py --scm_class adult --dataset_class adult --classifier_class nonsens_mlp --lambda_lcb 1 --optimization_approach brute_force --grid_search_bins 4 -e 9 --sensitive_attribute_nodes x1 x2 x3 --non_intervenable_nodes x4 --num_train_samples 1500 --num_fair_samples 10 --batch_number 0 --sample_count 1000 -p $(Process)
 queue
-
-
-arguments = main.py --scm_class fair-IMF-LIN --classifier_class vanilla_lr --lambda_lcb 1 --optimization_approach brute_force --grid_search_bins 15 -e 9 --sensitive_attribute_nodes x1 --num_train_samples 1000 --num_fair_samples 50 --batch_number 0 --sample_count 200 -p $(Process)
-queue
-
-
-arguments = main.py --scm_class fair-CAU-LIN-radial --classifier_class unaware_mlp --lambda_lcb 1 --optimization_approach brute_force --grid_search_bins 15 -e 9 --sensitive_attribute_nodes x1 --num_train_samples 1000 --num_fair_samples 50 --batch_number 0 --sample_count 200 -p $(Process)
-queue
-
-
-
-
