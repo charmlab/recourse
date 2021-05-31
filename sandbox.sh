@@ -14,10 +14,15 @@
 [x] why some groups/indivs fail?? resolved --> predict() vs predict_proba() ... those instances were not neatively predicted
 [?] why does adult run on m* and m1_alin/akrr?? --> ignore for now
 [?] why does cvae training fail? --> ignore for now
-[ ] baby sit the cvae fit for x7 x8 (hopefully this results in more diverse action sets, and different values of x7/8 for twins)
+[x] baby sit the cvae fit for x7 x8 (hopefully this results in more diverse action sets, and different values of x7/8 for twins)
 [x] not only compute the max indiv cost, but also save the factual_idx so to report in the table.
-[ ] let run overnight using script below.
-[ ] describe in paper
+[x] let run overnight using script below.
+[x] describe in paper
+
+[ ] why recourse action suggesting fixing a factual value (w/o changing parents)
+[?] why local/cluster results different? --> diff training seed in torch?
+
+
 
 
 [x] try increased grid search
@@ -27,7 +32,7 @@
 
 LOW PRI:
 [ ] change nonsese ==> unaware
-[ ] add args to select approx SCM
+[x] add args to select approx SCM
 
 [x] set marital status as non-intervnable (not sensitive) attribute
 [x] does prior from loadSCM affect the CVAE training? NO
@@ -216,12 +221,11 @@ python main.py \
 	--optimization_approach brute_force \
 	--grid_search_bins 3 -e 9 \
 	--sensitive_attribute_nodes x1 x2 x3 \
-	--non_intervenable_nodes x4 x6 x7 \
+	--non_intervenable_nodes x4 \
 	--num_train_samples 1500 \
-	--num_fair_samples 1 \
+	--num_fair_samples 2 \
 	--batch_number 0 \
 	--sample_count 1000
-
 
 
 

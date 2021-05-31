@@ -74,8 +74,10 @@ for scm_class in SCM_CLASS_VALUES:
             f'arguments = main.py' \
             f' --scm_class {scm_class}' \
             f' --classifier_class {classifier_class}' \
+            f' --experimental_setups m0_true m1_alin m1_akrr' \
             f' --lambda_lcb {lambda_lcb}' \
             f' --optimization_approach {optimization_approach}'
+
 
           # run-specific options
           if optimization_approach == 'grad_descent':

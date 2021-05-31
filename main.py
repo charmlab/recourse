@@ -52,6 +52,17 @@ np.random.seed(RANDOM_SEED)
 ACCEPTABLE_POINT_RECOURSE = {'m0_true', 'm1_alin', 'm1_akrr'}
 ACCEPTABLE_DISTR_RECOURSE = {'m1_gaus', 'm1_cvae', 'm2_true', 'm2_gaus', 'm2_cvae', 'm2_cvae_ps'}
 
+EXPERIMENTAL_SETUPS = [
+    ('m0_true', '*'), \
+    ('m1_alin', 'v'), \
+    ('m1_akrr', '^'), \
+    ('m1_gaus', 'D'), \
+    ('m1_cvae', 'x'), \
+    ('m2_true', 'o'), \
+    ('m2_gaus', 's'), \
+    ('m2_cvae', '+'), \
+  ]
+
 PROCESSING_SKLEARN = 'raw'
 PROCESSING_GAUS = 'raw'
 PROCESSING_CVAE = 'raw'
@@ -2433,6 +2444,7 @@ if __name__ == "__main__":
   parser.add_argument('-e', '--experiment', type=int, default=6, help='Which experiment to run (5,8=sanity; 6=table)')
   parser.add_argument('-p', '--process_id', type=str, default='0', help='When running parallel tests on the cluster, process_id guarantees (in addition to time stamped experiment folder) that experiments do not conflict.')
 
+  parser.add_argument('--experimental_setups', nargs = '+', type=str, default=['m0_true'])
   parser.add_argument('--norm_type', type=int, default=2)
   parser.add_argument('--lambda_lcb', type=float, default=1)
   parser.add_argument('--num_train_samples', type=int, default=250)
@@ -2515,16 +2527,16 @@ if __name__ == "__main__":
 
   # setup
   factual_instances_dict = getNegativelyPredictedInstances(args, objs)
-  experimental_setups = [
-    # ('m0_true', '*'), \
-    # ('m1_alin', 'v'), \
-    # ('m1_akrr', '^'), \
-    # ('m1_gaus', 'D'), \
-    ('m1_cvae', 'x'), \
-    # ('m2_true', 'o'), \
-    # ('m2_gaus', 's'), \
-    # ('m2_cvae', '+'), \
-  ]
+  experimental_setups = []
+  for experimental_setup in args.experimental_setups:
+    assert \
+      experimental_setup in ACCEPTABLE_POINT_RECOURSE or \
+      experimental_setup in ACCEPTABLE_DISTR_RECOURSE, \
+      f'Experimental setup `{experimental_setup}` not recognized.'
+    experimental_setups.append(
+      [setup for setup in EXPERIMENTAL_SETUPS if setup[0] == experimental_setup][0]
+    )
+  assert len(experimental_setups) > 0, 'Need at least 1 experimental setup.'
 
   ##############################################################################
   ##                              Perform some checks on the experimental setup

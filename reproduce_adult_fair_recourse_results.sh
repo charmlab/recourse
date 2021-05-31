@@ -2,6 +2,7 @@ python main.py \
 	--scm_class adult \
 	--dataset_class adult \
 	--classifier_class nonsens_mlp \
+	--experimental_setups m0_true m1_alin m1_akrr \
 	--lambda_lcb 1 \
 	--optimization_approach brute_force \
 	--grid_search_bins 4 -e 9 \
